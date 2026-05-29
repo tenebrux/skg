@@ -1,3 +1,6 @@
+[settings]
+experimental = true
+
 [tools]
 zig = "latest"
 go = "latest"
@@ -11,12 +14,16 @@ HK_MISE = "1"
 
 [hooks]
 postinstall = """
-  hk install --mise
+  hk install --mise || true
   if [ ! -d openspec ]; then
     openspec init --tools claude
   else
     openspec update
   fi
+  # Pre-stage so `mise install` leaves a build-ready tree.
+  zig build --fetch >/dev/null 2>&1 || true
+  (cd go && go mod download) || true
+  command -v govulncheck >/dev/null 2>&1 || go install golang.org/x/vuln/cmd/govulncheck@latest || true
 """
 
 [tasks.test]
@@ -73,3 +80,40 @@ description = "Build and install the VS Code extension into the local VS Code"
 [tasks."plugins:build"]
 depends = ["plugins:tree-sitter:build", "plugins:vscode:package"]
 description = "Build all editor plugins (tree-sitter native + vscode vsix)"
+
+[tasks.build]
+description = "Build both parser implementations (Zig + Go)"
+run = """
+zig build
+cd go && go build ./...
+"""
+
+[tasks.format]
+depends = ["fmt"]
+description = "Format all source (alias for `fmt`)"
+
+[tasks.update]
+description = "Update Zig + Go dependencies"
+run = """
+zig build --fetch
+cd go && go get -u ./... && go mod tidy
+"""
+
+[tasks.install]
+description = "Not applicable — skg is a parser library; consume from build.zig.zon or go.mod"
+run = """
+echo "skg: 'install' is not applicable — this is a parser library set."
+echo "Depend on the Zig parser via build.zig.zon, or the Go parser via go.mod."
+"""
+
+[tasks.start]
+description = "No daemon to start; runs the full test suite instead"
+depends = ["test"]
+
+[tasks.security]
+description = "Scan the Go parser for known vulnerabilities (govulncheck)"
+run = "cd go && govulncheck ./..."
+
+[tasks.ci]
+description = "Run the full CI check locally (lint + test + security)"
+depends = ["lint", "test", "security"]
