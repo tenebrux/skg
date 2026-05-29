@@ -2,7 +2,7 @@
 experimental = true
 
 [tools]
-zig = "latest"
+zig = "0.15"
 go = "latest"
 node = "lts"
 pkl = "latest"
