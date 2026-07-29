@@ -43,11 +43,11 @@ checksum:
 nfpms:
   - id: packages
     file_name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    homepage: https://github.com/fynxlabs/skg
+    homepage: https://github.com/tenebrux/skg
     description: "SKG - Static Key Group config language tools"
-    maintainer: "Levi Smith <levi@fynxlabs.io>"
+    maintainer: "Levi Smith <levi@tenebrux.com>"
     license: MIT
-    vendor: FynxLabs
+    vendor: tenebrux
     bindir: /usr/bin
     section: utils
     formats:

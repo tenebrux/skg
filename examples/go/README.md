@@ -75,10 +75,10 @@ out, err := skg.Marshal(cfg)
 ## Importing
 
 ```go
-import skg "github.com/fynxlabs/skg/go"
+import skg "github.com/tenebrux/skg/go"
 ```
 
-Module path is `github.com/fynxlabs/skg/go` (not the repo root). The
+Module path is `github.com/tenebrux/skg/go` (not the repo root). The
 `go/` subdirectory is a self-contained Go module so you can depend on
 it without pulling in the Zig sources or test fixtures.
 

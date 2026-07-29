@@ -49,7 +49,7 @@ cache_ttl: null    # explicitly unset an inherited value
   in [testdata/](testdata/) are the contract between the Zig and Go
   implementations.
 
-Created for [dusk](https://github.com/fynxlabs/dusk) but standalone -
+Created for [dusk](https://github.com/tenebrux/dusk) but standalone -
 nothing in the parser depends on dusk.
 
 ## Quick start
@@ -57,7 +57,7 @@ nothing in the parser depends on dusk.
 ### Go
 
 ```go
-import skg "github.com/fynxlabs/skg/go"
+import skg "github.com/tenebrux/skg/go"
 
 type Config struct {
     Name  string   `skg:"name"`

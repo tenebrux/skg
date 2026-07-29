@@ -8,6 +8,6 @@ on:
 
 jobs:
   build-test:
-    uses: fynxlabs/github-workflows/.github/workflows/zig-ci.yml@master
+    uses: tenebrux/github-workflows/.github/workflows/zig-ci.yml@master
     with:
       zig-fmt-paths: "zig/"
