@@ -8,33 +8,40 @@ const testing = std.testing;
 const skg_root = @import("root.zig");
 const ast = @import("ast.zig");
 
-// ─── Valid fixtures ─────────────────────────────────────────────────────────
+// ─── Fixture discovery ──────────────────────────────────────────────────────
 
-const valid_fixtures = [_][]const u8{
-    "all-types",
-    "arrays",
-    "block",
-    "comments",
-    "duplicate-lastwins",
-    "empty",
-    "escaped-string",
-    "imports",
-    "multiline-string",
-    "nested-array",
-    "nested-block",
-    "simple-string",
-    "versions",
-};
+/// Run `runFixture` for every `.skg` file in `testdata/<subdir>`.
+///
+/// The fixture set is enumerated from disk rather than hardcoded so that a new
+/// fixture automatically runs here. go/conformance_test.go does the same with
+/// os.ReadDir - hardcoding names on one side only lets the two parsers drift.
+fn runFixtureDir(comptime subdir: []const u8, comptime runFixture: anytype) !void {
+    var dir = std.fs.cwd().openDir("testdata/" ++ subdir, .{ .iterate = true }) catch |err| {
+        std.debug.print("cannot open testdata/{s}: {}\n", .{ subdir, err });
+        return err;
+    };
+    defer dir.close();
 
-const invalid_fixtures = [_][]const u8{
-    "bad-escape",
-    "duplicate-skg-version",
-    "missing-colon",
-    "mixed-array",
-    "unclosed-block",
-    "unterminated-array",
-    "unterminated-string",
-};
+    var found: usize = 0;
+    var it = dir.iterate();
+    while (try it.next()) |entry| {
+        if (entry.kind == .directory) continue;
+        if (!std.mem.endsWith(u8, entry.name, ".skg")) continue;
+
+        // `entry.name` is only valid until the next iteration step.
+        const name = entry.name[0 .. entry.name.len - ".skg".len];
+        found += 1;
+        runFixture(name) catch |err| {
+            std.debug.print("FAIL {s}/{s}: {}\n", .{ subdir, name, err });
+            return err;
+        };
+    }
+
+    if (found == 0) {
+        std.debug.print("no .skg fixtures found in testdata/{s}\n", .{subdir});
+        return error.NoFixturesFound;
+    }
+}
 
 fn readFixture(alloc: std.mem.Allocator, comptime subdir: []const u8, name: []const u8, comptime ext: []const u8) ![]u8 {
     var path_buf: [512]u8 = undefined;
@@ -249,12 +256,7 @@ fn runValidFixture(name: []const u8) !void {
 }
 
 test "conformance: valid fixtures" {
-    for (valid_fixtures) |name| {
-        runValidFixture(name) catch |err| {
-            std.debug.print("FAIL valid/{s}: {}\n", .{ name, err });
-            return err;
-        };
-    }
+    try runFixtureDir("valid", runValidFixture);
 }
 
 fn runInvalidFixture(name: []const u8) !void {
@@ -296,10 +298,5 @@ fn runInvalidFixture(name: []const u8) !void {
 }
 
 test "conformance: invalid fixtures" {
-    for (invalid_fixtures) |name| {
-        runInvalidFixture(name) catch |err| {
-            std.debug.print("FAIL invalid/{s}: {}\n", .{ name, err });
-            return err;
-        };
-    }
+    try runFixtureDir("invalid", runInvalidFixture);
 }
