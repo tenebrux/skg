@@ -153,9 +153,9 @@ fn loadErrorCodes(alloc: std.mem.Allocator) !std.StringHashMap(void) {
     return set;
 }
 
-/// Fails if this parser can emit a code the shared registry does not list.
-/// Without it, a new diagnostic could be added in Zig and asserted in a
-/// Zig-only fixture that no other implementation can satisfy.
+// Fails if this parser can emit a code the shared registry does not list.
+// Without it, a new diagnostic could be added in Zig and asserted in a
+// Zig-only fixture that no other implementation can satisfy.
 test "conformance: every parser error code is in the shared registry" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -979,8 +979,8 @@ test "conformance: invalid fixtures" {
     }
 }
 
-/// Declared last so it runs after both suites: Zig executes tests in
-/// declaration order.
+// Declared last so it runs after both suites: Zig executes tests in
+// declaration order.
 test "conformance: capability report" {
     var any_skipped = false;
     if (skipped_imports > 0) {
