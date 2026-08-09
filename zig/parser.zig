@@ -22,6 +22,8 @@ pub const ParseError = LexError || error{
     DuplicateSKGVersion,
     DuplicateSchemaVersion,
     UnsupportedSKGVersion,
+    MalformedSKGVersion,
+    NestingTooDeep,
     InvalidInt,
     InvalidFloat,
     OutOfMemory,
@@ -30,6 +32,19 @@ pub const ParseError = LexError || error{
 /// The highest skg_version this parser supports.
 pub const supported_major: u8 = 1;
 pub const supported_minor: u8 = 0;
+
+/// Maximum number of nested blocks, block arrays and arrays.
+///
+/// The parser descends one native stack frame per nesting level, so without a
+/// bound a deeply nested file would overflow the thread stack and crash the
+/// process. The Go sibling parser (go/parser.go) uses the same constant, so both
+/// implementations accept and reject exactly the same inputs.
+pub const max_nesting_depth: u32 = 128;
+
+const nesting_too_deep_message = std.fmt.comptimePrint(
+    "nesting too deep (max {d})",
+    .{max_nesting_depth},
+);
 
 const ast_mod = @import("ast.zig");
 
@@ -40,6 +55,8 @@ const Parser = struct {
     path: []const u8,
     last_diagnostic: ?ast_mod.Diagnostic = null,
     comment_buf: std.ArrayListUnmanaged([]const u8) = .empty,
+    /// Current nesting level - one per open '{' or '[' being parsed.
+    depth: u32 = 0,
 
     fn init(allocator: Allocator, src: []const u8, path: []const u8) Parser {
         return .{
@@ -49,7 +66,23 @@ const Parser = struct {
             .path = path,
             .last_diagnostic = null,
             .comment_buf = .empty,
+            .depth = 0,
         };
+    }
+
+    /// Record entry into a nested construct. Returns a parse error (never
+    /// crashes) once the input nests deeper than `max_nesting_depth`.
+    /// Every successful call must be paired with `exitNesting`.
+    fn enterNesting(self: *Parser, line: u32, col: u32) ParseError!void {
+        if (self.depth >= max_nesting_depth) {
+            self.setDiagnostic(line, col, nesting_too_deep_message);
+            return error.NestingTooDeep;
+        }
+        self.depth += 1;
+    }
+
+    fn exitNesting(self: *Parser) void {
+        self.depth -= 1;
     }
 
     fn setDiagnostic(self: *Parser, line: u32, col: u32, message: []const u8) void {
@@ -168,9 +201,16 @@ const Parser = struct {
                         return error.DuplicateSKGVersion;
                     }
                     skg_version = try self.unescapeString(val_tok.text);
-                    if (!checkVersion(skg_version.?)) {
-                        self.setDiagnostic(val_tok.line, val_tok.col, "skg_version is newer than this parser supports");
-                        return error.UnsupportedSKGVersion;
+                    switch (checkVersion(skg_version.?)) {
+                        .ok => {},
+                        .malformed => {
+                            self.setDiagnostic(val_tok.line, val_tok.col, "skg_version is malformed, expected \"MAJOR.MINOR\"");
+                            return error.MalformedSKGVersion;
+                        },
+                        .too_new => {
+                            self.setDiagnostic(val_tok.line, val_tok.col, "skg_version is newer than this parser supports");
+                            return error.UnsupportedSKGVersion;
+                        },
                     }
                     continue;
                 }
@@ -286,6 +326,8 @@ const Parser = struct {
             } };
         } else if (nt.tag == .lbrace) {
             _ = try self.consume();
+            try self.enterNesting(nt.line, nt.col);
+            defer self.exitNesting();
             var children: std.ArrayListUnmanaged(ast.Node) = .empty;
             while (true) {
                 const ct = try self.peek();
@@ -312,6 +354,8 @@ const Parser = struct {
             } };
         } else if (nt.tag == .lbracket) {
             _ = try self.consume();
+            try self.enterNesting(nt.line, nt.col);
+            defer self.exitNesting();
             return try self.parseBlockArray(name_tok, leading);
         } else {
             self.setDiagnostic(nt.line, nt.col, "expected ':', '{', or '[' after identifier");
@@ -319,7 +363,8 @@ const Parser = struct {
         }
     }
 
-    /// Parse block array entries. '[' already consumed.
+    /// Parse block array entries. '[' already consumed, and the caller has
+    /// already accounted for that bracket's nesting level.
     /// Expects `{ children }` blocks until `]`. If the first token after `[`
     /// is not `{`, falls back to parsing as a scalar array field (colonless shorthand).
     fn parseBlockArray(self: *Parser, name_tok: Token, leading: []const []const u8) ParseError!ast.Node {
@@ -344,6 +389,8 @@ const Parser = struct {
                 return self.reParseAsFieldArray(name_tok, leading);
             }
             _ = try self.consume(); // consume '{'
+            try self.enterNesting(t.line, t.col);
+            defer self.exitNesting();
             var children: std.ArrayListUnmanaged(ast.Node) = .empty;
             while (true) {
                 const ct = try self.peek();
@@ -434,7 +481,7 @@ const Parser = struct {
             .bool_false => ast.Value{ .bool = false },
             .null_lit => ast.Value{ .null = {} },
             .string => ast.Value{ .string = try self.unescapeString(t.text) },
-            .lbracket => try self.parseArray(),
+            .lbracket => try self.parseArray(t),
             else => {
                 self.setDiagnostic(t.line, t.col, "expected a value (string, number, bool, or array)");
                 return error.ExpectedValue;
@@ -442,8 +489,11 @@ const Parser = struct {
         };
     }
 
-    /// Parse array elements. `[` already consumed.
-    fn parseArray(self: *Parser) ParseError!ast.Value {
+    /// Parse array elements. `open_tok` is the already-consumed `[`.
+    fn parseArray(self: *Parser, open_tok: Token) ParseError!ast.Value {
+        try self.enterNesting(open_tok.line, open_tok.col);
+        defer self.exitNesting();
+
         var items: std.ArrayListUnmanaged(ast.Value) = .empty;
         var element_type: ?ast.ValueType = null;
 
@@ -525,14 +575,25 @@ fn dedup(allocator: Allocator, nodes: []const ast.Node) ![]ast.Node {
     return merge.mergeNodes(allocator, &.{}, nodes);
 }
 
-/// Return true if the declared version is supported (major.minor <= supported).
-fn checkVersion(version: []const u8) bool {
-    const dot = std.mem.indexOfScalar(u8, version, '.') orelse return false;
-    const major = std.fmt.parseUnsigned(u8, version[0..dot], 10) catch return false;
-    const minor = std.fmt.parseUnsigned(u8, version[dot + 1 ..], 10) catch return false;
-    if (major > supported_major) return false;
-    if (major == supported_major and minor > supported_minor) return false;
-    return true;
+/// Outcome of validating a declared skg_version.
+pub const VersionCheck = enum {
+    /// Well-formed and supported.
+    ok,
+    /// Not a "MAJOR.MINOR" pair of decimal numbers.
+    malformed,
+    /// Well-formed, but newer than this parser supports.
+    too_new,
+};
+
+/// Classify a declared skg_version: malformed values are reported separately
+/// from values that are merely newer than `supported_major.supported_minor`.
+fn checkVersion(version: []const u8) VersionCheck {
+    const dot = std.mem.indexOfScalar(u8, version, '.') orelse return .malformed;
+    const major = std.fmt.parseUnsigned(u8, version[0..dot], 10) catch return .malformed;
+    const minor = std.fmt.parseUnsigned(u8, version[dot + 1 ..], 10) catch return .malformed;
+    if (major > supported_major) return .too_new;
+    if (major == supported_major and minor > supported_minor) return .too_new;
+    return .ok;
 }
 
 /// Parse an SKG source string into an ast.File.
