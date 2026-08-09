@@ -1,5 +1,19 @@
 name: Release
 
+# Fires on vX.Y.Z and vX.Y.Z-rc.N tags. Two equally supported paths:
+#   1. The Cut Release workflow (computes the version, stamps the tree,
+#      pushes vX.Y.Z + go/vX.Y.Z).
+#   2. Direct tagging: `git tag -a vX.Y.Z && git push origin vX.Y.Z`.
+#      The publish job creates the go/vX.Y.Z companion tag automatically
+#      if it's missing, so Go module resolution works either way. A tag
+#      that doesn't match build.zig.zon's version gets a warning, not a
+#      failure.
+#
+# The go/vX.Y.Z companion tags do not match "v*" (glob * does not cross /),
+# so they never re-trigger this workflow.
+#
+# RC tags publish as prereleases and never move the "latest" pointer.
+
 on:
   push:
     tags:
@@ -9,6 +23,105 @@ permissions:
   contents: write
 
 jobs:
+  test:
+    name: Gate (full suite)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: jdx/mise-action@v4
+        with:
+          version: "2026.4.10"
+      - name: Zig suite
+        run: |
+          zig build test
+          zig fmt --check zig/
+      - name: Go suite
+        run: |
+          cd go && go vet ./... && go test -race -v ./...
+      - name: Tag matches build.zig.zon
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          grep -qF "\"$version\"" build.zig.zon || \
+            echo "::warning::tag $GITHUB_REF_NAME does not match the version in build.zig.zon (fine for a direct tag; the Cut Release workflow keeps them in sync)"
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - x86_64-linux-musl
+          - aarch64-linux-musl
+          - x86_64-macos
+          - aarch64-macos
+          - x86_64-windows
+    steps:
+      - uses: actions/checkout@v5
+      - uses: jdx/mise-action@v4
+        with:
+          version: "2026.4.10"
+      - name: Build
+        run: zig build -Doptimize=ReleaseSafe -Dtarget=${{ matrix.target }}
+      - name: Package
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          name="skg-${version}-${{ matrix.target }}"
+          mkdir -p "dist/$name"
+          case "${{ matrix.target }}" in
+            *windows*) cp zig-out/bin/skg.exe "dist/$name/" ;;
+            *)         cp zig-out/bin/skg "dist/$name/" ;;
+          esac
+          cp LICENSE README.md "dist/$name/"
+          cd dist
+          case "${{ matrix.target }}" in
+            *windows*) zip -qr "$name.zip" "$name"; sha256sum "$name.zip" > "$name.zip.sha256" ;;
+            *)         tar czf "$name.tar.gz" "$name"; sha256sum "$name.tar.gz" > "$name.tar.gz.sha256" ;;
+          esac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+
   release:
-    uses: tenebrux/github-workflows/.github/workflows/zig-release.yml@master
-    secrets: inherit
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # Direct tagging support: Go can only fetch the go/ subdirectory
+      # module at a version tagged go/vX.Y.Z. Cut Release pushes that tag
+      # itself; for a hand-pushed vX.Y.Z, create it here.
+      - name: Ensure go/ companion tag
+        run: |
+          companion="go/${GITHUB_REF_NAME}"
+          if git ls-remote --exit-code --tags origin "refs/tags/$companion" >/dev/null; then
+            echo "$companion already exists"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag -a "$companion" -m "skg Go parser ${GITHUB_REF_NAME}" "$GITHUB_SHA"
+            git push origin "$companion"
+          fi
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-rc.') }}
+          make_latest: ${{ !contains(github.ref_name, '-rc.') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Trigger naur repo update
+        if: success()
+        run: gh api /repos/FynxLabs/naur/dispatches -f event_type=release
+        env:
+          GH_TOKEN: ${{ secrets.NAUR_DISPATCH_TOKEN }}
