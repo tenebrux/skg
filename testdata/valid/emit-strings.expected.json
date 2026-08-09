@@ -1,0 +1,71 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [],
+  "children": [
+    {
+      "type": "field",
+      "key": "plain",
+      "value": {
+        "type": "string",
+        "data": "hello"
+      }
+    },
+    {
+      "type": "field",
+      "key": "embedded_quote",
+      "value": {
+        "type": "string",
+        "data": "she said \"hi\""
+      }
+    },
+    {
+      "type": "field",
+      "key": "backslash",
+      "value": {
+        "type": "string",
+        "data": "a\\b"
+      }
+    },
+    {
+      "type": "field",
+      "key": "tab",
+      "value": {
+        "type": "string",
+        "data": "a\tb"
+      }
+    },
+    {
+      "type": "field",
+      "key": "newline",
+      "value": {
+        "type": "string",
+        "data": "line one\nline two"
+      }
+    },
+    {
+      "type": "field",
+      "key": "unicode",
+      "value": {
+        "type": "string",
+        "data": "héllo — 日本語 🎉"
+      }
+    },
+    {
+      "type": "field",
+      "key": "empty",
+      "value": {
+        "type": "string",
+        "data": ""
+      }
+    },
+    {
+      "type": "field",
+      "key": "hash_is_not_a_comment",
+      "value": {
+        "type": "string",
+        "data": "value # still a string"
+      }
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+ints: [1, 2, 3]
+floats: [8.0, 12.5]
+strings: ["a", "b"]
+bools: [true, false]
+nested: [[1, 2], [3]]
+empty_array: []
+
+defaults {
+}
+
+panels [
+]
+
+users [
+  {
+    name: "admin"
+    tags: ["wheel"]
+  }
+  {
+    name: "guest"
+    tags: []
+  }
+]

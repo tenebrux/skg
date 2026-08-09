@@ -1,0 +1,23 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [],
+  "children": [
+    {
+      "type": "field",
+      "key": "doc",
+      "value": {
+        "type": "string",
+        "data": "first line\nsecond line\n  indented line"
+      }
+    },
+    {
+      "type": "field",
+      "key": "ends_with_quote",
+      "value": {
+        "type": "string",
+        "data": "trailing quote\""
+      }
+    }
+  ]
+}

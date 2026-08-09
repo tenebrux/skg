@@ -1,0 +1,23 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [],
+  "children": [
+    {
+      "type": "field",
+      "key": "has_triple",
+      "value": {
+        "type": "string",
+        "data": "before \"\"\" after\nnext line"
+      }
+    },
+    {
+      "type": "field",
+      "key": "newline_then_quote",
+      "value": {
+        "type": "string",
+        "data": "first line\nends with a quote\""
+      }
+    }
+  ]
+}

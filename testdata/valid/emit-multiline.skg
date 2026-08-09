@@ -1,0 +1,4 @@
+doc: """first line
+second line
+  indented line"""
+ends_with_quote: "trailing quote\""

@@ -1,0 +1,39 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [
+    "base.skg"
+  ],
+  "children": [
+    {
+      "type": "block",
+      "name": "theme",
+      "children": [
+        {
+          "type": "field",
+          "key": "accent",
+          "value": {
+            "type": "string",
+            "data": "purple"
+          }
+        },
+        {
+          "type": "field",
+          "key": "radius",
+          "value": {
+            "type": "int",
+            "data": 4
+          }
+        }
+      ]
+    },
+    {
+      "type": "field",
+      "key": "shared",
+      "value": {
+        "type": "string",
+        "data": "from-main"
+      }
+    }
+  ]
+}

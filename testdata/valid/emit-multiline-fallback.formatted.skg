@@ -1,0 +1,2 @@
+has_triple: "before \"\"\" after\nnext line"
+newline_then_quote: "first line\nends with a quote\""

@@ -1,0 +1,13 @@
+{
+  "implementation": "zig",
+  "capabilities": {
+    "parse": true,
+    "emit": true,
+    "imports": true,
+    "comments": true
+  },
+  "notes": {
+    "imports": "zig/root.zig parse() resolves imports relative to the importing file's directory, merges them in declaration order and detects cycles.",
+    "comments": "zig/lexer.zig emits comment tokens and zig/parser.zig attaches them to nodes as leading/trailing trivia."
+  }
+}

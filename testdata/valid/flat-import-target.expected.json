@@ -1,0 +1,15 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [],
+  "children": [
+    {
+      "type": "field",
+      "key": "must_not_be_merged",
+      "value": {
+        "type": "string",
+        "data": "loaded from disk"
+      }
+    }
+  ]
+}
