@@ -292,11 +292,10 @@ Each implementation declares what it supports in a manifest beside its source:
   "capabilities": {
     "parse": true,
     "emit": true,
-    "imports": false,
+    "imports": true,
     "comments": false
   },
   "notes": {
-    "imports": "go/parser.go records import paths but never resolves them.",
     "comments": "go/lexer.go discards '#' comments, so no trivia reaches the AST."
   }
 }

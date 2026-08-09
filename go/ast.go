@@ -215,11 +215,19 @@ type Diagnostic struct {
 // and contains structured diagnostic information.
 type ParseError struct {
 	Diag Diagnostic
+
+	// Err is the underlying cause, when the failure originated outside the
+	// parser (a filesystem error while loading an import, say). It carries
+	// the diagnostic's error code while keeping errors.Is/As working against
+	// the original, so callers can still test for fs.ErrNotExist.
+	Err error
 }
 
 func (e *ParseError) Error() string {
 	return e.Diag.Path + ":" + itoa(e.Diag.Line) + ":" + itoa(e.Diag.Col) + ": " + e.Diag.Message
 }
+
+func (e *ParseError) Unwrap() error { return e.Err }
 
 func itoa(n int) string {
 	if n == 0 {

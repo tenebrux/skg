@@ -63,7 +63,14 @@ func (r *importResolver) load(path string, root bool) (*File, error) {
 		if root {
 			return nil, err
 		}
-		return nil, fmt.Errorf("skg: cannot read imported file: %w (import chain: %s)", err, r.chainString())
+		// Wrap in a ParseError so the failure carries IMPORT_NOT_FOUND like
+		// every other diagnostic, while %w keeps errors.Is(err, fs.ErrNotExist)
+		// working for callers that check for a missing file.
+		return nil, &ParseError{Diag: Diagnostic{
+			Path:    path,
+			Code:    CodeImportNotFound,
+			Message: fmt.Sprintf("cannot read imported file: %v (import chain: %s)", err, r.chainString()),
+		}, Err: err}
 	}
 
 	file, err := ParseSource(src, path)
@@ -101,12 +108,14 @@ func (r *importResolver) enter(path string) error {
 	if r.visited[key] {
 		return &ParseError{Diag: Diagnostic{
 			Path:    path,
+			Code:    CodeCircularImport,
 			Message: "circular import: " + r.chainStringWith(path),
 		}}
 	}
 	if len(r.chain) > MaxImportDepth {
 		return &ParseError{Diag: Diagnostic{
 			Path:    path,
+			Code:    CodeImportChainTooDeep,
 			Message: "import chain too deep (max " + itoa(MaxImportDepth) + "): " + r.chainStringWith(path),
 		}}
 	}
