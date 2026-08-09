@@ -1,0 +1,120 @@
+name: Cut Release
+
+# The release button. Pick a level, and this workflow computes the next
+# version from existing tags, gates on the full test suite, stamps the
+# version into the tree, and pushes the tags — which triggers release.yml.
+#
+#   major / minor / patch      straight stable release
+#   rc-major / rc-minor / rc-patch
+#                              open an RC series for the next X / X.Y / X.Y.Z
+#   rc-next                    cut the next rc.N in the open series
+#   rc-promote                 ship the version the RC series was testing
+#
+# Two tags are pushed per release: vX.Y.Z for the repo (release.yml,
+# Zig consumers) and go/vX.Y.Z so the Go module in go/ is fetchable at
+# that version (Go requires subdirectory modules to be tagged with the
+# directory prefix).
+
+on:
+  workflow_dispatch:
+    inputs:
+      level:
+        description: "Release level"
+        required: true
+        type: choice
+        options:
+          - rc-major
+          - rc-minor
+          - rc-patch
+          - rc-next
+          - rc-promote
+          - major
+          - minor
+          - patch
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cut-release
+  cancel-in-progress: false
+
+jobs:
+  cut:
+    name: Cut ${{ inputs.level }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - uses: jdx/mise-action@v4
+        with:
+          version: "2026.4.10"
+
+      - name: Compute next version
+        id: version
+        run: |
+          version=$(.github/scripts/next-version.sh "${{ inputs.level }}")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Cutting v$version" >> "$GITHUB_STEP_SUMMARY"
+
+      # Go modules encode the major version in the import path from v2 on.
+      # Tagging go/v2.0.0 while go.mod still says .../go would publish a
+      # version Go tooling refuses to fetch — fail here instead.
+      - name: Check go.mod major-version suffix
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          major="${version%%.*}"
+          module=$(head -1 go/go.mod | awk '{print $2}')
+          if [ "$major" -ge 2 ]; then
+            case "$module" in
+              */v"$major") ;;
+              *) echo "::error::go.mod module path '$module' must end in /v$major before releasing v$version (Go semantic import versioning)"; exit 1 ;;
+            esac
+          else
+            case "$module" in
+              */v[0-9]*) echo "::error::go.mod module path '$module' carries a major suffix but the release is v$version"; exit 1 ;;
+              *) ;;
+            esac
+          fi
+
+      - name: Test gate
+        run: |
+          zig build test
+          zig fmt --check zig/
+          cd go && go vet ./... && go test -race ./...
+
+      - name: Stamp version
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          sed -i -E 's/(\.version = ")[^"]+(")/\1'"$version"'\2/' build.zig.zon
+          grep -qF "\"$version\"" build.zig.zon
+
+          # VS Code Marketplace and npm reject or mishandle -rc.N versions,
+          # so the editor-tool manifests only track stable releases.
+          case "$version" in
+            *-rc.*) ;;
+            *)
+              for pkg in tools/vscode-skg/package.json tools/tree-sitter-skg/package.json; do
+                node -e '
+                  const fs = require("fs"), p = process.argv[1];
+                  const j = JSON.parse(fs.readFileSync(p, "utf8"));
+                  j.version = process.argv[2];
+                  fs.writeFileSync(p, JSON.stringify(j, null, 2) + "\n");
+                ' "$pkg" "$version"
+              done
+              ;;
+          esac
+
+      - name: Commit and tag
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "release: v$version"
+          git tag -a "v$version" -m "skg v$version"
+          git tag -a "go/v$version" -m "skg Go parser v$version"
+          git push origin master "v$version" "go/v$version"
