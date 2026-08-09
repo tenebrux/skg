@@ -75,7 +75,7 @@ const Parser = struct {
     /// Every successful call must be paired with `exitNesting`.
     fn enterNesting(self: *Parser, line: u32, col: u32) ParseError!void {
         if (self.depth >= max_nesting_depth) {
-            self.setDiagnostic(line, col, nesting_too_deep_message);
+            self.setDiagnostic(line, col, .NESTING_TOO_DEEP, nesting_too_deep_message);
             return error.NestingTooDeep;
         }
         self.depth += 1;
@@ -85,8 +85,9 @@ const Parser = struct {
         self.depth -= 1;
     }
 
-    fn setDiagnostic(self: *Parser, line: u32, col: u32, message: []const u8) void {
+    fn setDiagnostic(self: *Parser, line: u32, col: u32, code: ast_mod.ErrorCode, message: []const u8) void {
         self.last_diagnostic = .{
+            .code = code,
             .path = self.path,
             .line = line,
             .col = col,
@@ -96,7 +97,12 @@ const Parser = struct {
 
     fn nextToken(self: *Parser) ParseError!Token {
         return self.lexer.next() catch |err| {
-            self.setDiagnostic(self.lexer.line, self.lexer.col, switch (err) {
+            const code: ast_mod.ErrorCode = switch (err) {
+                error.UnexpectedChar => .UNEXPECTED_CHAR,
+                error.UnterminatedString => .UNTERMINATED_STRING,
+                error.InvalidEscape => .INVALID_ESCAPE,
+            };
+            self.setDiagnostic(self.lexer.line, self.lexer.col, code, switch (err) {
                 error.UnexpectedChar => "unexpected character",
                 error.UnterminatedString => "unterminated string literal",
                 error.InvalidEscape => "invalid escape sequence",
@@ -158,7 +164,16 @@ const Parser = struct {
     fn expect(self: *Parser, tag: Tag) ParseError!Token {
         const t = try self.consume();
         if (t.tag != tag) {
-            self.setDiagnostic(t.line, t.col, switch (tag) {
+            const code: ast_mod.ErrorCode = switch (tag) {
+                .colon => .EXPECTED_COLON,
+                .rbrace => .EXPECTED_RBRACE,
+                .rbracket => .EXPECTED_RBRACKET,
+                .string => .EXPECTED_STRING,
+                .float => .EXPECTED_VALUE,
+                .ident => .EXPECTED_IDENT,
+                else => .UNEXPECTED_TOKEN,
+            };
+            self.setDiagnostic(t.line, t.col, code, switch (tag) {
                 .colon => "expected ':'",
                 .rbrace => "expected '}'",
                 .rbracket => "expected ']'",
@@ -197,18 +212,18 @@ const Parser = struct {
                     _ = try self.expect(.colon);
                     const val_tok = try self.expect(.string);
                     if (skg_version != null) {
-                        self.setDiagnostic(val_tok.line, val_tok.col, "duplicate skg_version declaration");
+                        self.setDiagnostic(val_tok.line, val_tok.col, .DUPLICATE_SKG_VERSION, "duplicate skg_version declaration");
                         return error.DuplicateSKGVersion;
                     }
                     skg_version = try self.unescapeString(val_tok.text);
                     switch (checkVersion(skg_version.?)) {
                         .ok => {},
                         .malformed => {
-                            self.setDiagnostic(val_tok.line, val_tok.col, "skg_version is malformed, expected \"MAJOR.MINOR\"");
+                            self.setDiagnostic(val_tok.line, val_tok.col, .MALFORMED_SKG_VERSION, "skg_version is malformed, expected \"MAJOR.MINOR\"");
                             return error.MalformedSKGVersion;
                         },
                         .too_new => {
-                            self.setDiagnostic(val_tok.line, val_tok.col, "skg_version is newer than this parser supports");
+                            self.setDiagnostic(val_tok.line, val_tok.col, .UNSUPPORTED_SKG_VERSION, "skg_version is newer than this parser supports");
                             return error.UnsupportedSKGVersion;
                         },
                     }
@@ -225,7 +240,7 @@ const Parser = struct {
                     _ = try self.expect(.colon);
                     const val_tok = try self.expect(.string);
                     if (schema_version != null) {
-                        self.setDiagnostic(val_tok.line, val_tok.col, "duplicate schema_version declaration");
+                        self.setDiagnostic(val_tok.line, val_tok.col, .DUPLICATE_SCHEMA_VERSION, "duplicate schema_version declaration");
                         return error.DuplicateSchemaVersion;
                     }
                     schema_version = try self.unescapeString(val_tok.text);
@@ -292,14 +307,14 @@ const Parser = struct {
                     continue;
                 }
                 if (nt.tag == .eof) {
-                    self.setDiagnostic(nt.line, nt.col, "unterminated import list, expected ']'");
+                    self.setDiagnostic(nt.line, nt.col, .UNTERMINATED_IMPORT_LIST, "unterminated import list, expected ']'");
                     return error.ExpectedRbracket;
                 }
                 const path_tok = try self.expect(.string);
                 try list.append(self.allocator, try self.unescapeString(path_tok.text));
             }
         } else {
-            self.setDiagnostic(t.line, t.col, "expected import path string or '['");
+            self.setDiagnostic(t.line, t.col, .EXPECTED_IMPORT_PATH, "expected import path string or '['");
             return error.UnexpectedToken;
         }
     }
@@ -335,7 +350,7 @@ const Parser = struct {
                     break;
                 }
                 if (ct.tag == .eof) {
-                    self.setDiagnostic(ct.line, ct.col, "unterminated block, expected '}'");
+                    self.setDiagnostic(ct.line, ct.col, .UNTERMINATED_BLOCK, "unterminated block, expected '}'");
                     return error.ExpectedRbrace;
                 }
                 try children.append(self.allocator, try self.parseNode());
@@ -358,7 +373,7 @@ const Parser = struct {
             defer self.exitNesting();
             return try self.parseBlockArray(name_tok, leading);
         } else {
-            self.setDiagnostic(nt.line, nt.col, "expected ':', '{', or '[' after identifier");
+            self.setDiagnostic(nt.line, nt.col, .EXPECTED_NODE_BODY, "expected ':', '{', or '[' after identifier");
             return error.UnexpectedToken;
         }
     }
@@ -381,7 +396,7 @@ const Parser = struct {
                 continue;
             }
             if (t.tag == .eof) {
-                self.setDiagnostic(t.line, t.col, "unterminated block array, expected ']'");
+                self.setDiagnostic(t.line, t.col, .UNTERMINATED_BLOCK_ARRAY, "unterminated block array, expected ']'");
                 return error.ExpectedRbracket;
             }
             if (t.tag != .lbrace) {
@@ -399,7 +414,7 @@ const Parser = struct {
                     break;
                 }
                 if (ct.tag == .eof) {
-                    self.setDiagnostic(ct.line, ct.col, "unterminated block in block array, expected '}'");
+                    self.setDiagnostic(ct.line, ct.col, .UNTERMINATED_BLOCK, "unterminated block in block array, expected '}'");
                     return error.ExpectedRbrace;
                 }
                 try children.append(self.allocator, try self.parseNode());
@@ -437,7 +452,7 @@ const Parser = struct {
                 continue;
             }
             if (t.tag == .eof) {
-                self.setDiagnostic(t.line, t.col, "unterminated array, expected ']'");
+                self.setDiagnostic(t.line, t.col, .UNTERMINATED_ARRAY, "unterminated array, expected ']'");
                 return error.ExpectedRbracket;
             }
 
@@ -445,7 +460,7 @@ const Parser = struct {
             const vtype = std.meta.activeTag(val);
             if (element_type) |et| {
                 if (et != vtype) {
-                    self.setDiagnostic(t.line, t.col, "mixed types in array");
+                    self.setDiagnostic(t.line, t.col, .MIXED_ARRAY_TYPES, "mixed types in array");
                     return error.MixedArrayTypes;
                 }
             } else {
@@ -470,11 +485,11 @@ const Parser = struct {
         const t = try self.consume();
         return switch (t.tag) {
             .int => ast.Value{ .int = std.fmt.parseInt(i64, t.text, 10) catch {
-                self.setDiagnostic(t.line, t.col, "invalid integer literal");
+                self.setDiagnostic(t.line, t.col, .INVALID_INT, "invalid integer literal");
                 return error.InvalidInt;
             } },
             .float => ast.Value{ .float = std.fmt.parseFloat(f64, t.text) catch {
-                self.setDiagnostic(t.line, t.col, "invalid float literal");
+                self.setDiagnostic(t.line, t.col, .INVALID_FLOAT, "invalid float literal");
                 return error.InvalidFloat;
             } },
             .bool_true => ast.Value{ .bool = true },
@@ -483,7 +498,7 @@ const Parser = struct {
             .string => ast.Value{ .string = try self.unescapeString(t.text) },
             .lbracket => try self.parseArray(t),
             else => {
-                self.setDiagnostic(t.line, t.col, "expected a value (string, number, bool, or array)");
+                self.setDiagnostic(t.line, t.col, .EXPECTED_VALUE, "expected a value (string, number, bool, or array)");
                 return error.ExpectedValue;
             },
         };
@@ -508,7 +523,7 @@ const Parser = struct {
                 continue;
             }
             if (t.tag == .eof) {
-                self.setDiagnostic(t.line, t.col, "unterminated array, expected ']'");
+                self.setDiagnostic(t.line, t.col, .UNTERMINATED_ARRAY, "unterminated array, expected ']'");
                 return error.ExpectedRbracket;
             }
 
@@ -516,7 +531,7 @@ const Parser = struct {
             const vtype = std.meta.activeTag(val);
             if (element_type) |et| {
                 if (et != vtype) {
-                    self.setDiagnostic(t.line, t.col, "mixed types in array");
+                    self.setDiagnostic(t.line, t.col, .MIXED_ARRAY_TYPES, "mixed types in array");
                     return error.MixedArrayTypes;
                 }
             } else {
@@ -560,7 +575,10 @@ const Parser = struct {
                     '\\' => try buf.append(self.allocator, '\\'),
                     'n' => try buf.append(self.allocator, '\n'),
                     't' => try buf.append(self.allocator, '\t'),
-                    else => return error.InvalidEscape,
+                    else => {
+                        self.setDiagnostic(self.lexer.line, self.lexer.col, .INVALID_ESCAPE, "invalid escape sequence");
+                        return error.InvalidEscape;
+                    },
                 }
             } else {
                 try buf.append(self.allocator, inner[i]);
@@ -610,6 +628,7 @@ pub fn parseSource(
     return p.parseFile() catch |err| {
         if (diagnostic) |d| {
             d.* = p.last_diagnostic orelse .{
+                .code = .UNKNOWN,
                 .path = path,
                 .line = p.lexer.line,
                 .col = p.lexer.col,

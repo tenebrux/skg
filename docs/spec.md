@@ -404,13 +404,15 @@ The consuming application walks this tree against its own type definitions to po
 
 ## Error Messages
 
-Errors include the file path, line number, column, and a clear description.
+Errors include a stable error code, the file path, line number, column, and a clear description.
 
 ```text
 theme.skg:4:3 - expected value, found end of file
 dusk.skg:12:1 - circular import: dusk.skg → theme.skg → dusk.skg
 dusk.skg:7:12 - string value must be quoted: use "top" not top
 ```
+
+Line and column numbers are 1-based; the column counts bytes. The message wording is not part of the contract and differs between implementations. The error code is: it comes from a closed registry, and it is what conformance fixtures assert. See [conformance.md](conformance.md) for the registry and the full diagnostic contract.
 
 ---
 
