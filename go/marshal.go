@@ -2,6 +2,7 @@ package skg
 
 import (
 	"fmt"
+	"math"
 	"reflect"
 )
 
@@ -25,17 +26,14 @@ func Marshal(v interface{}) ([]byte, error) {
 }
 
 func encodeStruct(rv reflect.Value) ([]Node, error) {
-	rt := rv.Type()
 	var nodes []Node
 
-	for i := 0; i < rt.NumField(); i++ {
-		sf := rt.Field(i)
-		tag := sf.Tag.Get("skg")
-		if tag == "" || tag == "-" {
-			continue
+	for _, sf := range structFields(rv.Type()) {
+		tag := sf.name
+		fv, ok := fieldByIndexRO(rv, sf.index)
+		if !ok {
+			continue // promoted through a nil embedded pointer: nothing to encode
 		}
-
-		fv := rv.Field(i)
 
 		// Handle pointer fields
 		if fv.Kind() == reflect.Ptr {
@@ -140,8 +138,20 @@ func encodeValue(rv reflect.Value) (Value, error) {
 		return Value{Type: TypeString, Str: rv.String()}, nil
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return Value{Type: TypeInt, Int: rv.Int()}, nil
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		u := rv.Uint()
+		if u > math.MaxInt64 {
+			return Value{}, fmt.Errorf("uint value %d exceeds the SKG integer range", u)
+		}
+		return Value{Type: TypeInt, Int: int64(u)}, nil
 	case reflect.Float32, reflect.Float64:
-		return Value{Type: TypeFloat, Float: rv.Float()}, nil
+		f := rv.Float()
+		if math.IsNaN(f) || math.IsInf(f, 0) {
+			// SKG has no literal for NaN or infinity, so there is no
+			// representation that would parse back.
+			return Value{}, fmt.Errorf("cannot encode non-finite float %v", f)
+		}
+		return Value{Type: TypeFloat, Float: f}, nil
 	case reflect.Bool:
 		return Value{Type: TypeBool, Bool: rv.Bool()}, nil
 	case reflect.Slice:
