@@ -6,10 +6,21 @@ import (
 	"strings"
 )
 
+// MaxNestingDepth bounds how deeply blocks, block arrays, and arrays may nest.
+//
+// The parser uses one stack frame per nesting level, and a Go stack overflow is
+// a fatal error that recover() cannot catch - so the cap must be enforced by the
+// parser rather than left to the runtime. 128 is far past any legitimate config
+// yet well under the ~10_000 levels at which the Zig implementation faults, so
+// both implementations can enforce the same limit and stay behaviorally
+// consistent. Sibling implementations should mirror this value.
+const MaxNestingDepth = 128
+
 type parser struct {
 	lex    *lexer
 	peeked *token
 	path   string
+	depth  int
 }
 
 func newParser(src []byte, path string) *parser {
@@ -69,6 +80,21 @@ func (p *parser) expect(tag tokenTag) (token, error) {
 		return token{}, &ParseError{Diag: Diagnostic{Path: p.path, Line: t.line, Col: t.col, Message: msg}}
 	}
 	return t, nil
+}
+
+// enter records that the parser is descending into a nested construct opened at
+// tok. Callers must pair a successful enter with leave. On failure the parse is
+// aborted, so the counter is not unwound.
+func (p *parser) enter(tok token) error {
+	p.depth++
+	if p.depth > MaxNestingDepth {
+		return &ParseError{Diag: Diagnostic{Path: p.path, Line: tok.line, Col: tok.col, Message: "nesting too deep (max " + itoa(MaxNestingDepth) + ")"}}
+	}
+	return nil
+}
+
+func (p *parser) leave() {
+	p.depth--
 }
 
 func (p *parser) parseFile() (*File, error) {
@@ -231,6 +257,10 @@ func (p *parser) parseNode() (Node, error) {
 		if _, err := p.consume(); err != nil {
 			return Node{}, err
 		}
+		if err := p.enter(nt); err != nil {
+			return Node{}, err
+		}
+		defer p.leave()
 		var children []Node
 		for {
 			ct, err := p.peek()
@@ -257,6 +287,10 @@ func (p *parser) parseNode() (Node, error) {
 		if _, err := p.consume(); err != nil {
 			return Node{}, err
 		}
+		if err := p.enter(nt); err != nil {
+			return Node{}, err
+		}
+		defer p.leave()
 		return p.parseBlockArray(nameTok)
 	}
 
@@ -291,6 +325,9 @@ func (p *parser) parseBlockArray(nameTok token) (Node, error) {
 			return p.reParseAsFieldArray(nameTok, t)
 		}
 		p.consume() // consume '{'
+		if err := p.enter(t); err != nil {
+			return Node{}, err
+		}
 		var children []Node
 		for {
 			ct, err := p.peek()
@@ -310,6 +347,7 @@ func (p *parser) parseBlockArray(nameTok token) (Node, error) {
 			}
 			children = append(children, child)
 		}
+		p.leave()
 		children = dedup(children)
 		items = append(items, children)
 	}
@@ -394,6 +432,10 @@ func (p *parser) parseValue() (Value, error) {
 		}
 		return Value{Type: TypeString, Str: s}, nil
 	case tokLBracket:
+		if err := p.enter(t); err != nil {
+			return Value{}, err
+		}
+		defer p.leave()
 		return p.parseArray()
 	default:
 		return Value{}, &ParseError{Diag: Diagnostic{Path: p.path, Line: t.line, Col: t.col, Message: "expected a value (string, number, bool, or array)"}}
