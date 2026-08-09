@@ -29,7 +29,33 @@ jobs:
         run: go build ./...
       - name: Vet
         run: go vet ./...
-      # Runs the shared testdata/ conformance suite against the Go parser,
-      # so a fixture that only the Go side sees still gates the merge.
+      # Runs the shared testdata/ conformance suite against the Go parser, so a
+      # fixture that only the Go side sees still gates the merge.
+      #
+      # -v is deliberate: `go test` discards a passing package's output, and the
+      # conformance suite ends with an unconditional summary of the fixtures it
+      # skipped for undeclared capabilities (see go/conformance.json). Without
+      # -v that line would never reach the log, which is exactly the silent
+      # partial conformance the harness exists to prevent.
       - name: Test
-        run: go test -race ./...
+        run: go test -race -v ./...
+
+  tree-sitter:
+    name: tree-sitter grammar
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/tree-sitter-skg
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+      - name: Install
+        run: npm ci
+      # Regenerates src/parser.c from grammar.js, then parses every
+      # testdata/valid/**/*.skg and fails on any ERROR or MISSING node.
+      # This is a highlighting grammar, not a conformance peer - there is
+      # deliberately no AST comparison against the Go or Zig parsers.
+      - name: Parse every valid fixture
+        run: npm run check:fixtures
