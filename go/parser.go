@@ -1,6 +1,7 @@
 package skg
 
 import (
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -15,6 +16,10 @@ import (
 // both implementations can enforce the same limit and stay behaviorally
 // consistent. Sibling implementations should mirror this value.
 const MaxNestingDepth = 128
+
+// MaxFileSize is the largest input the parser accepts, per the SKG spec
+// ("The parser SHALL reject files larger than 10MB with a clear error").
+const MaxFileSize = 10 * 1024 * 1024
 
 type parser struct {
 	lex    *lexer
@@ -537,13 +542,24 @@ func Parse(src []byte) (*File, error) {
 
 // ParseSource parses SKG source bytes with a given file path for error messages.
 func ParseSource(src []byte, path string) (*File, error) {
+	if len(src) > MaxFileSize {
+		return nil, &ParseError{Diag: Diagnostic{Path: path, Line: 0, Col: 0, Message: "file too large (max 10MB)"}}
+	}
 	p := newParser(src, path)
 	return p.parseFile()
 }
 
 // ParseFile reads and parses an SKG file from disk.
 func ParseFile(path string) (*File, error) {
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	// Read one byte past the cap rather than stat-ing: a size check alone lies
+	// for pipes and /proc entries, and os.ReadFile would buffer the whole input
+	// before ParseSource could reject it.
+	data, err := io.ReadAll(io.LimitReader(f, MaxFileSize+1))
 	if err != nil {
 		return nil, err
 	}
