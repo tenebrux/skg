@@ -7,6 +7,11 @@ Reference material for the SKG (Static Key Group) config language.
 - **[spec.md](spec.md)** - the language specification. Every construct,
   every rule, every escape sequence. If the parsers disagree with this
   file, the file wins.
+- **[conformance.md](conformance.md)** - the cross-implementation
+  contract: the stable error-code registry, the `testdata/` fixture
+  format, the capability manifest, and a checklist for porting SKG to
+  a new language. Read this before writing a third parser; it is meant
+  to be sufficient without reading `go/` or `zig/`.
 
 ## Editor support
 

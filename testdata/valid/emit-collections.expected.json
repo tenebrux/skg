@@ -1,0 +1,185 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [],
+  "children": [
+    {
+      "type": "field",
+      "key": "ints",
+      "value": {
+        "type": "array",
+        "element_type": "int",
+        "data": [
+          {
+            "type": "int",
+            "data": 1
+          },
+          {
+            "type": "int",
+            "data": 2
+          },
+          {
+            "type": "int",
+            "data": 3
+          }
+        ]
+      }
+    },
+    {
+      "type": "field",
+      "key": "floats",
+      "value": {
+        "type": "array",
+        "element_type": "float",
+        "data": [
+          {
+            "type": "float",
+            "data": 8.0
+          },
+          {
+            "type": "float",
+            "data": 12.5
+          }
+        ]
+      }
+    },
+    {
+      "type": "field",
+      "key": "strings",
+      "value": {
+        "type": "array",
+        "element_type": "string",
+        "data": [
+          {
+            "type": "string",
+            "data": "a"
+          },
+          {
+            "type": "string",
+            "data": "b"
+          }
+        ]
+      }
+    },
+    {
+      "type": "field",
+      "key": "bools",
+      "value": {
+        "type": "array",
+        "element_type": "bool",
+        "data": [
+          {
+            "type": "bool",
+            "data": true
+          },
+          {
+            "type": "bool",
+            "data": false
+          }
+        ]
+      }
+    },
+    {
+      "type": "field",
+      "key": "nested",
+      "value": {
+        "type": "array",
+        "element_type": "array",
+        "data": [
+          {
+            "type": "array",
+            "element_type": "int",
+            "data": [
+              {
+                "type": "int",
+                "data": 1
+              },
+              {
+                "type": "int",
+                "data": 2
+              }
+            ]
+          },
+          {
+            "type": "array",
+            "element_type": "int",
+            "data": [
+              {
+                "type": "int",
+                "data": 3
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "field",
+      "key": "empty_array",
+      "value": {
+        "type": "array",
+        "element_type": "string",
+        "data": []
+      }
+    },
+    {
+      "type": "block",
+      "name": "defaults",
+      "children": []
+    },
+    {
+      "type": "block_array",
+      "name": "panels",
+      "items": []
+    },
+    {
+      "type": "block_array",
+      "name": "users",
+      "items": [
+        [
+          {
+            "type": "field",
+            "key": "name",
+            "value": {
+              "type": "string",
+              "data": "admin"
+            }
+          },
+          {
+            "type": "field",
+            "key": "tags",
+            "value": {
+              "type": "array",
+              "element_type": "string",
+              "data": [
+                {
+                  "type": "string",
+                  "data": "wheel"
+                }
+              ]
+            }
+          }
+        ],
+        [
+          {
+            "type": "field",
+            "key": "name",
+            "value": {
+              "type": "string",
+              "data": "guest"
+            }
+          },
+          {
+            "type": "field",
+            "key": "tags",
+            "value": {
+              "type": "array",
+              "element_type": "string",
+              "data": []
+            }
+          }
+        ]
+      ]
+    }
+  ]
+}

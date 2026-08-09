@@ -1,0 +1,3 @@
+import "b.skg"
+
+from_main: "main"

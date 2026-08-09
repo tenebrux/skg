@@ -1,0 +1,6 @@
+{
+  "error": true,
+  "code": "DUPLICATE_SCHEMA_VERSION",
+  "line": 2,
+  "col": 17
+}

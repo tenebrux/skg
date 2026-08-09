@@ -1,0 +1,33 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [
+    "b.skg"
+  ],
+  "children": [
+    {
+      "type": "field",
+      "key": "from_c",
+      "value": {
+        "type": "string",
+        "data": "c"
+      }
+    },
+    {
+      "type": "field",
+      "key": "from_b",
+      "value": {
+        "type": "string",
+        "data": "b"
+      }
+    },
+    {
+      "type": "field",
+      "key": "from_main",
+      "value": {
+        "type": "string",
+        "data": "main"
+      }
+    }
+  ]
+}

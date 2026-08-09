@@ -13,7 +13,8 @@
   },
   "scripts": {
     "build": "tree-sitter generate && node-gyp rebuild",
-    "test": "tree-sitter test"
+    "test": "tree-sitter test",
+    "check:fixtures": "tree-sitter generate && node check-fixtures.mjs"
   },
   "tree-sitter": [
     {

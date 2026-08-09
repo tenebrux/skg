@@ -1,0 +1,42 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [
+    "a.skg",
+    "b.skg"
+  ],
+  "children": [
+    {
+      "type": "field",
+      "key": "shared",
+      "value": {
+        "type": "string",
+        "data": "from-b"
+      }
+    },
+    {
+      "type": "field",
+      "key": "only_a",
+      "value": {
+        "type": "int",
+        "data": 1
+      }
+    },
+    {
+      "type": "field",
+      "key": "only_b",
+      "value": {
+        "type": "int",
+        "data": 2
+      }
+    },
+    {
+      "type": "field",
+      "key": "name",
+      "value": {
+        "type": "string",
+        "data": "main"
+      }
+    }
+  ]
+}

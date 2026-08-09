@@ -1,0 +1,12 @@
+{
+  "implementation": "go",
+  "capabilities": {
+    "parse": true,
+    "emit": true,
+    "imports": true,
+    "comments": false
+  },
+  "notes": {
+    "comments": "go/lexer.go discards '#' comments in skipWhitespaceAndComments, so no comment trivia reaches the AST and Emit cannot reproduce it."
+  }
+}

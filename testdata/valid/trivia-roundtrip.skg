@@ -1,0 +1,9 @@
+# file leading one
+# file leading two
+name: "x" # trailing on name
+
+theme {
+  # leading on accent
+  accent: "green"
+  # trailing on the theme block
+}

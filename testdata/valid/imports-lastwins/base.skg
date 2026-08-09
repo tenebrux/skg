@@ -1,0 +1,6 @@
+theme {
+  accent: "green"
+  radius: 4
+}
+
+shared: "from-base"

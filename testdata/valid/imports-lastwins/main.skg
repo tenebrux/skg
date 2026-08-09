@@ -1,0 +1,7 @@
+import "base.skg"
+
+theme {
+  accent: "purple"
+}
+
+shared: "from-main"

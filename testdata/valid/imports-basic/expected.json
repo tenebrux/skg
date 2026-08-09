@@ -1,0 +1,31 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [
+    "base.skg"
+  ],
+  "children": [
+    {
+      "type": "block",
+      "name": "theme",
+      "children": [
+        {
+          "type": "field",
+          "key": "accent",
+          "value": {
+            "type": "string",
+            "data": "green"
+          }
+        }
+      ]
+    },
+    {
+      "type": "field",
+      "key": "name",
+      "value": {
+        "type": "string",
+        "data": "main"
+      }
+    }
+  ]
+}
