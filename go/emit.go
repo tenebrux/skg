@@ -2,6 +2,8 @@ package skg
 
 import (
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 )
 
@@ -84,11 +86,7 @@ func emitValue(buf *strings.Builder, v Value, depth int) {
 	case TypeInt:
 		fmt.Fprintf(buf, "%d", v.Int)
 	case TypeFloat:
-		s := fmt.Sprintf("%g", v.Float)
-		buf.WriteString(s)
-		if !strings.Contains(s, ".") {
-			buf.WriteString(".0")
-		}
+		buf.WriteString(formatFloat(v.Float))
 	case TypeBool:
 		if v.Bool {
 			buf.WriteString("true")
@@ -96,7 +94,7 @@ func emitValue(buf *strings.Builder, v Value, depth int) {
 			buf.WriteString("false")
 		}
 	case TypeString:
-		if strings.Contains(v.Str, "\n") {
+		if strings.Contains(v.Str, "\n") && canEmitMultiline(v.Str) {
 			buf.WriteString(`"""`)
 			buf.WriteString(v.Str)
 			buf.WriteString(`"""`)
@@ -119,6 +117,34 @@ func emitValue(buf *strings.Builder, v Value, depth int) {
 		}
 		buf.WriteByte(']')
 	}
+}
+
+// formatFloat renders a float as an SKG float literal. The SKG grammar has no
+// exponent form, so the value is written as plain decimal digits and always
+// carries a fractional part - large or small magnitudes therefore expand to
+// long strings, matching the Zig emitter.
+//
+// SKG has no literal for NaN or infinity. Marshal rejects those values up
+// front; Emit cannot report an error, so it degrades them to null rather than
+// writing output that will not parse.
+func formatFloat(f float64) string {
+	if math.IsNaN(f) || math.IsInf(f, 0) {
+		return "null"
+	}
+	s := strconv.FormatFloat(f, 'f', -1, 64)
+	if !strings.Contains(s, ".") {
+		s += ".0"
+	}
+	return s
+}
+
+// canEmitMultiline reports whether s survives a `"""..."""` round-trip.
+// Multiline literals are taken verbatim, with no escape processing, so an
+// embedded `"""` - or a trailing `"` that merges with the closing delimiter -
+// would end the literal early. Such values are emitted as an escaped
+// double-quoted string instead.
+func canEmitMultiline(s string) bool {
+	return !strings.Contains(s, `"""`) && !strings.HasSuffix(s, `"`)
 }
 
 func writeEscaped(buf *strings.Builder, s string) {

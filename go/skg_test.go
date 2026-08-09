@@ -257,6 +257,20 @@ func TestMergeBlocksRecursive(t *testing.T) {
 	}
 }
 
+func TestMergeNodesEmptyNode(t *testing.T) {
+	// A hand-built Node with no variant set must not panic the merge.
+	base := []Node{{}, {Field: &Field{Key: "a", Value: Value{Type: TypeInt, Int: 1}}}}
+	overlay := []Node{{}, {Field: &Field{Key: "a", Value: Value{Type: TypeInt, Int: 2}}}}
+
+	result := MergeNodes(base, overlay)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 node, got %d", len(result))
+	}
+	if result[0].Field == nil || result[0].Field.Value.Int != 2 {
+		t.Errorf("expected overlay to win, got %+v", result[0])
+	}
+}
+
 func TestEmitRoundTrip(t *testing.T) {
 	src := `name: "hello"
 count: 42

@@ -50,7 +50,10 @@ func decodeNodes(nodes []Node, target reflect.Value) error {
 			if !ok {
 				continue // extra fields ignored
 			}
-			fv := target.Field(idx)
+			fv, err := fieldByIndex(target, idx)
+			if err != nil {
+				return fmt.Errorf("skg: field %q: %w", node.Field.Key, err)
+			}
 			if err := decodeValue(node.Field.Value, fv); err != nil {
 				return fmt.Errorf("skg: field %q: %w", node.Field.Key, err)
 			}
@@ -59,7 +62,10 @@ func decodeNodes(nodes []Node, target reflect.Value) error {
 			if !ok {
 				continue
 			}
-			fv := target.Field(idx)
+			fv, err := fieldByIndex(target, idx)
+			if err != nil {
+				return fmt.Errorf("skg: block %q: %w", node.Block.Name, err)
+			}
 			// Handle pointer-to-struct fields: allocate if nil, then decode into the pointee.
 			if fv.Kind() == reflect.Ptr {
 				if fv.IsNil() {
@@ -78,7 +84,10 @@ func decodeNodes(nodes []Node, target reflect.Value) error {
 			if !ok {
 				continue
 			}
-			fv := target.Field(idx)
+			fv, err := fieldByIndex(target, idx)
+			if err != nil {
+				return fmt.Errorf("skg: block array %q: %w", node.BlockArray.Name, err)
+			}
 			if err := decodeBlockArray(node.BlockArray, fv); err != nil {
 				return fmt.Errorf("skg: block array %q: %w", node.BlockArray.Name, err)
 			}
@@ -182,7 +191,18 @@ func decodeValue(val Value, target reflect.Value) error {
 	case TypeInt:
 		switch target.Kind() {
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			if target.OverflowInt(val.Int) {
+				return fmt.Errorf("int %d overflows %s", val.Int, target.Kind())
+			}
 			target.SetInt(val.Int)
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+			if val.Int < 0 {
+				return fmt.Errorf("cannot assign negative int %d to %s", val.Int, target.Kind())
+			}
+			if target.OverflowUint(uint64(val.Int)) {
+				return fmt.Errorf("int %d overflows %s", val.Int, target.Kind())
+			}
+			target.SetUint(uint64(val.Int))
 		case reflect.Float32, reflect.Float64:
 			target.SetFloat(float64(val.Int))
 		default:
@@ -192,6 +212,9 @@ func decodeValue(val Value, target reflect.Value) error {
 	case TypeFloat:
 		switch target.Kind() {
 		case reflect.Float32, reflect.Float64:
+			if target.OverflowFloat(val.Float) {
+				return fmt.Errorf("float %v overflows %s", val.Float, target.Kind())
+			}
 			target.SetFloat(val.Float)
 		default:
 			return fmt.Errorf("cannot assign float to %s", target.Kind())
@@ -250,15 +273,116 @@ func valueToAny(val Value) interface{} {
 	return nil
 }
 
-func buildFieldMap(t reflect.Type) map[string]int {
-	m := make(map[string]int, t.NumField())
+func buildFieldMap(t reflect.Type) map[string][]int {
+	fields := structFields(t)
+	m := make(map[string][]int, len(fields))
+	for _, f := range fields {
+		m[f.name] = f.index
+	}
+	return m
+}
+
+// structField describes one SKG-visible field of a struct: the name from its
+// `skg` tag and the index path used to reach it. The path has more than one
+// element for fields promoted out of an anonymous embedded struct.
+type structField struct {
+	name  string
+	index []int
+}
+
+// structFields returns the SKG-visible fields of t in declaration order,
+// promoting the tagged fields of anonymous embedded structs (and embedded
+// pointers to structs) into the outer struct. A field declared on the outer
+// struct shadows a promoted field of the same name, matching encoding/json's
+// shallowest-wins rule.
+func structFields(t reflect.Type) []structField {
+	var cands []fieldCandidate
+	collectFields(t, nil, 0, map[reflect.Type]bool{t: true}, &cands)
+
+	// For each name keep the shallowest candidate; ties go to the first one.
+	best := make(map[string]int, len(cands))
+	for i, c := range cands {
+		if j, ok := best[c.name]; ok && cands[j].depth <= c.depth {
+			continue
+		}
+		best[c.name] = i
+	}
+
+	fields := make([]structField, 0, len(best))
+	for i, c := range cands {
+		if best[c.name] == i {
+			fields = append(fields, structField{name: c.name, index: c.index})
+		}
+	}
+	return fields
+}
+
+type fieldCandidate struct {
+	name  string
+	index []int
+	depth int
+}
+
+// collectFields walks t and its anonymous embedded structs, appending one
+// candidate per tagged field. visited breaks cycles created by self-embedding
+// pointer types such as `type T struct { *T }`.
+func collectFields(t reflect.Type, prefix []int, depth int, visited map[reflect.Type]bool, out *[]fieldCandidate) {
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
 		tag := f.Tag.Get("skg")
-		if tag == "" || tag == "-" {
+		index := append(append(make([]int, 0, len(prefix)+1), prefix...), i)
+
+		if f.Anonymous && tag == "" {
+			ft := f.Type
+			if ft.Kind() == reflect.Ptr {
+				ft = ft.Elem()
+			}
+			if ft.Kind() == reflect.Struct {
+				if !visited[ft] {
+					visited[ft] = true
+					collectFields(ft, index, depth+1, visited, out)
+				}
+				continue
+			}
+		}
+
+		if tag == "" || tag == "-" || !f.IsExported() {
 			continue
 		}
-		m[tag] = i
+		*out = append(*out, fieldCandidate{name: tag, index: index, depth: depth})
 	}
-	return m
+}
+
+// fieldByIndex resolves an index path from structFields for writing,
+// allocating nil embedded pointers along the way.
+func fieldByIndex(v reflect.Value, index []int) (reflect.Value, error) {
+	for i, x := range index {
+		if i > 0 && v.Kind() == reflect.Ptr {
+			if v.IsNil() {
+				if !v.CanSet() {
+					return reflect.Value{}, fmt.Errorf("cannot allocate unexported embedded field of type %s", v.Type())
+				}
+				v.Set(reflect.New(v.Type().Elem()))
+			}
+			v = v.Elem()
+		}
+		v = v.Field(x)
+	}
+	return v, nil
+}
+
+// fieldByIndexRO resolves an index path from structFields for reading. It
+// reports false when the path crosses a nil embedded pointer, meaning the
+// promoted field is absent and there is nothing to encode.
+func fieldByIndexRO(v reflect.Value, index []int) (reflect.Value, bool) {
+	for i, x := range index {
+		if i > 0 && v.Kind() == reflect.Ptr {
+			if v.IsNil() {
+				return reflect.Value{}, false
+			}
+			v = v.Elem()
+		}
+		v = v.Field(x)
+	}
+	return v, true
 }
