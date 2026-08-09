@@ -13,7 +13,7 @@ import (
 	"fmt"
 	"log"
 
-	skg "github.com/fynxlabs/skg/go"
+	skg "github.com/tenebrux/skg/go"
 )
 
 // ── The struct IS the schema ───────────────────────────────────────────────

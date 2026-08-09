@@ -3,7 +3,7 @@
   "displayName": "SKG Config",
   "description": "Syntax highlighting for .skg (Static Key Group) configuration files used by Dusk",
   "version": "0.1.0",
-  "publisher": "fynxlabs",
+  "publisher": "tenebrux",
   "license": "Apache-2.0",
   "engines": {
     "vscode": "^1.74.0"
@@ -34,6 +34,6 @@
     ]
   },
   "devDependencies": {
-    "@vscode/vsce": "^3.7.1"
+    "@vscode/vsce": "^3.9.2"
   }
 }
