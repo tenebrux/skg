@@ -10,6 +10,7 @@ const std = @import("std");
 const testing = std.testing;
 
 const skg_root = @import("root.zig");
+const parser = @import("parser.zig");
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -95,6 +96,49 @@ test "diagnostic includes file path" {
     try testing.expect(result.file == null);
     const diag = result.diagnostic orelse return error.ExpectedDiagnostic;
     try testing.expectEqualStrings("my/config.skg", diag.path);
+}
+
+// ─── Nesting depth limit ─────────────────────────────────────────────────────
+
+const max_depth: usize = parser.max_nesting_depth;
+
+/// Build `key: ` followed by `depth` open brackets and `depth` close brackets.
+fn nestedArraySource(buf: *std.ArrayListUnmanaged(u8), depth: usize) !void {
+    try buf.appendSlice(testing.allocator, "key: ");
+    try buf.appendNTimes(testing.allocator, '[', depth);
+    try buf.appendNTimes(testing.allocator, ']', depth);
+}
+
+test "accept nesting exactly at the depth limit" {
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    try nestedArraySource(&buf, max_depth);
+
+    var result = skg_root.parseSource(testing.allocator, buf.items, "<test>");
+    defer result.deinit();
+    try testing.expect(result.file != null);
+}
+
+test "reject arrays nested past the depth limit" {
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    try nestedArraySource(&buf, max_depth + 1);
+
+    const diag = try expectParseFailure(buf.items);
+    try testing.expectEqualStrings("nesting too deep (max 128)", diag.message);
+}
+
+test "reject blocks nested past the depth limit" {
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    defer buf.deinit(testing.allocator);
+    var i: usize = 0;
+    while (i < max_depth + 1) : (i += 1) {
+        try buf.appendSlice(testing.allocator, "a{");
+    }
+    try buf.appendNTimes(testing.allocator, '}', max_depth + 1);
+
+    const diag = try expectParseFailure(buf.items);
+    try testing.expectEqualStrings("nesting too deep (max 128)", diag.message);
 }
 
 test "successful parse has no diagnostic" {
