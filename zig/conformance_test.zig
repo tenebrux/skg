@@ -941,11 +941,19 @@ test "conformance: valid fixtures" {
 
     const caps = try loadCapabilities(alloc);
     const fixtures = try discoverFixtures(alloc, "valid");
+
+    // Each fixture is isolated: one failure must not hide the ones after it,
+    // the way `go test` isolates subtests.
+    var failures: usize = 0;
     for (fixtures) |f| {
         runValidFixture(alloc, caps, f) catch |err| {
             std.debug.print("FAIL valid/{s}: {}\n", .{ f.name, err });
-            return err;
+            failures += 1;
         };
+    }
+    if (failures > 0) {
+        std.debug.print("CONFORMANCE: {d} of {d} valid fixtures failed\n", .{ failures, fixtures.len });
+        return error.ConformanceFailures;
     }
 }
 
@@ -957,11 +965,17 @@ test "conformance: invalid fixtures" {
     const caps = try loadCapabilities(alloc);
     const codes = try loadErrorCodes(alloc);
     const fixtures = try discoverFixtures(alloc, "invalid");
+
+    var failures: usize = 0;
     for (fixtures) |f| {
         runInvalidFixture(alloc, caps, codes, f) catch |err| {
             std.debug.print("FAIL invalid/{s}: {}\n", .{ f.name, err });
-            return err;
+            failures += 1;
         };
+    }
+    if (failures > 0) {
+        std.debug.print("CONFORMANCE: {d} of {d} invalid fixtures failed\n", .{ failures, fixtures.len });
+        return error.ConformanceFailures;
     }
 }
 
