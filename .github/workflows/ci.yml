@@ -11,3 +11,25 @@ jobs:
     uses: tenebrux/github-workflows/.github/workflows/zig-ci.yml@master
     with:
       zig-fmt-paths: "zig/"
+
+  go:
+    name: Go parser
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: go
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26"
+          # No go.sum (the parser has no dependencies) - nothing to cache.
+          cache: false
+      - name: Build
+        run: go build ./...
+      - name: Vet
+        run: go vet ./...
+      # Runs the shared testdata/ conformance suite against the Go parser,
+      # so a fixture that only the Go side sees still gates the merge.
+      - name: Test
+        run: go test -race ./...

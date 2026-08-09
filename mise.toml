@@ -27,7 +27,7 @@ postinstall = """
 """
 
 [tasks.test]
-run = "zig build test && cd go && go test ./..."
+run = "zig build test && cd go && go test -race ./..."
 description = "Run all parser tests (Zig + Go)"
 
 [tasks."test:zig"]
@@ -35,12 +35,16 @@ run = "zig build test"
 description = "Run Zig parser tests"
 
 [tasks."test:go"]
-run = "cd go && go test ./..."
+run = "cd go && go test -race ./..."
 description = "Run Go parser tests"
 
+# Mirrors the checks in .github/workflows/ci.yml so `mise run ci` matches the gate.
 [tasks.lint]
-run = "zig fmt --check zig/"
-description = "Check source formatting"
+run = """
+zig fmt --check zig/
+cd go && go vet ./...
+"""
+description = "Check Zig formatting and vet the Go parser"
 
 [tasks.fmt]
 run = "zig fmt zig/"
