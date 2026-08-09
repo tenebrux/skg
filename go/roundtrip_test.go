@@ -133,3 +133,207 @@ func TestEmitArrayRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+func TestMarshalRejectsNonFiniteFloat(t *testing.T) {
+	type Config struct {
+		F float64 `skg:"f"`
+	}
+	for _, f := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		if _, err := Marshal(Config{F: f}); err == nil {
+			t.Errorf("Marshal(%v) succeeded, want an error", f)
+		}
+	}
+}
+
+func TestMarshalUnmarshalStringFloatRoundTrip(t *testing.T) {
+	type Config struct {
+		Note  string  `skg:"note"`
+		Ratio float64 `skg:"ratio"`
+	}
+
+	orig := Config{Note: "a\"\"\"b\nc", Ratio: 1e20}
+	data, err := Marshal(orig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got Config
+	if err := Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal of %q failed: %v", data, err)
+	}
+	if got != orig {
+		t.Errorf("round-trip changed %+v to %+v", orig, got)
+	}
+}
+
+func TestUnmarshalIntOverflow(t *testing.T) {
+	type Config struct {
+		N int8   `skg:"n"`
+		U uint8  `skg:"u"`
+		S uint16 `skg:"s"`
+	}
+
+	cases := []struct {
+		name string
+		src  string
+	}{
+		{"signed overflow", "n: 200\n"},
+		{"signed underflow", "n: -200\n"},
+		{"unsigned overflow", "u: 300\n"},
+		{"unsigned negative", "s: -1\n"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var cfg Config
+			err := Unmarshal([]byte(tc.src), &cfg)
+			if err == nil {
+				t.Fatalf("expected an error, got %+v", cfg)
+			}
+			if !strings.Contains(err.Error(), "skg: field") {
+				t.Errorf("error should name the field, got %v", err)
+			}
+			if cfg != (Config{}) {
+				t.Errorf("target was modified on error: %+v", cfg)
+			}
+		})
+	}
+}
+
+func TestUnmarshalFloatOverflow(t *testing.T) {
+	type Config struct {
+		F float32 `skg:"f"`
+	}
+	var cfg Config
+	if err := Unmarshal([]byte("f: 1"+strings.Repeat("0", 300)+".0\n"), &cfg); err == nil {
+		t.Fatalf("expected an overflow error, got %v", cfg.F)
+	}
+}
+
+func TestUnsignedRoundTrip(t *testing.T) {
+	type Config struct {
+		Port uint16 `skg:"port"`
+		Size uint64 `skg:"size"`
+		Max  uint8  `skg:"max"`
+	}
+
+	orig := Config{Port: 8080, Size: 1 << 40, Max: 255}
+	data, err := Marshal(orig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got Config
+	if err := Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal of %q failed: %v", data, err)
+	}
+	if got != orig {
+		t.Errorf("round-trip changed %+v to %+v", orig, got)
+	}
+}
+
+type embedBase struct {
+	ID   string `skg:"id"`
+	Rank int64  `skg:"rank"`
+}
+
+type EmbedMeta struct {
+	Owner string `skg:"owner"`
+}
+
+func TestEmbeddedStructRoundTrip(t *testing.T) {
+	type Config struct {
+		embedBase
+		*EmbedMeta
+		Name string `skg:"name"`
+	}
+
+	orig := Config{
+		embedBase: embedBase{ID: "abc", Rank: 3},
+		EmbedMeta: &EmbedMeta{Owner: "levi"},
+		Name:      "cfg",
+	}
+
+	data, err := Marshal(orig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(data)
+	for _, want := range []string{`id: "abc"`, "rank: 3", `owner: "levi"`, `name: "cfg"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("emitted output missing %q:\n%s", want, out)
+		}
+	}
+
+	var got Config
+	if err := Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != orig.ID || got.Rank != orig.Rank || got.Name != orig.Name {
+		t.Errorf("round-trip changed %+v to %+v", orig, got)
+	}
+	if got.EmbedMeta == nil || got.Owner != orig.Owner {
+		t.Errorf("embedded pointer did not round-trip: %+v", got.EmbedMeta)
+	}
+}
+
+func TestEmbeddedStructOuterFieldWins(t *testing.T) {
+	// A field declared on the outer struct shadows a promoted one, so the
+	// promoted field must be neither decoded into nor emitted.
+	type Config struct {
+		embedBase
+		ID string `skg:"id"`
+	}
+
+	var got Config
+	if err := Unmarshal([]byte(`id: "outer"`), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "outer" {
+		t.Errorf("expected outer field to receive the value, got %q", got.ID)
+	}
+	if got.embedBase.ID != "" {
+		t.Errorf("promoted field should have been shadowed, got %q", got.embedBase.ID)
+	}
+
+	data, err := Marshal(Config{embedBase: embedBase{ID: "inner"}, ID: "outer"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(data), "id:") != 1 {
+		t.Errorf("expected a single id field, got:\n%s", data)
+	}
+	if !strings.Contains(string(data), `id: "outer"`) {
+		t.Errorf("expected the outer value to be emitted, got:\n%s", data)
+	}
+}
+
+func TestEmbeddedNilPointerMarshal(t *testing.T) {
+	type Config struct {
+		*EmbedMeta
+		Name string `skg:"name"`
+	}
+
+	data, err := Marshal(Config{Name: "cfg"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "owner") {
+		t.Errorf("nil embedded pointer should emit nothing, got:\n%s", data)
+	}
+}
+
+func TestEmbeddedUnexportedPointerErrors(t *testing.T) {
+	// An embedded pointer to an unexported type cannot be allocated through
+	// reflection. Decoding must report that clearly instead of panicking.
+	type Config struct {
+		*embedBase
+	}
+
+	var cfg Config
+	err := Unmarshal([]byte(`id: "abc"`), &cfg)
+	if err == nil {
+		t.Fatal("expected an error for an unexported embedded pointer")
+	}
+	if !strings.Contains(err.Error(), "cannot allocate unexported embedded field") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
