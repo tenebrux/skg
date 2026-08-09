@@ -1,0 +1,102 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [],
+  "children": [
+    {
+      "type": "field",
+      "key": "int_pos",
+      "value": {
+        "type": "int",
+        "data": 42
+      }
+    },
+    {
+      "type": "field",
+      "key": "int_neg",
+      "value": {
+        "type": "int",
+        "data": -7
+      }
+    },
+    {
+      "type": "field",
+      "key": "int_zero",
+      "value": {
+        "type": "int",
+        "data": 0
+      }
+    },
+    {
+      "type": "field",
+      "key": "float_integral",
+      "value": {
+        "type": "float",
+        "data": 13.0
+      }
+    },
+    {
+      "type": "field",
+      "key": "float_negative",
+      "value": {
+        "type": "float",
+        "data": -0.5
+      }
+    },
+    {
+      "type": "field",
+      "key": "float_fraction",
+      "value": {
+        "type": "float",
+        "data": 0.03
+      }
+    },
+    {
+      "type": "field",
+      "key": "float_small",
+      "value": {
+        "type": "float",
+        "data": 1e-06
+      }
+    },
+    {
+      "type": "field",
+      "key": "float_pi",
+      "value": {
+        "type": "float",
+        "data": 3.14159
+      }
+    },
+    {
+      "type": "field",
+      "key": "float_million",
+      "value": {
+        "type": "float",
+        "data": 1000000.0
+      }
+    },
+    {
+      "type": "field",
+      "key": "yes",
+      "value": {
+        "type": "bool",
+        "data": true
+      }
+    },
+    {
+      "type": "field",
+      "key": "no",
+      "value": {
+        "type": "bool",
+        "data": false
+      }
+    },
+    {
+      "type": "field",
+      "key": "nothing",
+      "value": {
+        "type": "null"
+      }
+    }
+  ]
+}

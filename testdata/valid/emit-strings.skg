@@ -1,0 +1,8 @@
+plain: "hello"
+embedded_quote: "she said \"hi\""
+backslash: "a\\b"
+tab: "a\tb"
+newline: "line one\nline two"
+unicode: "héllo — 日本語 🎉"
+empty: ""
+hash_is_not_a_comment: "value # still a string"

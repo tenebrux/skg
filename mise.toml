@@ -27,16 +27,24 @@ postinstall = """
 """
 
 [tasks.test]
-run = "zig build test && cd go && go test -race ./..."
+run = "zig build test && cd go && go test -race -v ./..."
 description = "Run all parser tests (Zig + Go)"
 
 [tasks."test:zig"]
 run = "zig build test"
 description = "Run Zig parser tests"
 
+# -v is deliberate: `go test` throws away a passing package's output, and the
+# conformance suite ends with an unconditional summary of the fixtures it
+# skipped for capabilities go/conformance.json does not declare. Without -v
+# that line never reaches the terminal.
 [tasks."test:go"]
-run = "cd go && go test -race ./..."
+run = "cd go && go test -race -v ./..."
 description = "Run Go parser tests"
+
+[tasks."test:tree-sitter"]
+run = "cd tools/tree-sitter-skg && npm install && npm run check:fixtures"
+description = "Parse every valid fixture with the tree-sitter grammar (no ERROR nodes)"
 
 # Mirrors the checks in .github/workflows/ci.yml so `mise run ci` matches the gate.
 [tasks.lint]
@@ -119,5 +127,5 @@ description = "Scan the Go parser for known vulnerabilities (govulncheck)"
 run = "cd go && govulncheck ./..."
 
 [tasks.ci]
-description = "Run the full CI check locally (lint + test + security)"
-depends = ["lint", "test", "security"]
+description = "Run the full CI check locally (lint + test + tree-sitter + security)"
+depends = ["lint", "test", "test:tree-sitter", "security"]

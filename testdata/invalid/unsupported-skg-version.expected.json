@@ -1,1 +1,6 @@
-{ "error": true, "message_contains": "newer than this parser supports" }
+{
+  "error": true,
+  "code": "UNSUPPORTED_SKG_VERSION",
+  "line": 1,
+  "col": 14
+}

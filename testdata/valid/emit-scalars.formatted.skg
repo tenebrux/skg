@@ -1,0 +1,12 @@
+int_pos: 42
+int_neg: -7
+int_zero: 0
+float_integral: 13.0
+float_negative: -0.5
+float_fraction: 0.03
+float_small: 0.000001
+float_pi: 3.14159
+float_million: 1000000.0
+yes: true
+no: false
+nothing: null

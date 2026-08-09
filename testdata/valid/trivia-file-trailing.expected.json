@@ -1,0 +1,22 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [],
+  "leading_comments": [],
+  "trailing_comments": [
+    "# after everything",
+    "# and one more"
+  ],
+  "children": [
+    {
+      "type": "field",
+      "key": "name",
+      "value": {
+        "type": "string",
+        "data": "x"
+      },
+      "leading_comments": [],
+      "trailing_comment": null
+    }
+  ]
+}

@@ -5,8 +5,66 @@
 /// The type tag of a Value.
 pub const ValueType = enum { int, float, bool, string, array, null };
 
+/// Stable, implementation-independent classification of a parse failure.
+///
+/// Human-readable messages differ between implementations and may be reworded
+/// at any time; these tags may not. Conformance fixtures assert the tag name,
+/// so `@tagName` has to keep producing the exact registry spelling - that is
+/// why the fields are SCREAMING_SNAKE instead of the usual Zig snake_case.
+/// Deriving the wire string from the tag means the two can never drift.
+///
+/// The closed registry lives in testdata/error-codes.json and is documented in
+/// docs/conformance.md. Adding a tag here without adding it there fails the
+/// conformance suite.
+pub const ErrorCode = enum {
+    // Lexical.
+    UNEXPECTED_CHAR,
+    UNTERMINATED_STRING,
+    INVALID_ESCAPE,
+
+    // Syntax.
+    EXPECTED_COLON,
+    EXPECTED_RBRACE,
+    EXPECTED_RBRACKET,
+    EXPECTED_STRING,
+    EXPECTED_IDENT,
+    EXPECTED_VALUE,
+    EXPECTED_NODE_BODY,
+    UNEXPECTED_TOKEN,
+    UNTERMINATED_BLOCK,
+    UNTERMINATED_BLOCK_ARRAY,
+    UNTERMINATED_ARRAY,
+    MIXED_ARRAY_TYPES,
+    INVALID_INT,
+    INVALID_FLOAT,
+
+    // Header directives.
+    DUPLICATE_SKG_VERSION,
+    DUPLICATE_SCHEMA_VERSION,
+    MALFORMED_SKG_VERSION,
+    UNSUPPORTED_SKG_VERSION,
+    UNTERMINATED_IMPORT_LIST,
+    EXPECTED_IMPORT_PATH,
+
+    // Resource limits.
+    NESTING_TOO_DEEP,
+    FILE_TOO_LARGE,
+
+    // Import resolution (file API only).
+    CIRCULAR_IMPORT,
+    IMPORT_NOT_FOUND,
+    IMPORT_CHAIN_TOO_DEEP,
+
+    // Fallback. Never expected in a fixture - seeing it means a diagnostic
+    // site is missing its code.
+    UNKNOWN,
+};
+
 /// Structured error context for parse failures.
 pub const Diagnostic = struct {
+    /// Stable machine-readable classification. `message` is for humans and
+    /// carries no compatibility promise; this does.
+    code: ErrorCode = .UNKNOWN,
     path: []const u8,
     line: u32,
     col: u32,

@@ -1,1 +1,6 @@
-{ "error": true, "message_contains": "nesting too deep" }
+{
+  "error": true,
+  "code": "NESTING_TOO_DEEP",
+  "line": 129,
+  "col": 3
+}

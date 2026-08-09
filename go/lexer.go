@@ -123,7 +123,7 @@ func (l *lexer) next() (token, error) {
 		return l.lexIdent(line, col)
 	}
 
-	return token{}, &ParseError{Diag: Diagnostic{Line: line, Col: col, Message: "unexpected character"}}
+	return token{}, &ParseError{Diag: Diagnostic{Code: CodeUnexpectedChar, Line: line, Col: col, Message: "unexpected character"}}
 }
 
 func (l *lexer) lexString(line, col int) (token, error) {
@@ -143,12 +143,12 @@ func (l *lexer) lexString(line, col int) (token, error) {
 		c := l.src[l.pos]
 		if c == '\\' {
 			if l.pos+1 >= len(l.src) {
-				return token{}, &ParseError{Diag: Diagnostic{Line: l.line, Col: l.col, Message: "unterminated string literal"}}
+				return token{}, &ParseError{Diag: Diagnostic{Code: CodeUnterminatedString, Line: l.line, Col: l.col, Message: "unterminated string literal"}}
 			}
 			switch l.src[l.pos+1] {
 			case '"', '\\', 'n', 't':
 			default:
-				return token{}, &ParseError{Diag: Diagnostic{Line: l.line, Col: l.col, Message: "invalid escape sequence"}}
+				return token{}, &ParseError{Diag: Diagnostic{Code: CodeInvalidEscape, Line: l.line, Col: l.col, Message: "invalid escape sequence"}}
 			}
 			l.pos += 2
 			l.col += 2
@@ -156,12 +156,12 @@ func (l *lexer) lexString(line, col int) (token, error) {
 			l.advance() // consume closing "
 			return token{tag: tokString, text: string(l.src[start:l.pos]), line: line, col: col}, nil
 		} else if c == '\n' {
-			return token{}, &ParseError{Diag: Diagnostic{Line: l.line, Col: l.col, Message: "unterminated string literal"}}
+			return token{}, &ParseError{Diag: Diagnostic{Code: CodeUnterminatedString, Line: l.line, Col: l.col, Message: "unterminated string literal"}}
 		} else {
 			l.advance()
 		}
 	}
-	return token{}, &ParseError{Diag: Diagnostic{Line: l.line, Col: l.col, Message: "unterminated string literal"}}
+	return token{}, &ParseError{Diag: Diagnostic{Code: CodeUnterminatedString, Line: l.line, Col: l.col, Message: "unterminated string literal"}}
 }
 
 func (l *lexer) lexMultilineString(start int, line, col int) (token, error) {
@@ -179,14 +179,14 @@ func (l *lexer) lexMultilineString(start int, line, col int) (token, error) {
 		}
 		l.advance()
 	}
-	return token{}, &ParseError{Diag: Diagnostic{Line: l.line, Col: l.col, Message: "unterminated string literal"}}
+	return token{}, &ParseError{Diag: Diagnostic{Code: CodeUnterminatedString, Line: l.line, Col: l.col, Message: "unterminated string literal"}}
 }
 
 func (l *lexer) lexNegativeNumber(line, col int) (token, error) {
 	if next, ok := l.peekAhead(1); ok && next >= '0' && next <= '9' {
 		return l.lexNumber(line, col)
 	}
-	return token{}, &ParseError{Diag: Diagnostic{Line: line, Col: col, Message: "unexpected character"}}
+	return token{}, &ParseError{Diag: Diagnostic{Code: CodeUnexpectedChar, Line: line, Col: col, Message: "unexpected character"}}
 }
 
 func (l *lexer) lexNumber(line, col int) (token, error) {

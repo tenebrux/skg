@@ -108,8 +108,103 @@ type File struct {
 	Children      []Node
 }
 
+// ErrorCode is a stable, implementation-independent identifier for a parse
+// failure.
+//
+// Human-readable messages are free to differ between implementations and to be
+// reworded at any time; codes are not. Conformance fixtures assert the code, so
+// the Go and Zig parsers can word the same failure differently and still be
+// held to the same behaviour.
+//
+// The closed registry lives in testdata/error-codes.json and is documented in
+// docs/conformance.md. Every constant below must appear there - the conformance
+// suite fails if the two drift.
+type ErrorCode string
+
+const (
+	// Lexical.
+	CodeUnexpectedChar     ErrorCode = "UNEXPECTED_CHAR"
+	CodeUnterminatedString ErrorCode = "UNTERMINATED_STRING"
+	CodeInvalidEscape      ErrorCode = "INVALID_ESCAPE"
+
+	// Syntax.
+	CodeExpectedColon          ErrorCode = "EXPECTED_COLON"
+	CodeExpectedRbrace         ErrorCode = "EXPECTED_RBRACE"
+	CodeExpectedRbracket       ErrorCode = "EXPECTED_RBRACKET"
+	CodeExpectedString         ErrorCode = "EXPECTED_STRING"
+	CodeExpectedIdent          ErrorCode = "EXPECTED_IDENT"
+	CodeExpectedValue          ErrorCode = "EXPECTED_VALUE"
+	CodeExpectedNodeBody       ErrorCode = "EXPECTED_NODE_BODY"
+	CodeUnexpectedToken        ErrorCode = "UNEXPECTED_TOKEN"
+	CodeUnterminatedBlock      ErrorCode = "UNTERMINATED_BLOCK"
+	CodeUnterminatedBlockArray ErrorCode = "UNTERMINATED_BLOCK_ARRAY"
+	CodeUnterminatedArray      ErrorCode = "UNTERMINATED_ARRAY"
+	CodeMixedArrayTypes        ErrorCode = "MIXED_ARRAY_TYPES"
+	CodeInvalidInt             ErrorCode = "INVALID_INT"
+	CodeInvalidFloat           ErrorCode = "INVALID_FLOAT"
+
+	// Header directives.
+	CodeDuplicateSKGVersion    ErrorCode = "DUPLICATE_SKG_VERSION"
+	CodeDuplicateSchemaVersion ErrorCode = "DUPLICATE_SCHEMA_VERSION"
+	CodeMalformedSKGVersion    ErrorCode = "MALFORMED_SKG_VERSION"
+	CodeUnsupportedSKGVersion  ErrorCode = "UNSUPPORTED_SKG_VERSION"
+	CodeUnterminatedImportList ErrorCode = "UNTERMINATED_IMPORT_LIST"
+	CodeExpectedImportPath     ErrorCode = "EXPECTED_IMPORT_PATH"
+
+	// Resource limits.
+	CodeNestingTooDeep ErrorCode = "NESTING_TOO_DEEP"
+	CodeFileTooLarge   ErrorCode = "FILE_TOO_LARGE"
+
+	// Import resolution. Only a parser that resolves imports from disk can
+	// produce these; the Go parser records import paths but does not yet
+	// resolve them (see go/conformance.json).
+	CodeCircularImport     ErrorCode = "CIRCULAR_IMPORT"
+	CodeImportNotFound     ErrorCode = "IMPORT_NOT_FOUND"
+	CodeImportChainTooDeep ErrorCode = "IMPORT_CHAIN_TOO_DEEP"
+
+	// Fallback. Never expected in a fixture - seeing it means a diagnostic
+	// site is missing its code.
+	CodeUnknown ErrorCode = "UNKNOWN"
+)
+
+// ErrorCodes lists every code this implementation knows about, in registry
+// order. The conformance suite checks it against testdata/error-codes.json.
+var ErrorCodes = []ErrorCode{
+	CodeUnexpectedChar,
+	CodeUnterminatedString,
+	CodeInvalidEscape,
+	CodeExpectedColon,
+	CodeExpectedRbrace,
+	CodeExpectedRbracket,
+	CodeExpectedString,
+	CodeExpectedIdent,
+	CodeExpectedValue,
+	CodeExpectedNodeBody,
+	CodeUnexpectedToken,
+	CodeUnterminatedBlock,
+	CodeUnterminatedBlockArray,
+	CodeUnterminatedArray,
+	CodeMixedArrayTypes,
+	CodeInvalidInt,
+	CodeInvalidFloat,
+	CodeDuplicateSKGVersion,
+	CodeDuplicateSchemaVersion,
+	CodeMalformedSKGVersion,
+	CodeUnsupportedSKGVersion,
+	CodeUnterminatedImportList,
+	CodeExpectedImportPath,
+	CodeNestingTooDeep,
+	CodeFileTooLarge,
+	CodeCircularImport,
+	CodeImportNotFound,
+	CodeImportChainTooDeep,
+	CodeUnknown,
+}
+
 // Diagnostic contains structured error information from a parse failure.
 type Diagnostic struct {
+	// Code is the stable machine-readable classification of the failure.
+	Code    ErrorCode
 	Path    string
 	Line    int
 	Col     int

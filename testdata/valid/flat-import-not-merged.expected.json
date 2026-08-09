@@ -1,0 +1,17 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [
+    "flat-import-target.skg"
+  ],
+  "children": [
+    {
+      "type": "field",
+      "key": "name",
+      "value": {
+        "type": "string",
+        "data": "flat"
+      }
+    }
+  ]
+}

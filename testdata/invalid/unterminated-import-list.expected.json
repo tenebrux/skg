@@ -1,0 +1,6 @@
+{
+  "error": true,
+  "code": "UNTERMINATED_IMPORT_LIST",
+  "line": 3,
+  "col": 1
+}

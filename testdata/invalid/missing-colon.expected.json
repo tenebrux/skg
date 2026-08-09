@@ -1,1 +1,6 @@
-{ "error": true, "message_contains": "expected" }
+{
+  "error": true,
+  "code": "EXPECTED_NODE_BODY",
+  "line": 1,
+  "col": 5
+}

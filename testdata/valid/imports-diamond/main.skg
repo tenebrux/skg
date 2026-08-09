@@ -1,0 +1,6 @@
+import [
+  "b.skg",
+  "c.skg",
+]
+
+top: "main"

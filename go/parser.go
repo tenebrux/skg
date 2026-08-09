@@ -75,19 +75,25 @@ func (p *parser) expect(tag tokenTag) (token, error) {
 	}
 	if t.tag != tag {
 		msg := "unexpected token"
+		code := CodeUnexpectedToken
 		switch tag {
 		case tokColon:
 			msg = "expected ':'"
+			code = CodeExpectedColon
 		case tokRBrace:
 			msg = "expected '}'"
+			code = CodeExpectedRbrace
 		case tokRBracket:
 			msg = "expected ']'"
+			code = CodeExpectedRbracket
 		case tokString:
 			msg = "expected string value"
+			code = CodeExpectedString
 		case tokIdent:
 			msg = "expected identifier"
+			code = CodeExpectedIdent
 		}
-		return token{}, &ParseError{Diag: Diagnostic{Path: p.path, Line: t.line, Col: t.col, Message: msg}}
+		return token{}, &ParseError{Diag: Diagnostic{Code: code, Path: p.path, Line: t.line, Col: t.col, Message: msg}}
 	}
 	return t, nil
 }
@@ -98,7 +104,7 @@ func (p *parser) expect(tag tokenTag) (token, error) {
 func (p *parser) enter(tok token) error {
 	p.depth++
 	if p.depth > MaxNestingDepth {
-		return &ParseError{Diag: Diagnostic{Path: p.path, Line: tok.line, Col: tok.col, Message: "nesting too deep (max " + itoa(MaxNestingDepth) + ")"}}
+		return &ParseError{Diag: Diagnostic{Code: CodeNestingTooDeep, Path: p.path, Line: tok.line, Col: tok.col, Message: "nesting too deep (max " + itoa(MaxNestingDepth) + ")"}}
 	}
 	return nil
 }
@@ -160,7 +166,7 @@ func (p *parser) parseFile() (*File, error) {
 					return nil, err
 				}
 				if skgVersion != nil {
-					return nil, &ParseError{Diag: Diagnostic{Path: p.path, Line: valTok.line, Col: valTok.col, Message: "duplicate skg_version declaration"}}
+					return nil, &ParseError{Diag: Diagnostic{Code: CodeDuplicateSKGVersion, Path: p.path, Line: valTok.line, Col: valTok.col, Message: "duplicate skg_version declaration"}}
 				}
 				s, err := unescapeString(valTok.text)
 				if err != nil {
@@ -168,10 +174,10 @@ func (p *parser) parseFile() (*File, error) {
 				}
 				wellFormed, supported := checkVersion(s)
 				if !wellFormed {
-					return nil, &ParseError{Diag: Diagnostic{Path: p.path, Line: valTok.line, Col: valTok.col, Message: "malformed skg_version, expected \"major.minor\" (e.g. \"1.0\")"}}
+					return nil, &ParseError{Diag: Diagnostic{Code: CodeMalformedSKGVersion, Path: p.path, Line: valTok.line, Col: valTok.col, Message: "malformed skg_version, expected \"major.minor\" (e.g. \"1.0\")"}}
 				}
 				if !supported {
-					return nil, &ParseError{Diag: Diagnostic{Path: p.path, Line: valTok.line, Col: valTok.col, Message: "skg_version is newer than this parser supports (max \"" + itoa(supportedMajorVersion) + "." + itoa(supportedMinorVersion) + "\")"}}
+					return nil, &ParseError{Diag: Diagnostic{Code: CodeUnsupportedSKGVersion, Path: p.path, Line: valTok.line, Col: valTok.col, Message: "skg_version is newer than this parser supports (max \"" + itoa(supportedMajorVersion) + "." + itoa(supportedMinorVersion) + "\")"}}
 				}
 				skgVersion = &s
 				continue
@@ -188,7 +194,7 @@ func (p *parser) parseFile() (*File, error) {
 					return nil, err
 				}
 				if schemaVersion != nil {
-					return nil, &ParseError{Diag: Diagnostic{Path: p.path, Line: valTok.line, Col: valTok.col, Message: "duplicate schema_version declaration"}}
+					return nil, &ParseError{Diag: Diagnostic{Code: CodeDuplicateSchemaVersion, Path: p.path, Line: valTok.line, Col: valTok.col, Message: "duplicate schema_version declaration"}}
 				}
 				s, err := unescapeString(valTok.text)
 				if err != nil {
@@ -259,7 +265,7 @@ func (p *parser) parseImports(list *[]string) error {
 				continue
 			}
 			if nt.tag == tokEOF {
-				return &ParseError{Diag: Diagnostic{Path: p.path, Line: nt.line, Col: nt.col, Message: "unterminated import list, expected ']'"}}
+				return &ParseError{Diag: Diagnostic{Code: CodeUnterminatedImportList, Path: p.path, Line: nt.line, Col: nt.col, Message: "unterminated import list, expected ']'"}}
 			}
 			pathTok, err := p.expect(tokString)
 			if err != nil {
@@ -272,7 +278,7 @@ func (p *parser) parseImports(list *[]string) error {
 			*list = append(*list, s)
 		}
 	}
-	return &ParseError{Diag: Diagnostic{Path: p.path, Line: t.line, Col: t.col, Message: "expected import path string or '['"}}
+	return &ParseError{Diag: Diagnostic{Code: CodeExpectedImportPath, Path: p.path, Line: t.line, Col: t.col, Message: "expected import path string or '['"}}
 }
 
 func (p *parser) parseNode() (Node, error) {
@@ -314,7 +320,7 @@ func (p *parser) parseNode() (Node, error) {
 				break
 			}
 			if ct.tag == tokEOF {
-				return Node{}, &ParseError{Diag: Diagnostic{Path: p.path, Line: ct.line, Col: ct.col, Message: "unterminated block, expected '}'"}}
+				return Node{}, &ParseError{Diag: Diagnostic{Code: CodeUnterminatedBlock, Path: p.path, Line: ct.line, Col: ct.col, Message: "unterminated block, expected '}'"}}
 			}
 			child, err := p.parseNode()
 			if err != nil {
@@ -336,7 +342,7 @@ func (p *parser) parseNode() (Node, error) {
 		return p.parseBlockArray(nameTok)
 	}
 
-	return Node{}, &ParseError{Diag: Diagnostic{Path: p.path, Line: nt.line, Col: nt.col, Message: "expected ':', '{', or '[' after identifier"}}
+	return Node{}, &ParseError{Diag: Diagnostic{Code: CodeExpectedNodeBody, Path: p.path, Line: nt.line, Col: nt.col, Message: "expected ':', '{', or '[' after identifier"}}
 }
 
 func (p *parser) parseBlockArray(nameTok token) (Node, error) {
@@ -358,7 +364,7 @@ func (p *parser) parseBlockArray(nameTok token) (Node, error) {
 			continue
 		}
 		if t.tag == tokEOF {
-			return Node{}, &ParseError{Diag: Diagnostic{Path: p.path, Line: t.line, Col: t.col, Message: "unterminated block array, expected ']'"}}
+			return Node{}, &ParseError{Diag: Diagnostic{Code: CodeUnterminatedBlockArray, Path: p.path, Line: t.line, Col: t.col, Message: "unterminated block array, expected ']'"}}
 		}
 		if t.tag != tokLBrace {
 			// Not a block array - this is a regular field with array value.
@@ -381,7 +387,7 @@ func (p *parser) parseBlockArray(nameTok token) (Node, error) {
 				break
 			}
 			if ct.tag == tokEOF {
-				return Node{}, &ParseError{Diag: Diagnostic{Path: p.path, Line: ct.line, Col: ct.col, Message: "unterminated block in block array, expected '}'"}}
+				return Node{}, &ParseError{Diag: Diagnostic{Code: CodeUnterminatedBlock, Path: p.path, Line: ct.line, Col: ct.col, Message: "unterminated block in block array, expected '}'"}}
 			}
 			child, err := p.parseNode()
 			if err != nil {
@@ -419,7 +425,7 @@ func (p *parser) reParseAsFieldArray(nameTok token, firstTok token) (Node, error
 			continue
 		}
 		if t.tag == tokEOF {
-			return Node{}, &ParseError{Diag: Diagnostic{Path: p.path, Line: t.line, Col: t.col, Message: "unterminated array, expected ']'"}}
+			return Node{}, &ParseError{Diag: Diagnostic{Code: CodeUnterminatedArray, Path: p.path, Line: t.line, Col: t.col, Message: "unterminated array, expected ']'"}}
 		}
 		val, err := p.parseValue()
 		if err != nil {
@@ -427,7 +433,7 @@ func (p *parser) reParseAsFieldArray(nameTok token, firstTok token) (Node, error
 		}
 		if elemType != nil {
 			if *elemType != val.Type {
-				return Node{}, &ParseError{Diag: Diagnostic{Path: p.path, Line: t.line, Col: t.col, Message: "mixed types in array"}}
+				return Node{}, &ParseError{Diag: Diagnostic{Code: CodeMixedArrayTypes, Path: p.path, Line: t.line, Col: t.col, Message: "mixed types in array"}}
 			}
 		} else {
 			et := val.Type
@@ -452,13 +458,13 @@ func (p *parser) parseValue() (Value, error) {
 	case tokInt:
 		n, err := strconv.ParseInt(t.text, 10, 64)
 		if err != nil {
-			return Value{}, &ParseError{Diag: Diagnostic{Path: p.path, Line: t.line, Col: t.col, Message: "invalid integer literal"}}
+			return Value{}, &ParseError{Diag: Diagnostic{Code: CodeInvalidInt, Path: p.path, Line: t.line, Col: t.col, Message: "invalid integer literal"}}
 		}
 		return Value{Type: TypeInt, Int: n}, nil
 	case tokFloat:
 		f, err := strconv.ParseFloat(t.text, 64)
 		if err != nil {
-			return Value{}, &ParseError{Diag: Diagnostic{Path: p.path, Line: t.line, Col: t.col, Message: "invalid float literal"}}
+			return Value{}, &ParseError{Diag: Diagnostic{Code: CodeInvalidFloat, Path: p.path, Line: t.line, Col: t.col, Message: "invalid float literal"}}
 		}
 		return Value{Type: TypeFloat, Float: f}, nil
 	case tokBoolTrue:
@@ -480,7 +486,7 @@ func (p *parser) parseValue() (Value, error) {
 		defer p.leave()
 		return p.parseArray()
 	default:
-		return Value{}, &ParseError{Diag: Diagnostic{Path: p.path, Line: t.line, Col: t.col, Message: "expected a value (string, number, bool, or array)"}}
+		return Value{}, &ParseError{Diag: Diagnostic{Code: CodeExpectedValue, Path: p.path, Line: t.line, Col: t.col, Message: "expected a value (string, number, bool, or array)"}}
 	}
 }
 
@@ -502,7 +508,7 @@ func (p *parser) parseArray() (Value, error) {
 			continue
 		}
 		if t.tag == tokEOF {
-			return Value{}, &ParseError{Diag: Diagnostic{Path: p.path, Line: t.line, Col: t.col, Message: "unterminated array, expected ']'"}}
+			return Value{}, &ParseError{Diag: Diagnostic{Code: CodeUnterminatedArray, Path: p.path, Line: t.line, Col: t.col, Message: "unterminated array, expected ']'"}}
 		}
 		val, err := p.parseValue()
 		if err != nil {
@@ -510,7 +516,7 @@ func (p *parser) parseArray() (Value, error) {
 		}
 		if elemType != nil {
 			if *elemType != val.Type {
-				return Value{}, &ParseError{Diag: Diagnostic{Path: p.path, Line: t.line, Col: t.col, Message: "mixed types in array"}}
+				return Value{}, &ParseError{Diag: Diagnostic{Code: CodeMixedArrayTypes, Path: p.path, Line: t.line, Col: t.col, Message: "mixed types in array"}}
 			}
 		} else {
 			et := val.Type
@@ -559,7 +565,7 @@ func unescapeString(raw string) (string, error) {
 			case 't':
 				buf.WriteByte('\t')
 			default:
-				return "", &ParseError{Diag: Diagnostic{Message: "invalid escape sequence"}}
+				return "", &ParseError{Diag: Diagnostic{Code: CodeInvalidEscape, Message: "invalid escape sequence"}}
 			}
 		} else {
 			buf.WriteByte(inner[i])
@@ -594,7 +600,7 @@ func Parse(src []byte) (*File, error) {
 // Use ParseFile or UnmarshalFile to have imports loaded and merged.
 func ParseSource(src []byte, path string) (*File, error) {
 	if len(src) > MaxFileSize {
-		return nil, &ParseError{Diag: Diagnostic{Path: path, Line: 0, Col: 0, Message: "file too large (max 10MB)"}}
+		return nil, &ParseError{Diag: Diagnostic{Code: CodeFileTooLarge, Path: path, Line: 0, Col: 0, Message: "file too large (max 10MB)"}}
 	}
 	p := newParser(src, path)
 	return p.parseFile()

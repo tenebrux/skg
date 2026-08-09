@@ -1,0 +1,18 @@
+{
+  "skg_version": "1.0",
+  "schema_version": "2.3.4",
+  "imports": [
+    "a.skg",
+    "b.skg"
+  ],
+  "children": [
+    {
+      "type": "field",
+      "key": "name",
+      "value": {
+        "type": "string",
+        "data": "header"
+      }
+    }
+  ]
+}

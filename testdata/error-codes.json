@@ -1,0 +1,121 @@
+{
+  "comment": "Closed registry of stable SKG parse-error codes. Conformance fixtures assert these instead of message substrings, because implementations word the same failure differently. Adding a code here is the only way to make it usable in a fixture; every implementation checks its own code set against this file. See docs/conformance.md.",
+  "codes": [
+    {
+      "code": "UNEXPECTED_CHAR",
+      "summary": "A byte appeared where no token can start."
+    },
+    {
+      "code": "UNTERMINATED_STRING",
+      "summary": "A string literal reached a raw newline or end of input before its closing quote."
+    },
+    {
+      "code": "INVALID_ESCAPE",
+      "summary": "A backslash escape other than \\\" \\\\ \\n \\t appeared inside a quoted string."
+    },
+    {
+      "code": "EXPECTED_COLON",
+      "summary": "A ':' was required and something else was found."
+    },
+    {
+      "code": "EXPECTED_RBRACE",
+      "summary": "A '}' was required and something else was found."
+    },
+    {
+      "code": "EXPECTED_RBRACKET",
+      "summary": "A ']' was required and something else was found."
+    },
+    {
+      "code": "EXPECTED_STRING",
+      "summary": "A quoted string was required (skg_version, schema_version, import path) and something else was found."
+    },
+    {
+      "code": "EXPECTED_IDENT",
+      "summary": "An identifier was required and something else was found."
+    },
+    {
+      "code": "EXPECTED_VALUE",
+      "summary": "A field value was required and the token could not start one."
+    },
+    {
+      "code": "EXPECTED_NODE_BODY",
+      "summary": "An identifier was not followed by ':', '{' or '['."
+    },
+    {
+      "code": "UNEXPECTED_TOKEN",
+      "summary": "A token was required whose kind has no more specific code."
+    },
+    {
+      "code": "UNTERMINATED_BLOCK",
+      "summary": "A '{' block reached end of input before its '}'. Also used for an unterminated block inside a block array."
+    },
+    {
+      "code": "UNTERMINATED_BLOCK_ARRAY",
+      "summary": "A block array reached end of input before its ']'."
+    },
+    {
+      "code": "UNTERMINATED_ARRAY",
+      "summary": "A scalar array reached end of input before its ']'."
+    },
+    {
+      "code": "MIXED_ARRAY_TYPES",
+      "summary": "Array elements did not all share one type tag."
+    },
+    {
+      "code": "INVALID_INT",
+      "summary": "An integer literal did not fit a signed 64-bit integer."
+    },
+    {
+      "code": "INVALID_FLOAT",
+      "summary": "A float literal could not be converted to a 64-bit float."
+    },
+    {
+      "code": "DUPLICATE_SKG_VERSION",
+      "summary": "skg_version was declared more than once."
+    },
+    {
+      "code": "DUPLICATE_SCHEMA_VERSION",
+      "summary": "schema_version was declared more than once."
+    },
+    {
+      "code": "MALFORMED_SKG_VERSION",
+      "summary": "skg_version was not a MAJOR.MINOR pair of decimal numbers."
+    },
+    {
+      "code": "UNSUPPORTED_SKG_VERSION",
+      "summary": "skg_version was well formed but newer than the parser implements."
+    },
+    {
+      "code": "UNTERMINATED_IMPORT_LIST",
+      "summary": "A bracketed import list reached end of input before its ']'."
+    },
+    {
+      "code": "EXPECTED_IMPORT_PATH",
+      "summary": "The 'import' keyword was not followed by a string or '['."
+    },
+    {
+      "code": "NESTING_TOO_DEEP",
+      "summary": "Blocks, block arrays and arrays nested deeper than 128 levels."
+    },
+    {
+      "code": "FILE_TOO_LARGE",
+      "summary": "The input exceeded the 10 MiB per-file cap."
+    },
+    {
+      "code": "CIRCULAR_IMPORT",
+      "summary": "An import cycle was reached. Only a parser with the 'imports' capability can produce this."
+    },
+    {
+      "code": "IMPORT_NOT_FOUND",
+      "summary": "An imported file could not be opened. Only a parser with the 'imports' capability can produce this."
+    },
+    {
+      "code": "IMPORT_CHAIN_TOO_DEEP",
+      "summary": "Imports nested deeper than the implementation's import-chain cap. Reserved: no implementation enforces a chain cap yet, so no fixture asserts it. See docs/conformance.md 'Known gaps'."
+    },
+    {
+      "code": "UNKNOWN",
+      "summary": "Fallback for a diagnostic that reached the caller without a code. Never valid in a fixture - its appearance is a parser bug."
+    }
+  ]
+}

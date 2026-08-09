@@ -1,0 +1,3 @@
+import "flat-import-target.skg"
+
+name: "flat"

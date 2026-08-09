@@ -78,6 +78,7 @@ fn parseWithVisited(
     // Circular import guard
     if (visited.contains(path)) {
         diagnostic.* = .{
+            .code = .CIRCULAR_IMPORT,
             .path = path,
             .line = 0,
             .col = 0,
@@ -95,6 +96,7 @@ fn parseWithVisited(
     // Read source
     const f = std.fs.cwd().openFile(path, .{}) catch {
         diagnostic.* = .{
+            .code = .IMPORT_NOT_FOUND,
             .path = path,
             .line = 0,
             .col = 0,
@@ -106,6 +108,7 @@ fn parseWithVisited(
     const max_file_size = 10 * 1024 * 1024;
     const src = f.readToEndAlloc(allocator, max_file_size) catch {
         diagnostic.* = .{
+            .code = .FILE_TOO_LARGE,
             .path = path,
             .line = 0,
             .col = 0,

@@ -1,0 +1,44 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [],
+  "leading_comments": [
+    "# file leading one",
+    "# file leading two"
+  ],
+  "trailing_comments": [],
+  "children": [
+    {
+      "type": "field",
+      "key": "name",
+      "value": {
+        "type": "string",
+        "data": "x"
+      },
+      "leading_comments": [],
+      "trailing_comment": "# trailing on name"
+    },
+    {
+      "type": "block",
+      "name": "theme",
+      "children": [
+        {
+          "type": "field",
+          "key": "accent",
+          "value": {
+            "type": "string",
+            "data": "green"
+          },
+          "leading_comments": [
+            "# leading on accent"
+          ],
+          "trailing_comment": null
+        }
+      ],
+      "leading_comments": [],
+      "trailing_comments": [
+        "# trailing on the theme block"
+      ]
+    }
+  ]
+}

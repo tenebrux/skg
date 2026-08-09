@@ -1,1 +1,6 @@
-{ "error": true, "message_contains": "duplicate skg_version" }
+{
+  "error": true,
+  "code": "DUPLICATE_SKG_VERSION",
+  "line": 2,
+  "col": 14
+}

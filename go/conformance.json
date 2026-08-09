@@ -1,0 +1,13 @@
+{
+  "implementation": "go",
+  "capabilities": {
+    "parse": true,
+    "emit": true,
+    "imports": false,
+    "comments": false
+  },
+  "notes": {
+    "imports": "go/parser.go records import paths on File.ImportPaths but never resolves or merges them; ParseFile only reads one file. Directory fixtures therefore cannot run here. Flipping this to true requires an import-resolving file API in the Go parser.",
+    "comments": "go/lexer.go discards '#' comments in skipWhitespaceAndComments, so no comment trivia reaches the AST and Emit cannot reproduce it."
+  }
+}

@@ -1,1 +1,6 @@
-{ "error": true, "message_contains": "invalid escape" }
+{
+  "error": true,
+  "code": "INVALID_ESCAPE",
+  "line": 1,
+  "col": 11
+}
