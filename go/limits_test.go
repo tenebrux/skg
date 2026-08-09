@@ -99,3 +99,56 @@ func TestFileSizeLimitParseFile(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+func TestSKGVersionValidation(t *testing.T) {
+	cases := []struct {
+		version string
+		wantMsg string // empty means the version must be accepted
+	}{
+		{"1.0", ""},
+		{"0.9", ""},
+		{"9.9", "newer than this parser supports"},
+		{"1.1", "newer than this parser supports"},
+		{"2.0", "newer than this parser supports"},
+		{"abc", "malformed skg_version"},
+		{"1", "malformed skg_version"},
+		{"1.0.0", "malformed skg_version"},
+		{"", "malformed skg_version"},
+		{"-1.0", "malformed skg_version"},
+		{"1.x", "malformed skg_version"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.version, func(t *testing.T) {
+			src := []byte("skg_version: \"" + tc.version + "\"\nname: \"x\"\n")
+			f, err := Parse(src)
+			if tc.wantMsg == "" {
+				if err != nil {
+					t.Fatalf("expected %q to be accepted, got %v", tc.version, err)
+				}
+				if f.SKGVersion == nil || *f.SKGVersion != tc.version {
+					t.Fatalf("expected recorded skg_version %q, got %v", tc.version, f.SKGVersion)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("expected %q to be rejected", tc.version)
+			}
+			if !strings.Contains(err.Error(), tc.wantMsg) {
+				t.Errorf("expected message containing %q, got %v", tc.wantMsg, err)
+			}
+		})
+	}
+}
+
+// schema_version is recorded but deliberately not interpreted (docs/spec.md:
+// "validation is the consuming application's responsibility"), so any string
+// is accepted.
+func TestSchemaVersionNotValidated(t *testing.T) {
+	f, err := Parse([]byte("schema_version: \"9.9.9-not-a-version\"\nname: \"x\"\n"))
+	if err != nil {
+		t.Fatalf("schema_version should not be validated, got %v", err)
+	}
+	if f.SchemaVersion == nil || *f.SchemaVersion != "9.9.9-not-a-version" {
+		t.Fatalf("unexpected schema_version: %v", f.SchemaVersion)
+	}
+}

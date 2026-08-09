@@ -21,6 +21,13 @@ const MaxNestingDepth = 128
 // ("The parser SHALL reject files larger than 10MB with a clear error").
 const MaxFileSize = 10 * 1024 * 1024
 
+// Highest skg_version this parser understands. A file declaring a newer
+// version is rejected so it cannot silently lose meaning.
+const (
+	supportedMajorVersion = 1
+	supportedMinorVersion = 0
+)
+
 type parser struct {
 	lex    *lexer
 	peeked *token
@@ -102,6 +109,31 @@ func (p *parser) leave() {
 	p.depth--
 }
 
+// checkVersion classifies a skg_version string. wellFormed reports whether it is
+// a "major.minor" pair of decimal numbers; supported reports whether that pair
+// is within what this parser implements (meaningless when wellFormed is false).
+func checkVersion(v string) (wellFormed, supported bool) {
+	dot := strings.IndexByte(v, '.')
+	if dot < 0 {
+		return false, false
+	}
+	major, err := strconv.ParseUint(v[:dot], 10, 64)
+	if err != nil {
+		return false, false
+	}
+	minor, err := strconv.ParseUint(v[dot+1:], 10, 64)
+	if err != nil {
+		return false, false
+	}
+	if major > supportedMajorVersion {
+		return true, false
+	}
+	if major == supportedMajorVersion && minor > supportedMinorVersion {
+		return true, false
+	}
+	return true, true
+}
+
 func (p *parser) parseFile() (*File, error) {
 	var skgVersion *string
 	var schemaVersion *string
@@ -135,6 +167,13 @@ func (p *parser) parseFile() (*File, error) {
 				s, err := unescapeString(valTok.text)
 				if err != nil {
 					return nil, err
+				}
+				wellFormed, supported := checkVersion(s)
+				if !wellFormed {
+					return nil, &ParseError{Diag: Diagnostic{Path: p.path, Line: valTok.line, Col: valTok.col, Message: "malformed skg_version, expected \"major.minor\" (e.g. \"1.0\")"}}
+				}
+				if !supported {
+					return nil, &ParseError{Diag: Diagnostic{Path: p.path, Line: valTok.line, Col: valTok.col, Message: "skg_version is newer than this parser supports (max \"" + itoa(supportedMajorVersion) + "." + itoa(supportedMinorVersion) + "\")"}}
 				}
 				skgVersion = &s
 				continue
