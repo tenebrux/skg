@@ -1,8 +1,6 @@
 package skg
 
 import (
-	"io"
-	"os"
 	"strconv"
 	"strings"
 )
@@ -575,11 +573,25 @@ func dedup(nodes []Node) []Node {
 }
 
 // Parse parses SKG source bytes into an AST File.
+//
+// Parse does not touch the filesystem. Any `import` statement is recorded in
+// File.ImportPaths and nothing is loaded - see ParseSource for why, and use
+// ParseFile when imports should be resolved.
 func Parse(src []byte) (*File, error) {
 	return ParseSource(src, "<string>")
 }
 
 // ParseSource parses SKG source bytes with a given file path for error messages.
+//
+// ParseSource performs no filesystem access whatsoever, and the path argument
+// is used only to label diagnostics - it is not opened, and imports are not
+// resolved relative to it. That is a deliberate guarantee, not an omission: a
+// caller handing untrusted bytes to the parser gets no path traversal, no
+// symlink following, no cyclic-import work, and no I/O of any kind. Imports are
+// still recorded in File.ImportPaths so a caller can resolve them under its own
+// policy.
+//
+// Use ParseFile or UnmarshalFile to have imports loaded and merged.
 func ParseSource(src []byte, path string) (*File, error) {
 	if len(src) > MaxFileSize {
 		return nil, &ParseError{Diag: Diagnostic{Path: path, Line: 0, Col: 0, Message: "file too large (max 10MB)"}}
@@ -588,19 +600,17 @@ func ParseSource(src []byte, path string) (*File, error) {
 	return p.parseFile()
 }
 
-// ParseFile reads and parses an SKG file from disk.
+// ParseFile reads and parses an SKG file from disk, resolving its imports.
+//
+// Each imported file is located relative to the file that imports it, parsed
+// under the same limits (MaxFileSize, MaxNestingDepth), and merged in
+// declaration order; the importing file's own values overlay everything it
+// imported. Import chains are followed to MaxImportDepth levels, and a cycle is
+// rejected with an error naming the chain that closed it. File.ImportPaths on
+// the returned File still holds the paths exactly as they were written.
+//
+// The byte-oriented entry points (Parse, ParseSource, Unmarshal) never resolve
+// imports - see ParseSource.
 func ParseFile(path string) (*File, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	// Read one byte past the cap rather than stat-ing: a size check alone lies
-	// for pipes and /proc entries, and os.ReadFile would buffer the whole input
-	// before ParseSource could reject it.
-	data, err := io.ReadAll(io.LimitReader(f, MaxFileSize+1))
-	if err != nil {
-		return nil, err
-	}
-	return ParseSource(data, path)
+	return resolveImports(path)
 }
