@@ -95,17 +95,29 @@ fn emitValue(w: anytype, value: ast.Value, depth: usize) !void {
     switch (value) {
         .int => |v| try w.print("{d}", .{v}),
         .float => |v| {
-            try w.print("{d}", .{v});
-            // Ensure decimal point is present for round-trip fidelity
-            var fmtbuf: [32]u8 = undefined;
-            const s = std.fmt.bufPrint(&fmtbuf, "{d}", .{v}) catch unreachable;
-            if (std.mem.indexOfScalar(u8, s, '.') == null) {
-                try w.writeAll(".0");
+            // Render once, then append ".0" when the decimal point is missing
+            // so the value re-parses as a float rather than an int.
+            //
+            // The buffer must fit the widest `{d}` output for a finite f64:
+            // ~309 digits for the largest magnitude, and a few hundred more
+            // for denormals, which print as 0.000...  A 32-byte buffer used to
+            // sit here behind `catch unreachable`, so any value past roughly
+            // 1e32 panicked the process instead of emitting.
+            var fmtbuf: [1024]u8 = undefined;
+            if (std.fmt.bufPrint(&fmtbuf, "{d}", .{v})) |s| {
+                try w.writeAll(s);
+                if (std.mem.indexOfScalar(u8, s, '.') == null) {
+                    try w.writeAll(".0");
+                }
+            } else |_| {
+                // Not reachable for finite f64 with the buffer above; degrade
+                // to a plain write rather than crashing if it ever is.
+                try w.print("{d}", .{v});
             }
         },
         .bool => |v| try w.writeAll(if (v) "true" else "false"),
         .string => |s| {
-            if (std.mem.indexOfScalar(u8, s, '\n') != null) {
+            if (std.mem.indexOfScalar(u8, s, '\n') != null and canEmitMultiline(s)) {
                 try w.writeAll("\"\"\"");
                 try w.writeAll(s);
                 try w.writeAll("\"\"\"");
@@ -135,6 +147,18 @@ fn emitCommentLines(w: anytype, comments: []const []const u8, depth: usize) !voi
         try w.writeAll(c);
         try w.writeByte('\n');
     }
+}
+
+/// Reports whether `s` survives a `"""..."""` round-trip.
+///
+/// Multiline literals are taken verbatim with no escape processing, so an
+/// embedded `"""` - or a trailing `"` that merges with the closing delimiter -
+/// would end the literal early and the output would not re-parse. Such values
+/// are emitted as an escaped double-quoted string instead. go/emit.go applies
+/// the same rule; testdata/valid/emit-multiline-fallback pins both.
+fn canEmitMultiline(s: []const u8) bool {
+    if (std.mem.indexOf(u8, s, "\"\"\"") != null) return false;
+    return !std.mem.endsWith(u8, s, "\"");
 }
 
 fn writeEscaped(w: anytype, s: []const u8) !void {
