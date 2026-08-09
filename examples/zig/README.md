@@ -94,7 +94,7 @@ remote URL with a content hash:
 
 ```zig
 .skg = .{
-    .url = "https://github.com/fynxlabs/skg/archive/<commit>.tar.gz",
+    .url = "https://github.com/tenebrux/skg/archive/<commit>.tar.gz",
     .hash = "<hash>",
 },
 ```

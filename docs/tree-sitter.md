@@ -61,7 +61,7 @@ Register SKG as a custom parser in your Neovim config:
 local parser_config = require('nvim-treesitter.parsers').get_parser_configs()
 parser_config.skg = {
   install_info = {
-    url = 'https://github.com/FynxLabs/skg',
+    url = 'https://github.com/tenebrux/skg',
     files = { 'tools/tree-sitter-skg/src/parser.c' },
     branch = 'master',
     generate_requires_npm = false,
@@ -92,7 +92,7 @@ indent = { tab-width = 2, unit = "  " }
 
 [[grammar]]
 name = "skg"
-source = { git = "https://github.com/FynxLabs/skg", rev = "master", subpath = "tools/tree-sitter-skg" }
+source = { git = "https://github.com/tenebrux/skg", rev = "master", subpath = "tools/tree-sitter-skg" }
 ```
 
 Then `hx --grammar fetch && hx --grammar build`.

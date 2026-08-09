@@ -10,5 +10,5 @@ permissions:
 
 jobs:
   edge:
-    uses: fynxlabs/github-workflows/.github/workflows/zig-edge.yml@master
+    uses: tenebrux/github-workflows/.github/workflows/zig-edge.yml@master
     secrets: inherit
