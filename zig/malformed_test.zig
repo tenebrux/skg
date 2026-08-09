@@ -98,6 +98,18 @@ test "diagnostic includes file path" {
     try testing.expectEqualStrings("my/config.skg", diag.path);
 }
 
+// ─── skg_version classification ──────────────────────────────────────────────
+
+test "reject malformed skg_version" {
+    const diag = try expectParseFailure("skg_version: \"abc\"\n");
+    try testing.expectEqualStrings("skg_version is malformed, expected \"MAJOR.MINOR\"", diag.message);
+}
+
+test "reject skg_version newer than supported" {
+    const diag = try expectParseFailure("skg_version: \"9.9\"\n");
+    try testing.expectEqualStrings("skg_version is newer than this parser supports", diag.message);
+}
+
 // ─── Nesting depth limit ─────────────────────────────────────────────────────
 
 const max_depth: usize = parser.max_nesting_depth;

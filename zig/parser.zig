@@ -22,6 +22,7 @@ pub const ParseError = LexError || error{
     DuplicateSKGVersion,
     DuplicateSchemaVersion,
     UnsupportedSKGVersion,
+    MalformedSKGVersion,
     NestingTooDeep,
     InvalidInt,
     InvalidFloat,
@@ -200,9 +201,16 @@ const Parser = struct {
                         return error.DuplicateSKGVersion;
                     }
                     skg_version = try self.unescapeString(val_tok.text);
-                    if (!checkVersion(skg_version.?)) {
-                        self.setDiagnostic(val_tok.line, val_tok.col, "skg_version is newer than this parser supports");
-                        return error.UnsupportedSKGVersion;
+                    switch (checkVersion(skg_version.?)) {
+                        .ok => {},
+                        .malformed => {
+                            self.setDiagnostic(val_tok.line, val_tok.col, "skg_version is malformed, expected \"MAJOR.MINOR\"");
+                            return error.MalformedSKGVersion;
+                        },
+                        .too_new => {
+                            self.setDiagnostic(val_tok.line, val_tok.col, "skg_version is newer than this parser supports");
+                            return error.UnsupportedSKGVersion;
+                        },
                     }
                     continue;
                 }
@@ -567,14 +575,25 @@ fn dedup(allocator: Allocator, nodes: []const ast.Node) ![]ast.Node {
     return merge.mergeNodes(allocator, &.{}, nodes);
 }
 
-/// Return true if the declared version is supported (major.minor <= supported).
-fn checkVersion(version: []const u8) bool {
-    const dot = std.mem.indexOfScalar(u8, version, '.') orelse return false;
-    const major = std.fmt.parseUnsigned(u8, version[0..dot], 10) catch return false;
-    const minor = std.fmt.parseUnsigned(u8, version[dot + 1 ..], 10) catch return false;
-    if (major > supported_major) return false;
-    if (major == supported_major and minor > supported_minor) return false;
-    return true;
+/// Outcome of validating a declared skg_version.
+pub const VersionCheck = enum {
+    /// Well-formed and supported.
+    ok,
+    /// Not a "MAJOR.MINOR" pair of decimal numbers.
+    malformed,
+    /// Well-formed, but newer than this parser supports.
+    too_new,
+};
+
+/// Classify a declared skg_version: malformed values are reported separately
+/// from values that are merely newer than `supported_major.supported_minor`.
+fn checkVersion(version: []const u8) VersionCheck {
+    const dot = std.mem.indexOfScalar(u8, version, '.') orelse return .malformed;
+    const major = std.fmt.parseUnsigned(u8, version[0..dot], 10) catch return .malformed;
+    const minor = std.fmt.parseUnsigned(u8, version[dot + 1 ..], 10) catch return .malformed;
+    if (major > supported_major) return .too_new;
+    if (major == supported_major and minor > supported_minor) return .too_new;
+    return .ok;
 }
 
 /// Parse an SKG source string into an ast.File.
