@@ -5,18 +5,18 @@ type tokenTag int
 
 const (
 	tokInt       tokenTag = iota // 42, -3
-	tokFloat                    // 0.92, -13.0
-	tokBoolTrue                 // true
-	tokBoolFalse                // false
-	tokNullLit                  // null
-	tokString                   // "..." including quotes
-	tokIdent                    // bare word
-	tokColon                    // :
-	tokLBrace                   // {
-	tokRBrace                   // }
-	tokLBracket                 // [
-	tokRBracket                 // ]
-	tokComma                    // ,
+	tokFloat                     // 0.92, -13.0
+	tokBoolTrue                  // true
+	tokBoolFalse                 // false
+	tokNullLit                   // null
+	tokString                    // "..." including quotes
+	tokIdent                     // bare word
+	tokColon                     // :
+	tokLBrace                    // {
+	tokRBrace                    // }
+	tokLBracket                  // [
+	tokRBracket                  // ]
+	tokComma                     // ,
 	tokEOF
 )
 
@@ -189,11 +189,25 @@ func (l *lexer) lexNegativeNumber(line, col int) (token, error) {
 	return token{}, &ParseError{Diag: Diagnostic{Code: CodeUnexpectedChar, Line: line, Col: col, Message: "unexpected character"}}
 }
 
+// lexNumber lexes an int or float literal.
+//
+// The grammar admits exactly one spelling per value (docs/spec.md, "one way to
+// write each construct"), so two shapes a permissive scanner would wave through
+// are rejected here instead of silently normalised:
+//
+//   - a redundant leading zero (007, 00.5): the integer part is "0" or starts
+//     with a non-zero digit, nothing else;
+//   - a decimal point with no digit after it (5.): spec.md requires the trailing
+//     zero, so 5.0 is the only spelling of that value.
+//
+// Both are reported at the first byte of the literal, not at the cursor, which
+// by then sits past it. zig/lexer.go carries the same rule.
 func (l *lexer) lexNumber(line, col int) (token, error) {
 	start := l.pos
 	if c, _ := l.peek(); c == '-' {
 		l.advance()
 	}
+	intStart := l.pos
 	for {
 		c, ok := l.peek()
 		if !ok || c < '0' || c > '9' {
@@ -201,8 +215,11 @@ func (l *lexer) lexNumber(line, col int) (token, error) {
 		}
 		l.advance()
 	}
+	leadingZero := l.pos-intStart > 1 && l.src[intStart] == '0'
+
 	if c, ok := l.peek(); ok && c == '.' {
 		l.advance()
+		fracStart := l.pos
 		for {
 			c, ok := l.peek()
 			if !ok || c < '0' || c > '9' {
@@ -210,7 +227,15 @@ func (l *lexer) lexNumber(line, col int) (token, error) {
 			}
 			l.advance()
 		}
+		if l.pos == fracStart || leadingZero {
+			return token{}, &ParseError{Diag: Diagnostic{Code: CodeInvalidFloat, Line: line, Col: col,
+				Message: "invalid float literal, expected a digit after '.' and no leading zero"}}
+		}
 		return token{tag: tokFloat, text: string(l.src[start:l.pos]), line: line, col: col}, nil
+	}
+	if leadingZero {
+		return token{}, &ParseError{Diag: Diagnostic{Code: CodeInvalidInt, Line: line, Col: col,
+			Message: "invalid integer literal, a leading zero is not allowed"}}
 	}
 	return token{tag: tokInt, text: string(l.src[start:l.pos]), line: line, col: col}, nil
 }
@@ -243,4 +268,26 @@ func isIdentStart(c byte) bool {
 
 func isIdentChar(c byte) bool {
 	return isIdentStart(c) || (c >= '0' && c <= '9')
+}
+
+// isIdentifier reports whether s can be written as a bare SKG key.
+//
+// Keys are never quoted, so a name that is not an identifier - or that is one of
+// the three reserved literals, which the lexer turns into value tokens rather
+// than identifiers - has no spelling in the language. Marshal checks this before
+// emitting a name rather than producing text it cannot read back.
+func isIdentifier(s string) bool {
+	if s == "" || !isIdentStart(s[0]) {
+		return false
+	}
+	for i := 1; i < len(s); i++ {
+		if !isIdentChar(s[i]) {
+			return false
+		}
+	}
+	switch s {
+	case "true", "false", "null":
+		return false
+	}
+	return true
 }

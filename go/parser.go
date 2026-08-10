@@ -138,10 +138,18 @@ func checkVersion(v string) (wellFormed, supported bool) {
 	return true, true
 }
 
+// isDirective reports whether name is a header directive rather than a node
+// name. These three words are reserved at the top level of a file only; inside
+// a block they are ordinary identifiers, because a block has no header.
+func isDirective(name string) bool {
+	return name == "skg_version" || name == "schema_version" || name == "import"
+}
+
 func (p *parser) parseFile() (*File, error) {
 	var skgVersion *string
 	var schemaVersion *string
 	var importPaths []string
+	var importPositions []Position
 	var children []Node
 
 	for {
@@ -153,24 +161,40 @@ func (p *parser) parseFile() (*File, error) {
 			break
 		}
 
-		if t.tag == tokIdent {
+		if t.tag == tokIdent && isDirective(t.text) {
+			// Every directive belongs to the header, and the header comes
+			// before the body (docs/spec.md, "File Structure"). Accepting one
+			// after a block or field would freeze a second spelling of the same
+			// file at V1, and the emitter has no way to reproduce it.
+			if len(children) > 0 {
+				return nil, &ParseError{Diag: Diagnostic{Code: CodeDirectiveAfterBody, Path: p.path, Line: t.line, Col: t.col, Message: "header directives must appear before the first block or field"}}
+			}
+			if _, err := p.consume(); err != nil {
+				return nil, err
+			}
+
+			if t.text == "import" {
+				if err := p.parseImports(&importPaths, &importPositions); err != nil {
+					return nil, err
+				}
+				continue
+			}
+
+			if _, err := p.expect(tokColon); err != nil {
+				return nil, err
+			}
+			valTok, err := p.expect(tokString)
+			if err != nil {
+				return nil, err
+			}
+			s, err := unescapeString(valTok.text)
+			if err != nil {
+				return nil, err
+			}
+
 			if t.text == "skg_version" {
-				if _, err := p.consume(); err != nil {
-					return nil, err
-				}
-				if _, err := p.expect(tokColon); err != nil {
-					return nil, err
-				}
-				valTok, err := p.expect(tokString)
-				if err != nil {
-					return nil, err
-				}
 				if skgVersion != nil {
 					return nil, &ParseError{Diag: Diagnostic{Code: CodeDuplicateSKGVersion, Path: p.path, Line: valTok.line, Col: valTok.col, Message: "duplicate skg_version declaration"}}
-				}
-				s, err := unescapeString(valTok.text)
-				if err != nil {
-					return nil, err
 				}
 				wellFormed, supported := checkVersion(s)
 				if !wellFormed {
@@ -182,36 +206,12 @@ func (p *parser) parseFile() (*File, error) {
 				skgVersion = &s
 				continue
 			}
-			if t.text == "schema_version" {
-				if _, err := p.consume(); err != nil {
-					return nil, err
-				}
-				if _, err := p.expect(tokColon); err != nil {
-					return nil, err
-				}
-				valTok, err := p.expect(tokString)
-				if err != nil {
-					return nil, err
-				}
-				if schemaVersion != nil {
-					return nil, &ParseError{Diag: Diagnostic{Code: CodeDuplicateSchemaVersion, Path: p.path, Line: valTok.line, Col: valTok.col, Message: "duplicate schema_version declaration"}}
-				}
-				s, err := unescapeString(valTok.text)
-				if err != nil {
-					return nil, err
-				}
-				schemaVersion = &s
-				continue
+
+			if schemaVersion != nil {
+				return nil, &ParseError{Diag: Diagnostic{Code: CodeDuplicateSchemaVersion, Path: p.path, Line: valTok.line, Col: valTok.col, Message: "duplicate schema_version declaration"}}
 			}
-			if t.text == "import" {
-				if _, err := p.consume(); err != nil {
-					return nil, err
-				}
-				if err := p.parseImports(&importPaths); err != nil {
-					return nil, err
-				}
-				continue
-			}
+			schemaVersion = &s
+			continue
 		}
 
 		node, err := p.parseNode()
@@ -224,14 +224,15 @@ func (p *parser) parseFile() (*File, error) {
 	children = dedup(children)
 
 	return &File{
-		SKGVersion:    skgVersion,
-		SchemaVersion: schemaVersion,
-		ImportPaths:   importPaths,
-		Children:      children,
+		SKGVersion:      skgVersion,
+		SchemaVersion:   schemaVersion,
+		ImportPaths:     importPaths,
+		ImportPositions: importPositions,
+		Children:        children,
 	}, nil
 }
 
-func (p *parser) parseImports(list *[]string) error {
+func (p *parser) parseImports(list *[]string, positions *[]Position) error {
 	t, err := p.peek()
 	if err != nil {
 		return err
@@ -240,12 +241,7 @@ func (p *parser) parseImports(list *[]string) error {
 		if _, err := p.consume(); err != nil {
 			return err
 		}
-		s, err := unescapeString(t.text)
-		if err != nil {
-			return err
-		}
-		*list = append(*list, s)
-		return nil
+		return p.appendImport(list, positions, t)
 	}
 	if t.tag == tokLBracket {
 		if _, err := p.consume(); err != nil {
@@ -271,14 +267,54 @@ func (p *parser) parseImports(list *[]string) error {
 			if err != nil {
 				return err
 			}
-			s, err := unescapeString(pathTok.text)
-			if err != nil {
+			if err := p.appendImport(list, positions, pathTok); err != nil {
 				return err
 			}
-			*list = append(*list, s)
 		}
 	}
 	return &ParseError{Diag: Diagnostic{Code: CodeExpectedImportPath, Path: p.path, Line: t.line, Col: t.col, Message: "expected import path string or '['"}}
+}
+
+// appendImport records one import path and where it was written, rejecting
+// absolute paths.
+func (p *parser) appendImport(list *[]string, positions *[]Position, tok token) error {
+	s, err := unescapeString(tok.text)
+	if err != nil {
+		return err
+	}
+	if isAbsoluteImportPath(s) {
+		return &ParseError{Diag: Diagnostic{Code: CodeAbsoluteImportPath, Path: p.path, Line: tok.line, Col: tok.col, Message: "import paths must be relative to the importing file"}}
+	}
+	*list = append(*list, s)
+	*positions = append(*positions, Position{Line: tok.line, Col: tok.col})
+	return nil
+}
+
+// isAbsoluteImportPath reports whether an import path escapes the relative-path
+// grammar.
+//
+// Absolute imports are rejected outright (docs/spec.md, "Imports"): they are not
+// portable between machines, and a config parsed as root - which is how umbra
+// reads its manifests - has no business following a path out of the config tree.
+// The Windows spellings are rejected too so a file cannot mean different things
+// on different hosts. This is deliberately not filepath.IsAbs, which is
+// host-dependent and would let "/etc/x.skg" through on Windows.
+// zig/parser.zig carries the same rule.
+func isAbsoluteImportPath(path string) bool {
+	if path == "" {
+		return false
+	}
+	if path[0] == '/' || path[0] == '\\' {
+		return true
+	}
+	// Drive-relative or drive-absolute Windows path: "C:", `C:\x`, "C:x".
+	if len(path) >= 2 && path[1] == ':' {
+		c := path[0]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *parser) parseNode() (Node, error) {
@@ -367,10 +403,20 @@ func (p *parser) parseBlockArray(nameTok token) (Node, error) {
 			return Node{}, &ParseError{Diag: Diagnostic{Code: CodeUnterminatedBlockArray, Path: p.path, Line: t.line, Col: t.col, Message: "unterminated block array, expected ']'"}}
 		}
 		if t.tag != tokLBrace {
-			// Not a block array - this is a regular field with array value.
-			// Re-parse as: name: [items...]
-			// We've already consumed '[', so parse the remaining array elements.
-			return p.reParseAsFieldArray(nameTok, t)
+			// `name [` whose first element is not `{` is the colonless
+			// scalar-array shorthand (docs/spec.md, "Block Arrays"), so hand
+			// the rest of the elements to the scalar-array parser.
+			//
+			// Once an entry has been parsed this is no longer a choice between
+			// two readings: the collection has already committed to being a
+			// block array, and a scalar here mixes element kinds. Falling back
+			// at that point silently discarded every entry parsed so far,
+			// turning `users [ {name: "a"} 99 ]` into `users: [99]` with no
+			// diagnostic.
+			if len(items) > 0 {
+				return Node{}, &ParseError{Diag: Diagnostic{Code: CodeMixedArrayTypes, Path: p.path, Line: t.line, Col: t.col, Message: "mixed block and scalar elements in an array"}}
+			}
+			return p.reParseAsFieldArray(nameTok)
 		}
 		p.consume() // consume '{'
 		if err := p.enter(t); err != nil {
@@ -402,12 +448,11 @@ func (p *parser) parseBlockArray(nameTok token) (Node, error) {
 	return Node{BlockArray: &BlockArray{Name: nameTok.text, Items: items, Line: nameTok.line, Col: nameTok.col}}, nil
 }
 
-// reParseAsFieldArray handles the case where `name [` was followed by a scalar
-// value instead of `{`, meaning it's actually `name: [values...]` without a colon.
-// Wait - SKG requires colons for fields. So `name [` with non-brace content is an error.
-// But to keep the parser friendly, we parse it as a regular array and return it as a field.
-func (p *parser) reParseAsFieldArray(nameTok token, firstTok token) (Node, error) {
-	// Parse remaining array contents starting from firstTok (already peeked).
+// reParseAsFieldArray parses the colonless scalar-array shorthand: `name [`
+// followed by something other than `{` means `name: [values...]` written
+// without the colon (docs/spec.md, "Block Arrays"). The `[` is already
+// consumed, so only the elements remain.
+func (p *parser) reParseAsFieldArray(nameTok token) (Node, error) {
 	var items []Value
 	var elemType *ValueType
 
@@ -426,6 +471,11 @@ func (p *parser) reParseAsFieldArray(nameTok token, firstTok token) (Node, error
 		}
 		if t.tag == tokEOF {
 			return Node{}, &ParseError{Diag: Diagnostic{Code: CodeUnterminatedArray, Path: p.path, Line: t.line, Col: t.col, Message: "unterminated array, expected ']'"}}
+		}
+		if t.tag == tokLBrace {
+			// The mirror of the check in parseBlockArray: this collection has
+			// committed to holding scalars, so a block entry mixes kinds.
+			return Node{}, &ParseError{Diag: Diagnostic{Code: CodeMixedArrayTypes, Path: p.path, Line: t.line, Col: t.col, Message: "mixed block and scalar elements in an array"}}
 		}
 		val, err := p.parseValue()
 		if err != nil {

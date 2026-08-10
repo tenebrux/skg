@@ -100,12 +100,25 @@ type Node struct {
 	BlockArray *BlockArray
 }
 
+// Position is a 1-based source position. Col counts bytes, not code points.
+type Position struct {
+	Line int
+	Col  int
+}
+
 // File is the parsed representation of a single .skg file.
 type File struct {
 	SKGVersion    *string  // skg_version: "1.0" - nil if absent
 	SchemaVersion *string  // schema_version: "1.0.0" - nil if absent
 	ImportPaths   []string // Raw import path strings
-	Children      []Node
+
+	// ImportPositions holds the source position of each entry in ImportPaths,
+	// same length and order. An import that fails to resolve is reported at its
+	// own path token rather than at 0:0, so the diagnostic points at the line
+	// the author wrote.
+	ImportPositions []Position
+
+	Children []Node
 }
 
 // ErrorCode is a stable, implementation-independent identifier for a parse
@@ -150,6 +163,8 @@ const (
 	CodeUnsupportedSKGVersion  ErrorCode = "UNSUPPORTED_SKG_VERSION"
 	CodeUnterminatedImportList ErrorCode = "UNTERMINATED_IMPORT_LIST"
 	CodeExpectedImportPath     ErrorCode = "EXPECTED_IMPORT_PATH"
+	CodeAbsoluteImportPath     ErrorCode = "ABSOLUTE_IMPORT_PATH"
+	CodeDirectiveAfterBody     ErrorCode = "DIRECTIVE_AFTER_BODY"
 
 	// Resource limits.
 	CodeNestingTooDeep ErrorCode = "NESTING_TOO_DEEP"
@@ -193,6 +208,8 @@ var ErrorCodes = []ErrorCode{
 	CodeUnsupportedSKGVersion,
 	CodeUnterminatedImportList,
 	CodeExpectedImportPath,
+	CodeAbsoluteImportPath,
+	CodeDirectiveAfterBody,
 	CodeNestingTooDeep,
 	CodeFileTooLarge,
 	CodeCircularImport,

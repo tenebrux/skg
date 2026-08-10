@@ -1,0 +1,15 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [],
+  "children": [
+    {
+      "type": "field",
+      "key": "list",
+      "value": { "type": "array", "element_type": "string", "data": [] }
+    },
+    { "type": "block_array", "name": "tags", "items": [] },
+    { "type": "block_array", "name": "panels", "items": [] },
+    { "type": "block", "name": "defaults", "children": [] }
+  ]
+}

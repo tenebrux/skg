@@ -1,0 +1,31 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [],
+  "children": [
+    {
+      "type": "field",
+      "key": "big",
+      "value": {
+        "type": "float",
+        "data": 1e+30
+      }
+    },
+    {
+      "type": "field",
+      "key": "small",
+      "value": {
+        "type": "float",
+        "data": 2.5e-11
+      }
+    },
+    {
+      "type": "field",
+      "key": "neg",
+      "value": {
+        "type": "float",
+        "data": -1e+30
+      }
+    }
+  ]
+}

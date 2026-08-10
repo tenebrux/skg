@@ -86,8 +86,17 @@ formatted sidecar means `emit`, comment keys mean `comments`.
 
 | Prefix        | Covers                                                                 |
 | ------------- | ------------------------------------------------------------------------ |
-| `emit-*`      | Round-trip: floats, strings and escapes, multiline fallback, collections, header |
-| `imports-*`   | Import resolution: basic merge, last-wins, multiple, chain, diamond      |
+| `emit-*`      | Round-trip: floats (including magnitudes past 1e30), strings and escapes, multiline fallback, collections, header |
+| `imports-*`   | Import resolution: basic merge, last-wins, multiple, chain, diamond, subdirectory, chain at the 32-level cap |
+| `import-*`    | Import failures: missing file, cycle, `./`-spelled cycle, chain past the cap |
 | `comment-*`   | Comments do not disturb parsing (structure only - no capability needed)  |
 | `trivia-*`    | Comment trivia itself (requires the `comments` capability)               |
 | `nesting-*`   | The 128-level depth boundary, accepted and rejected                      |
+| `mixed-*`     | Array element uniformity, including block-versus-scalar in both directions |
+| `int-*`, `float-*` | Number literal spelling and 64-bit range boundaries                 |
+
+Two fixtures look redundant and are not. `import-cycle` spells its cycle with
+bare filenames and `import-cycle-dotslash` spells it `./b.skg`; only the second
+catches a resolver that compares raw joined path strings. `imports-chain` is two
+levels deep and `imports-chain-at-limit` is 32, which is the last depth the cap
+accepts - `import-chain-too-deep` is one past it.

@@ -1,0 +1,23 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [],
+  "children": [
+    {
+      "type": "field",
+      "key": "max",
+      "value": {
+        "type": "int",
+        "data": 9223372036854775807
+      }
+    },
+    {
+      "type": "field",
+      "key": "min",
+      "value": {
+        "type": "int",
+        "data": -9223372036854775808
+      }
+    }
+  ]
+}

@@ -37,11 +37,16 @@ pub fn mergeNodes(allocator: Allocator, base: []const ast.Node, overlay: []const
                     // Only recursively merge if existing is also a block
                     if (result.items[pos] == .block) {
                         const existing = result.items[pos].block;
+                        // Carry both sides' trivia. Dropping it here meant every
+                        // duplicate block lost its comments, and `skg fmt`
+                        // rewrites files in place - so the loss was permanent.
                         result.items[pos] = ast.Node{ .block = .{
                             .name = existing.name,
                             .children = try mergeNodes(allocator, existing.children, ov_block.children),
                             .line = existing.line,
                             .col = existing.col,
+                            .leading_comments = try concatComments(allocator, existing.leading_comments, ov_block.leading_comments),
+                            .trailing_comments = try concatComments(allocator, existing.trailing_comments, ov_block.trailing_comments),
                         } };
                     } else {
                         result.items[pos] = ov_node;
@@ -57,6 +62,21 @@ pub fn mergeNodes(allocator: Allocator, base: []const ast.Node, overlay: []const
     }
 
     return result.toOwnedSlice(allocator);
+}
+
+/// Append `b`'s comments after `a`'s, avoiding an allocation when either side
+/// is empty (which is almost always).
+fn concatComments(
+    allocator: Allocator,
+    a: []const []const u8,
+    b: []const []const u8,
+) ![]const []const u8 {
+    if (b.len == 0) return a;
+    if (a.len == 0) return b;
+    const out = try allocator.alloc([]const u8, a.len + b.len);
+    @memcpy(out[0..a.len], a);
+    @memcpy(out[a.len..], b);
+    return out;
 }
 
 fn nodeKey(node: ast.Node) []const u8 {

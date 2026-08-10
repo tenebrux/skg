@@ -26,6 +26,8 @@ pub const ParseError = LexError || error{
     NestingTooDeep,
     InvalidInt,
     InvalidFloat,
+    AbsoluteImportPath,
+    DirectiveAfterBody,
     OutOfMemory,
 };
 
@@ -101,11 +103,15 @@ const Parser = struct {
                 error.UnexpectedChar => .UNEXPECTED_CHAR,
                 error.UnterminatedString => .UNTERMINATED_STRING,
                 error.InvalidEscape => .INVALID_ESCAPE,
+                error.InvalidInt => .INVALID_INT,
+                error.InvalidFloat => .INVALID_FLOAT,
             };
             self.setDiagnostic(self.lexer.line, self.lexer.col, code, switch (err) {
                 error.UnexpectedChar => "unexpected character",
                 error.UnterminatedString => "unterminated string literal",
                 error.InvalidEscape => "invalid escape sequence",
+                error.InvalidInt => "invalid integer literal, a leading zero is not allowed",
+                error.InvalidFloat => "invalid float literal, expected a digit after '.' and no leading zero",
             });
             return err;
         };
@@ -135,6 +141,18 @@ const Parser = struct {
         if (self.comment_buf.items.len == 0) return &.{};
         const slice = self.comment_buf.toOwnedSlice(self.allocator) catch return error.OutOfMemory;
         return slice;
+    }
+
+    /// Move buffered comments onto the end of `out` and clear the buffer.
+    ///
+    /// Used for the header region, where a comment sitting between two
+    /// directives has no node of its own to hang from. Appending keeps it in
+    /// the file's leading trivia; the alternative the parser used to take was to
+    /// drop it, which loses a line every time `skg fmt` rewrites the file.
+    fn drainCommentsInto(self: *Parser, out: *std.ArrayListUnmanaged([]const u8)) ParseError!void {
+        if (self.comment_buf.items.len == 0) return;
+        try out.appendSlice(self.allocator, self.comment_buf.items);
+        self.comment_buf.clearRetainingCapacity();
     }
 
     /// Check if the very next raw token (no skipping) is a comment on the given line.
@@ -191,26 +209,36 @@ const Parser = struct {
         var skg_version: ?[]const u8 = null;
         var schema_version: ?[]const u8 = null;
         var import_paths: std.ArrayListUnmanaged([]const u8) = .empty;
+        var import_positions: std.ArrayListUnmanaged(ast_mod.Position) = .empty;
         var children: std.ArrayListUnmanaged(ast.Node) = .empty;
-        var file_leading: []const []const u8 = &.{};
+        var file_leading: std.ArrayListUnmanaged([]const u8) = .empty;
         var captured_file_leading = false;
 
         while (true) {
             const t = try self.peek();
             if (t.tag == .eof) break;
 
-            if (t.tag == .ident) {
+            if (t.tag == .ident and isDirective(t.text)) {
+                // Every directive belongs to the header, and the header comes
+                // before the body (docs/spec.md, "File Structure"). Accepting one
+                // after a block or field would freeze a second spelling of the
+                // same file at V1, and the emitter has no way to reproduce it.
+                if (children.items.len > 0) {
+                    self.setDiagnostic(t.line, t.col, .DIRECTIVE_AFTER_BODY, "header directives must appear before the first block or field");
+                    return error.DirectiveAfterBody;
+                }
+                try self.drainCommentsInto(&file_leading);
+                captured_file_leading = true;
+                _ = try self.consume();
+
+                if (std.mem.eql(u8, t.text, "import")) {
+                    try self.parseImports(&import_paths, &import_positions);
+                    continue;
+                }
+
+                _ = try self.expect(.colon);
+                const val_tok = try self.expect(.string);
                 if (std.mem.eql(u8, t.text, "skg_version")) {
-                    if (!captured_file_leading) {
-                        file_leading = try self.drainComments();
-                        captured_file_leading = true;
-                    } else {
-                        // Discard comments before header directives (they'll be lost)
-                        _ = try self.drainComments();
-                    }
-                    _ = try self.consume();
-                    _ = try self.expect(.colon);
-                    const val_tok = try self.expect(.string);
                     if (skg_version != null) {
                         self.setDiagnostic(val_tok.line, val_tok.col, .DUPLICATE_SKG_VERSION, "duplicate skg_version declaration");
                         return error.DuplicateSKGVersion;
@@ -227,41 +255,19 @@ const Parser = struct {
                             return error.UnsupportedSKGVersion;
                         },
                     }
-                    continue;
-                }
-                if (std.mem.eql(u8, t.text, "schema_version")) {
-                    if (!captured_file_leading) {
-                        file_leading = try self.drainComments();
-                        captured_file_leading = true;
-                    } else {
-                        _ = try self.drainComments();
-                    }
-                    _ = try self.consume();
-                    _ = try self.expect(.colon);
-                    const val_tok = try self.expect(.string);
+                } else {
                     if (schema_version != null) {
                         self.setDiagnostic(val_tok.line, val_tok.col, .DUPLICATE_SCHEMA_VERSION, "duplicate schema_version declaration");
                         return error.DuplicateSchemaVersion;
                     }
                     schema_version = try self.unescapeString(val_tok.text);
-                    continue;
                 }
-                if (std.mem.eql(u8, t.text, "import")) {
-                    if (!captured_file_leading) {
-                        file_leading = try self.drainComments();
-                        captured_file_leading = true;
-                    } else {
-                        _ = try self.drainComments();
-                    }
-                    _ = try self.consume();
-                    try self.parseImports(&import_paths);
-                    continue;
-                }
+                continue;
             }
 
             // First real node captures file-level leading comments if not yet done
             if (!captured_file_leading) {
-                file_leading = try self.drainComments();
+                try self.drainCommentsInto(&file_leading);
                 captured_file_leading = true;
             }
 
@@ -272,9 +278,9 @@ const Parser = struct {
         // Any comments after the last node are file trailing comments
         const file_trailing = try self.drainComments();
 
-        // If no nodes were parsed, file_leading captures everything before EOF
+        // If nothing at all was parsed, file_leading captures everything before EOF
         if (!captured_file_leading) {
-            file_leading = file_trailing;
+            try file_leading.appendSlice(self.allocator, file_trailing);
         }
 
         const raw_children = try children.toOwnedSlice(self.allocator);
@@ -282,18 +288,23 @@ const Parser = struct {
             .skg_version = skg_version,
             .schema_version = schema_version,
             .import_paths = try import_paths.toOwnedSlice(self.allocator),
+            .import_positions = try import_positions.toOwnedSlice(self.allocator),
             .children = try dedup(self.allocator, raw_children),
             .path = self.path,
-            .leading_comments = file_leading,
+            .leading_comments = try file_leading.toOwnedSlice(self.allocator),
             .trailing_comments = if (!captured_file_leading) &.{} else file_trailing,
         };
     }
 
-    fn parseImports(self: *Parser, list: *std.ArrayListUnmanaged([]const u8)) ParseError!void {
+    fn parseImports(
+        self: *Parser,
+        list: *std.ArrayListUnmanaged([]const u8),
+        positions: *std.ArrayListUnmanaged(ast_mod.Position),
+    ) ParseError!void {
         const t = try self.peek();
         if (t.tag == .string) {
             _ = try self.consume();
-            try list.append(self.allocator, try self.unescapeString(t.text));
+            try self.appendImport(list, positions, t);
         } else if (t.tag == .lbracket) {
             _ = try self.consume();
             while (true) {
@@ -311,12 +322,28 @@ const Parser = struct {
                     return error.ExpectedRbracket;
                 }
                 const path_tok = try self.expect(.string);
-                try list.append(self.allocator, try self.unescapeString(path_tok.text));
+                try self.appendImport(list, positions, path_tok);
             }
         } else {
             self.setDiagnostic(t.line, t.col, .EXPECTED_IMPORT_PATH, "expected import path string or '['");
             return error.UnexpectedToken;
         }
+    }
+
+    /// Record one import path and where it was written, rejecting absolute paths.
+    fn appendImport(
+        self: *Parser,
+        list: *std.ArrayListUnmanaged([]const u8),
+        positions: *std.ArrayListUnmanaged(ast_mod.Position),
+        tok: Token,
+    ) ParseError!void {
+        const path = try self.unescapeString(tok.text);
+        if (isAbsoluteImportPath(path)) {
+            self.setDiagnostic(tok.line, tok.col, .ABSOLUTE_IMPORT_PATH, "import paths must be relative to the importing file");
+            return error.AbsoluteImportPath;
+        }
+        try list.append(self.allocator, path);
+        try positions.append(self.allocator, .{ .line = tok.line, .col = tok.col });
     }
 
     /// Parse a single node (field or block). Expects an ident token next.
@@ -330,7 +357,11 @@ const Parser = struct {
         if (nt.tag == .colon) {
             _ = try self.consume();
             const value = try self.parseValue();
-            const trailing = try self.tryTrailingComment(name_tok.line);
+            // A trailing comment sits on the line the *value* ends on, which is
+            // not the line the key starts on for a multiline string or a
+            // multi-line array. Anchoring on the key made those comments look
+            // like own-line comments and migrate onto the next field.
+            const trailing = try self.tryTrailingComment(self.lexer.line);
             return ast.Node{ .field = .{
                 .key = name_tok.text,
                 .value = value,
@@ -400,7 +431,20 @@ const Parser = struct {
                 return error.ExpectedRbracket;
             }
             if (t.tag != .lbrace) {
-                // Not a block array - fall back to scalar array field
+                // `name [` whose first element is not `{` is the colonless
+                // scalar-array shorthand (docs/spec.md, "Block Arrays"), so hand
+                // the rest of the elements to the scalar-array parser.
+                //
+                // Once an entry has been parsed this is no longer a choice
+                // between two readings: the collection has already committed to
+                // being a block array, and a scalar here mixes element kinds.
+                // Falling back at that point silently discarded every entry
+                // parsed so far, turning `users [ {name: "a"} 99 ]` into
+                // `users: [99]` with no diagnostic.
+                if (items.items.len > 0) {
+                    self.setDiagnostic(t.line, t.col, .MIXED_ARRAY_TYPES, "mixed block and scalar elements in an array");
+                    return error.MixedArrayTypes;
+                }
                 return self.reParseAsFieldArray(name_tok, leading);
             }
             _ = try self.consume(); // consume '{'
@@ -455,6 +499,12 @@ const Parser = struct {
                 self.setDiagnostic(t.line, t.col, .UNTERMINATED_ARRAY, "unterminated array, expected ']'");
                 return error.ExpectedRbracket;
             }
+            if (t.tag == .lbrace) {
+                // The mirror of the check in parseBlockArray: this collection has
+                // committed to holding scalars, so a block entry mixes kinds.
+                self.setDiagnostic(t.line, t.col, .MIXED_ARRAY_TYPES, "mixed block and scalar elements in an array");
+                return error.MixedArrayTypes;
+            }
 
             const val = try self.parseValue();
             const vtype = std.meta.activeTag(val);
@@ -488,10 +538,7 @@ const Parser = struct {
                 self.setDiagnostic(t.line, t.col, .INVALID_INT, "invalid integer literal");
                 return error.InvalidInt;
             } },
-            .float => ast.Value{ .float = std.fmt.parseFloat(f64, t.text) catch {
-                self.setDiagnostic(t.line, t.col, .INVALID_FLOAT, "invalid float literal");
-                return error.InvalidFloat;
-            } },
+            .float => ast.Value{ .float = try self.parseFloatLiteral(t) },
             .bool_true => ast.Value{ .bool = true },
             .bool_false => ast.Value{ .bool = false },
             .null_lit => ast.Value{ .null = {} },
@@ -502,6 +549,25 @@ const Parser = struct {
                 return error.ExpectedValue;
             },
         };
+    }
+
+    /// Convert a float token to an f64, rejecting magnitudes f64 cannot hold.
+    ///
+    /// `std.fmt.parseFloat` saturates to +/-inf instead of failing, and SKG has
+    /// no literal for infinity - the emitter would write `inf.0`, which does not
+    /// re-parse. Go's `strconv.ParseFloat` reports the same input as out of
+    /// range, so rejecting it here is what keeps the two parsers agreeing.
+    /// Underflow to zero is accepted by both and stays accepted.
+    fn parseFloatLiteral(self: *Parser, t: Token) ParseError!f64 {
+        const f = std.fmt.parseFloat(f64, t.text) catch {
+            self.setDiagnostic(t.line, t.col, .INVALID_FLOAT, "invalid float literal");
+            return error.InvalidFloat;
+        };
+        if (!std.math.isFinite(f)) {
+            self.setDiagnostic(t.line, t.col, .INVALID_FLOAT, "float literal is out of range for a 64-bit float");
+            return error.InvalidFloat;
+        }
+        return f;
     }
 
     /// Parse array elements. `open_tok` is the already-consumed `[`.
@@ -591,6 +657,31 @@ const Parser = struct {
 
 fn dedup(allocator: Allocator, nodes: []const ast.Node) ![]ast.Node {
     return merge.mergeNodes(allocator, &.{}, nodes);
+}
+
+/// Reports whether `name` is a header directive rather than a node name.
+///
+/// These three words are reserved at the top level of a file only. Inside a
+/// block they are ordinary identifiers, because a block has no header.
+pub fn isDirective(name: []const u8) bool {
+    return std.mem.eql(u8, name, "skg_version") or
+        std.mem.eql(u8, name, "schema_version") or
+        std.mem.eql(u8, name, "import");
+}
+
+/// Reports whether an import path escapes the relative-path grammar.
+///
+/// Absolute imports are rejected outright (docs/spec.md, "Imports"): they are
+/// not portable between machines, and a config parsed as root - which is how
+/// umbra reads its manifests - has no business following a path out of the
+/// config tree. The Windows spellings are rejected too so a file cannot mean
+/// different things on different hosts. go/parser.go carries the same rule.
+pub fn isAbsoluteImportPath(path: []const u8) bool {
+    if (path.len == 0) return false;
+    if (path[0] == '/' or path[0] == '\\') return true;
+    // Drive-relative or drive-absolute Windows path: "C:", "C:\x", "C:x".
+    if (path.len >= 2 and path[1] == ':' and std.ascii.isAlphabetic(path[0])) return true;
+    return false;
 }
 
 /// Outcome of validating a declared skg_version.

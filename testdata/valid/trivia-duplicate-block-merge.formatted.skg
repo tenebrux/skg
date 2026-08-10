@@ -1,0 +1,10 @@
+name: "x"
+
+# lead on the first theme
+# lead on the second theme
+theme {
+  a: 1
+  b: 2
+  # trailing inside the first
+  # trailing inside the second
+}

@@ -2,6 +2,7 @@ package skg
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -188,6 +189,8 @@ func TestParseFileDiamondImportIsNotACycle(t *testing.T) {
 	wantString(t, file, "c", "yes")
 }
 
+// An absolute import is refused before any resolution happens, so the file it
+// names is never opened even when it exists and is readable.
 func TestParseFileAbsoluteImportPath(t *testing.T) {
 	dir := writeFiles(t, map[string]string{
 		"theme.skg": "accent: \"purple\"\n",
@@ -201,11 +204,99 @@ func TestParseFileAbsoluteImportPath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	file, err := ParseFile(main)
+	_, err := ParseFile(main)
+	var pe *ParseError
+	if !errors.As(err, &pe) || pe.Diag.Code != CodeAbsoluteImportPath {
+		t.Fatalf("want ABSOLUTE_IMPORT_PATH, got %v", err)
+	}
+}
+
+func TestAbsoluteImportPathSpellings(t *testing.T) {
+	absolute := []string{"/etc/theme.skg", `\etc\theme.skg`, `C:\theme.skg`, "c:theme.skg"}
+	for _, p := range absolute {
+		if !isAbsoluteImportPath(p) {
+			t.Errorf("isAbsoluteImportPath(%q) = false, want true", p)
+		}
+	}
+	// Host-independent: the Windows spellings are rejected on every platform, so
+	// a config cannot mean one thing on Linux and another on Windows.
+	relative := []string{"theme.skg", "./theme.skg", "../theme.skg", "sub/theme.skg", "", "c/theme.skg"}
+	for _, p := range relative {
+		if isAbsoluteImportPath(p) {
+			t.Errorf("isAbsoluteImportPath(%q) = true, want false", p)
+		}
+	}
+}
+
+// A diamond graph where every level imports the level below it twice is 2^depth
+// files to load without memoisation. At 20 levels that was about a million
+// parses and seven seconds; at 30 - still inside MaxImportDepth - it did not
+// finish. umbra parses init.skg manifests as root, so this was a denial of
+// service reachable from a config file.
+//
+// The test asserts the result rather than a wall-clock budget: it simply cannot
+// complete in the time `go test` allows unless the cache is working.
+func TestParseFileDiamondIsNotExponential(t *testing.T) {
+	const depth = 30
+	files := map[string]string{
+		fmt.Sprintf("f%02d.skg", depth): "leaf: \"bottom\"\n",
+	}
+	for i := 0; i < depth; i++ {
+		files[fmt.Sprintf("f%02d.skg", i)] = fmt.Sprintf(
+			"import [\"./f%02d.skg\", \"./f%02d.skg\"]\n\nlevel%02d: %d\n", i+1, i+1, i, i)
+	}
+	dir := writeFiles(t, files)
+
+	file, err := ParseFile(filepath.Join(dir, "f00.skg"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantString(t, file, "accent", "purple")
+	wantString(t, file, "leaf", "bottom")
+	if got := len(file.Children); got != depth+1 {
+		t.Errorf("expected %d children, got %d", depth+1, got)
+	}
+}
+
+// Memoising completed files must not turn a genuine cycle into a cache hit: a
+// file is only cached once it has been popped off the chain, so a file still
+// being resolved is never in the cache.
+func TestMemoisationDoesNotMaskACycle(t *testing.T) {
+	dir := writeFiles(t, map[string]string{
+		"main.skg":   "import [\"./a.skg\", \"./b.skg\"]\n",
+		"a.skg":      "import \"./shared.skg\"\na: 1\n",
+		"b.skg":      "import [\"./shared.skg\", \"./cyc.skg\"]\nb: 2\n",
+		"shared.skg": "shared: 3\n",
+		"cyc.skg":    "import \"./cyc2.skg\"\n",
+		"cyc2.skg":   "import \"./cyc.skg\"\n",
+	})
+	_, err := ParseFile(filepath.Join(dir, "main.skg"))
+	var pe *ParseError
+	if !errors.As(err, &pe) || pe.Diag.Code != CodeCircularImport {
+		t.Fatalf("want CIRCULAR_IMPORT, got %v", err)
+	}
+}
+
+// An import failure is reported at the import statement that named the file,
+// not at 0:0. The diagnostic's path is the file that wrote the import.
+func TestImportDiagnosticHasSourcePosition(t *testing.T) {
+	dir := writeFiles(t, map[string]string{
+		"main.skg": "import [\n  \"./ok.skg\",\n  \"./missing.skg\",\n]\n",
+		"ok.skg":   "ok: 1\n",
+	})
+	_, err := ParseFile(filepath.Join(dir, "main.skg"))
+	var pe *ParseError
+	if !errors.As(err, &pe) {
+		t.Fatalf("want *ParseError, got %v", err)
+	}
+	if pe.Diag.Code != CodeImportNotFound {
+		t.Fatalf("want IMPORT_NOT_FOUND, got %s", pe.Diag.Code)
+	}
+	if pe.Diag.Line != 3 || pe.Diag.Col != 3 {
+		t.Errorf("want position 3:3 (the path token), got %d:%d", pe.Diag.Line, pe.Diag.Col)
+	}
+	if pe.Diag.Path != filepath.Join(dir, "main.skg") {
+		t.Errorf("want the importing file as path, got %q", pe.Diag.Path)
+	}
 }
 
 func TestParseFileCircularImport(t *testing.T) {
@@ -504,9 +595,6 @@ func TestResolveImportPath(t *testing.T) {
 			t.Errorf("resolveImportPath(%q, %q) = %q, want %q", tc.importing, tc.imported, got, tc.want)
 		}
 	}
-
-	abs := filepath.Join(string(filepath.Separator), "etc", "skg", "theme.skg")
-	if got := resolveImportPath(filepath.Join("cfg", "main.skg"), abs); got != abs {
-		t.Errorf("an absolute import path must be used as written: got %q, want %q", got, abs)
-	}
+	// Absolute paths never reach resolveImportPath - the parser rejects them
+	// with ABSOLUTE_IMPORT_PATH. See TestAbsoluteImportPathSpellings.
 }

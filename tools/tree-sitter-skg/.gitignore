@@ -1,0 +1,6 @@
+# node-gyp output from `npm run build` / `npm install`. src/parser.c is
+# committed on purpose - Neovim and Helix consume it - but the compiled binding
+# is not.
+build/
+node_modules/
+*.wasm

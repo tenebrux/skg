@@ -1,0 +1,3 @@
+import "f01.skg"
+
+name: "main"

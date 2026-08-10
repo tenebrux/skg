@@ -94,6 +94,14 @@
       "summary": "The 'import' keyword was not followed by a string or '['."
     },
     {
+      "code": "ABSOLUTE_IMPORT_PATH",
+      "summary": "An import path was absolute. Import paths are relative to the importing file."
+    },
+    {
+      "code": "DIRECTIVE_AFTER_BODY",
+      "summary": "A header directive (skg_version, schema_version, import) appeared after the first block or field."
+    },
+    {
       "code": "NESTING_TOO_DEEP",
       "summary": "Blocks, block arrays and arrays nested deeper than 128 levels."
     },
@@ -111,7 +119,7 @@
     },
     {
       "code": "IMPORT_CHAIN_TOO_DEEP",
-      "summary": "Imports nested deeper than the implementation's import-chain cap. Reserved: no implementation enforces a chain cap yet, so no fixture asserts it. See docs/conformance.md 'Known gaps'."
+      "summary": "Imports nested more than 32 levels below the entry file. Only a parser with the 'imports' capability can produce this."
     },
     {
       "code": "UNKNOWN",

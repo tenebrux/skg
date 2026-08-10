@@ -12,6 +12,9 @@ import (
 // recorded on the parsed file but not loaded. Use UnmarshalFile to decode a
 // configuration whose imports should be resolved.
 func Unmarshal(data []byte, v interface{}) error {
+	if err := checkUnmarshalTarget(v); err != nil {
+		return err
+	}
 	file, err := Parse(data)
 	if err != nil {
 		return err
@@ -22,11 +25,41 @@ func Unmarshal(data []byte, v interface{}) error {
 // UnmarshalFile reads an SKG file from disk and decodes into a Go struct,
 // resolving and merging its imports first. See ParseFile.
 func UnmarshalFile(path string, v interface{}) error {
+	if err := checkUnmarshalTarget(v); err != nil {
+		return err
+	}
 	file, err := ParseFile(path)
 	if err != nil {
 		return err
 	}
 	return decodeNodes(file.Children, reflect.ValueOf(v))
+}
+
+// InvalidUnmarshalError describes a target that Unmarshal cannot decode into:
+// anything that is not a non-nil pointer. It mirrors
+// encoding/json.InvalidUnmarshalError, and exists because the alternative was a
+// reflect panic out of the middle of the decoder - a caller mistake should come
+// back as an error, not take the process down.
+type InvalidUnmarshalError struct {
+	Type reflect.Type
+}
+
+func (e *InvalidUnmarshalError) Error() string {
+	if e.Type == nil {
+		return "skg: Unmarshal(nil)"
+	}
+	if e.Type.Kind() != reflect.Pointer {
+		return "skg: Unmarshal(non-pointer " + e.Type.String() + ")"
+	}
+	return "skg: Unmarshal(nil " + e.Type.String() + ")"
+}
+
+func checkUnmarshalTarget(v interface{}) error {
+	rv := reflect.ValueOf(v)
+	if !rv.IsValid() || rv.Kind() != reflect.Pointer || rv.IsNil() {
+		return &InvalidUnmarshalError{Type: reflect.TypeOf(v)}
+	}
+	return nil
 }
 
 func decodeNodes(nodes []Node, target reflect.Value) error {
@@ -113,16 +146,21 @@ func decodeMap(nodes []Node, target reflect.Value) error {
 	valType := target.Type().Elem()
 	isAny := valType.Kind() == reflect.Interface
 
+	// The key kind is string, but the key *type* may be a named string type, and
+	// SetMapIndex panics on an unconverted value.
+	keyType := target.Type().Key()
+	mapKey := func(s string) reflect.Value { return reflect.ValueOf(s).Convert(keyType) }
+
 	for _, node := range nodes {
 		if node.Field != nil {
 			if isAny {
-				target.SetMapIndex(reflect.ValueOf(node.Field.Key), reflect.ValueOf(valueToAny(node.Field.Value)))
+				target.SetMapIndex(mapKey(node.Field.Key), reflect.ValueOf(valueToAny(node.Field.Value)))
 			} else {
 				val := reflect.New(valType).Elem()
 				if err := decodeValue(node.Field.Value, val); err != nil {
 					return fmt.Errorf("skg: map key %q: %w", node.Field.Key, err)
 				}
-				target.SetMapIndex(reflect.ValueOf(node.Field.Key), val)
+				target.SetMapIndex(mapKey(node.Field.Key), val)
 			}
 		} else if node.Block != nil {
 			if isAny {
@@ -131,13 +169,34 @@ func decodeMap(nodes []Node, target reflect.Value) error {
 				if err := decodeMap(node.Block.Children, inner); err != nil {
 					return fmt.Errorf("skg: map key %q: %w", node.Block.Name, err)
 				}
-				target.SetMapIndex(reflect.ValueOf(node.Block.Name), inner)
+				target.SetMapIndex(mapKey(node.Block.Name), inner)
 			} else {
 				val := reflect.New(valType).Elem()
 				if err := decodeNodes(node.Block.Children, val.Addr()); err != nil {
 					return fmt.Errorf("skg: map key %q: %w", node.Block.Name, err)
 				}
-				target.SetMapIndex(reflect.ValueOf(node.Block.Name), val)
+				target.SetMapIndex(mapKey(node.Block.Name), val)
+			}
+		} else if node.BlockArray != nil {
+			// Without this branch a block array decoded into a map vanished
+			// silently: the node matched none of the cases above and the key
+			// simply never appeared in the result.
+			if isAny {
+				items := make([]interface{}, len(node.BlockArray.Items))
+				for i, item := range node.BlockArray.Items {
+					inner := reflect.MakeMap(reflect.TypeOf(map[string]interface{}{}))
+					if err := decodeMap(item, inner); err != nil {
+						return fmt.Errorf("skg: map key %q: index %d: %w", node.BlockArray.Name, i, err)
+					}
+					items[i] = inner.Interface()
+				}
+				target.SetMapIndex(mapKey(node.BlockArray.Name), reflect.ValueOf(items))
+			} else {
+				val := reflect.New(valType).Elem()
+				if err := decodeBlockArray(node.BlockArray, val); err != nil {
+					return fmt.Errorf("skg: map key %q: %w", node.BlockArray.Name, err)
+				}
+				target.SetMapIndex(mapKey(node.BlockArray.Name), val)
 			}
 		}
 	}

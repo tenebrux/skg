@@ -160,9 +160,42 @@ fn fmtFile(allocator: std.mem.Allocator, path: []const u8, check: bool) !bool {
         return true;
     }
 
-    // Write formatted content back
-    const out = try std.fs.cwd().createFile(path, .{});
-    defer out.close();
-    try out.writeAll(formatted);
+    try writeAtomically(allocator, path, formatted);
     return true;
+}
+
+/// Replace `path` with `contents` via a temporary file in the same directory
+/// and a rename.
+///
+/// Truncating the target and writing into it leaves a half-written config
+/// behind if the process dies mid-write - and `skg fmt` runs over files people
+/// have no other copy of. A rename within the same directory is atomic, so the
+/// file is either the old text or the new text and never something in between.
+fn writeAtomically(allocator: std.mem.Allocator, path: []const u8, contents: []const u8) !void {
+    const dir_path = std.fs.path.dirname(path) orelse ".";
+    const base = std.fs.path.basename(path);
+
+    var dir = try std.fs.cwd().openDir(dir_path, .{});
+    defer dir.close();
+
+    const tmp_name = try std.fmt.allocPrint(allocator, ".{s}.skg-fmt.tmp", .{base});
+    defer allocator.free(tmp_name);
+
+    {
+        const tmp = try dir.createFile(tmp_name, .{ .truncate = true });
+        errdefer dir.deleteFile(tmp_name) catch {};
+        defer tmp.close();
+        try tmp.writeAll(contents);
+    }
+    errdefer dir.deleteFile(tmp_name) catch {};
+
+    // Preserve the original mode: createFile would otherwise hand the formatted
+    // file the default 0o666 & ~umask, silently widening or narrowing access.
+    if (dir.statFile(base)) |st| {
+        const tmp = try dir.openFile(tmp_name, .{ .mode = .read_write });
+        defer tmp.close();
+        tmp.chmod(st.mode) catch {};
+    } else |_| {}
+
+    try dir.rename(tmp_name, base);
 }

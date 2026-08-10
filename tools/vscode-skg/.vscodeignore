@@ -1,0 +1,7 @@
+# Everything the extension does not need at runtime. Without this file vsce
+# packages the whole directory, which put a stray .gitignore inside the vsix.
+.gitignore
+.vscodeignore
+node_modules/**
+package-lock.json
+**/*.vsix

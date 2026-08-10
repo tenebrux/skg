@@ -4,7 +4,12 @@
   "description": "Syntax highlighting for .skg (Static Key Group) configuration files used by Dusk",
   "version": "0.1.0",
   "publisher": "tenebrux",
-  "license": "Apache-2.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tenebrux/skg.git"
+  },
+  "directory": "tools/vscode-skg",
   "engines": {
     "vscode": "^1.74.0"
   },

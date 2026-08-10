@@ -1,0 +1,25 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [
+    "f01.skg"
+  ],
+  "children": [
+    {
+      "type": "field",
+      "key": "level",
+      "value": {
+        "type": "int",
+        "data": 1
+      }
+    },
+    {
+      "type": "field",
+      "key": "name",
+      "value": {
+        "type": "string",
+        "data": "main"
+      }
+    }
+  ]
+}

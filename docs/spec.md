@@ -19,12 +19,24 @@ SKG is not a general-purpose language. It has no variables, no templates, no exp
 
 ## File Structure
 
-A `.skg` file consists of, in order:
+A `.skg` file consists of a **header** followed by a **body**:
 
 1. An optional `skg_version` declaration
 2. Zero or more `import` statements
 3. An optional `schema_version` declaration
 4. Zero or more blocks and fields
+
+Items 1-3 are the header. **Every header directive must appear before the first
+block or field**; one that follows the body is an error
+(`DIRECTIVE_AFTER_BODY`). The three directives may appear in any order among
+themselves, but the formatter always writes them in the order above, so
+canonical text matches the order shown here.
+
+`skg_version`, `schema_version` and `import` are reserved at the top level of a
+file: they always introduce a directive and can never name a block or a field
+there. Inside a block they are ordinary identifiers, because a block has no
+header. `true`, `false` and `null` are reserved everywhere - they are value
+literals, never identifiers, so they can never be used as a key.
 
 ```
 skg_version: "1.0"
@@ -41,7 +53,13 @@ theme {
 }
 ```
 
-Files must be UTF-8. No byte-order mark. Line endings are LF (`\n`). The parser treats `\r` as whitespace - CRLF files will parse correctly, but `\r` is stripped on round-trip through the formatter.
+Files must be UTF-8. No byte-order mark: a leading `EF BB BF` is rejected as
+`UNEXPECTED_CHAR` at 1:1, because no token can start with those bytes. Beyond
+that the parser is byte-transparent - it does not validate that string contents
+are well-formed UTF-8, and passes the bytes through unchanged. Columns in
+diagnostics count bytes, not code points.
+
+Line endings are LF (`\n`). The parser treats `\r` as whitespace - CRLF files will parse correctly, but `\r` is stripped on round-trip through the formatter.
 
 ---
 
@@ -123,9 +141,28 @@ import [
 ]
 ```
 
-Import paths are relative to the file containing the import statement.
+Import paths are relative to the file containing the import statement - not to
+the entry file, and not to the process working directory.
 
-Circular imports are an error. The parser detects and rejects them.
+**Absolute import paths are rejected** (`ABSOLUTE_IMPORT_PATH`). A path is
+absolute when it begins with `/` or `\`, or when it begins with a drive letter
+followed by `:` (`C:\theme.skg`, `c:theme.skg`). All of those spellings are
+rejected on every platform, so a file cannot mean one thing on Linux and
+another on Windows. Absolute paths are not portable between machines, and an
+import that escapes the config tree is a supply-chain hazard for a parser
+running as root. The check happens at parse time, so the byte API rejects an
+absolute import without touching the filesystem.
+
+Circular imports are an error (`CIRCULAR_IMPORT`). The parser detects and
+rejects them, comparing paths in canonical form so `./theme.skg` and
+`theme.skg` are recognised as the same file.
+
+A file reached twice by different routes through the graph (a diamond) is not a
+cycle.
+
+Import chains are followed to **32 levels** below the entry file; deeper is
+`IMPORT_CHAIN_TOO_DEEP`. This is a backstop against a loop that cycle detection
+cannot see - a symlink loop, say - exhausting the stack.
 
 ---
 
@@ -155,7 +192,19 @@ fade_in_step: 0.03
 adjustment: -0.5
 ```
 
-A trailing zero after the decimal is required. `13` is an int. `13.0` is a float.
+A trailing zero after the decimal is required. `13` is an int. `13.0` is a
+float. `13.` is neither - it is `INVALID_FLOAT`, because there is one way to
+write each value and `13.0` is it.
+
+Neither ints nor floats may carry a redundant leading zero: the integer part is
+`0` or begins with a non-zero digit. `007` is `INVALID_INT` and `00.5` is
+`INVALID_FLOAT`; write `7` and `0.5`.
+
+A literal too large for a 64-bit value is an error rather than a saturated
+result: outside the signed 64-bit range is `INVALID_INT`, and a magnitude that
+would become infinity as an IEEE-754 double is `INVALID_FLOAT`. (A magnitude too
+small to represent underflows to `0.0` and is accepted - unlike infinity, zero
+is a value the language can write back out.)
 
 ### Bool
 
@@ -304,12 +353,6 @@ Each `{ }` entry in the array is an independent block with its own fields and ne
 
 Block arrays are the way to represent ordered collections of structured items - panels, zones, users, rules, etc.
 
-Block arrays may be empty:
-
-```
-panels []
-```
-
 When merging (via imports), a block array replaces the entire previous value - items are not merged individually.
 
 Block arrays are distinct from scalar arrays (`[1, 2, 3]`). Scalar arrays appear as field values after a colon. Block arrays appear after an identifier without a colon, just like blocks.
@@ -322,6 +365,31 @@ tags ["alpha", "beta"]
 tags: ["alpha", "beta"]
 ```
 
+That choice is made **once, from the first element**. After the first element
+the collection has committed to one kind, and mixing the other kind into it is
+`MIXED_ARRAY_TYPES` - the same rule that forbids `[1, "two"]`:
+
+```
+# invalid - a block array cannot hold a scalar
+users [ { name: "admin" } 99 ]
+
+# invalid - a scalar array cannot hold a block
+tags [ "alpha" { name: "beta" } ]
+```
+
+### The empty case
+
+A colonless `[]` has no first element to choose from. It is always an **empty
+block array**:
+
+```
+panels []      # empty block array
+list: []       # empty scalar array, element type "string"
+```
+
+Use the colon form when the value is a scalar array that happens to be empty.
+Empty blocks are written `defaults {}`.
+
 ---
 
 ## Fields
@@ -332,12 +400,13 @@ A field is a key-value pair. The key is an unquoted identifier. The value is one
 key: value
 ```
 
-Keys may contain letters, digits, and underscores. Keys may not start with a digit.
+Keys may contain letters, digits, and underscores. Keys may not start with a digit. Keys are never quoted, so a name outside that alphabet has no spelling in the language at all.
 
 ```
 accent: "green"   # valid
 size_base: 13.0   # valid
 max-crashes: 3    # invalid - hyphens not allowed in keys
+true: 1           # invalid - reserved literal, never an identifier
 ```
 
 ---
@@ -372,9 +441,11 @@ The parser enforces:
 
 - Correct token types
 - Balanced braces and brackets
-- Valid import paths (no circular imports)
-- Array element type uniformity (one level deep)
-- No duplicate `skg_version` or `schema_version` declarations
+- Valid import paths: relative only, no circular imports, chain depth at most 32
+- Array element type uniformity (one level deep), including block-versus-scalar
+- Number literals in their one legal spelling, and within 64-bit range
+- Header directives before the body, and no duplicate `skg_version` or
+  `schema_version` declarations
 
 **Semantic validation** - unknown fields, wrong types for a schema, missing required fields - is the responsibility of the consuming application. The application maps the parsed AST onto its own types and produces schema errors.
 

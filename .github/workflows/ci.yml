@@ -59,3 +59,46 @@ jobs:
       # deliberately no AST comparison against the Go or Zig parsers.
       - name: Parse every valid fixture
         run: npm run check:fixtures
+      # check:fixtures regenerates src/ before parsing, so by this point the
+      # working tree holds a parser.c built from the current grammar.js. If it
+      # differs from the committed one, the committed one is stale - and Neovim
+      # and Helix consume the committed file, not the grammar, so they would be
+      # running a parser nobody reviewed.
+      - name: Committed parser.c matches grammar.js
+        run: git diff --exit-code -- src/
+
+  vscode:
+    name: VS Code extension
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/vscode-skg
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+      # A malformed TextMate grammar does not fail loudly - VS Code drops the
+      # grammar and the file renders as plain text, so nothing here was checked
+      # by anything until now.
+      - name: Grammar and manifest are valid JSON
+        run: |
+          node -e 'JSON.parse(require("fs").readFileSync("syntaxes/skg.tmLanguage.json","utf8"))'
+          node -e 'JSON.parse(require("fs").readFileSync("language-configuration.json","utf8"))'
+          node -e 'JSON.parse(require("fs").readFileSync("package.json","utf8"))'
+      - name: Install
+        run: npm ci
+      # Packaging is the only check that the manifest, the grammar paths and the
+      # declared files actually hang together. The artifact is uploaded so a
+      # reviewer can install the extension from a PR without building it, and
+      # so the packaging path is exercised on every commit rather than only at
+      # release time.
+      - name: Package
+        run: |
+          mkdir -p ../../dist
+          npx --yes @vscode/vsce package --out ../../dist/skg-vscode-dev.vsix
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vscode-extension
+          path: dist/*.vsix
+          if-no-files-found: error

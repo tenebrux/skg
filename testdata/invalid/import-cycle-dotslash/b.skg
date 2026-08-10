@@ -1,0 +1,3 @@
+import "./main.skg"
+
+name: "b"
