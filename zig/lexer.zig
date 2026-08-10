@@ -14,6 +14,13 @@ pub const LexError = error{
     UnexpectedChar,
     UnterminatedString,
     InvalidEscape,
+    /// An integer literal was written in a form the grammar does not allow
+    /// (a redundant leading zero). Values that do not fit i64 are the parser's
+    /// business, not the lexer's, but they share the code.
+    InvalidInt,
+    /// A float literal was written in a form the grammar does not allow
+    /// (no digit after the decimal point, or a redundant leading zero).
+    InvalidFloat,
 };
 
 pub const Lexer = struct {
@@ -178,23 +185,51 @@ pub const Lexer = struct {
         return error.UnexpectedChar;
     }
 
+    /// Rewind the reported position to `line`:`col` and raise `err`.
+    ///
+    /// The parser reads `lexer.line`/`lexer.col` when turning a LexError into a
+    /// diagnostic, and by the time a malformed number is recognised the cursor
+    /// sits past it. Pointing at the first byte of the literal is what a reader
+    /// wants; the cursor is discarded anyway because the parse is over.
+    fn failAt(self: *Lexer, line: u32, col: u32, err: LexError) LexError {
+        self.line = line;
+        self.col = col;
+        return err;
+    }
+
+    /// Lex an int or float literal.
+    ///
+    /// The grammar admits exactly one spelling per value (docs/spec.md, "one way
+    /// to write each construct"), so two shapes a permissive scanner would wave
+    /// through are rejected here instead of silently normalised:
+    ///
+    ///   - a redundant leading zero (`007`, `00.5`): the integer part is `0` or
+    ///     starts with a non-zero digit, nothing else;
+    ///   - a decimal point with no digit after it (`5.`): spec.md requires the
+    ///     trailing zero, so `5.0` is the only spelling of that value.
     fn lexNumber(self: *Lexer, line: u32, col: u32) LexError!Token {
         const start = self.pos;
         // optional leading minus
         if (self.peek() == '-') _ = self.advance();
         // integer part: one or more digits
+        const int_start = self.pos;
         while (self.peek()) |c| {
             if (c >= '0' and c <= '9') _ = self.advance() else break;
         }
+        const int_digits = self.src[int_start..self.pos];
+        const leading_zero = int_digits.len > 1 and int_digits[0] == '0';
         // decimal point → float
         if (self.peek() == '.') {
             _ = self.advance();
-            // fractional digits
+            // fractional digits: at least one is required
+            const frac_start = self.pos;
             while (self.peek()) |c| {
                 if (c >= '0' and c <= '9') _ = self.advance() else break;
             }
+            if (self.pos == frac_start or leading_zero) return self.failAt(line, col, error.InvalidFloat);
             return Token{ .tag = .float, .text = self.src[start..self.pos], .line = line, .col = col };
         }
+        if (leading_zero) return self.failAt(line, col, error.InvalidInt);
         return Token{ .tag = .int, .text = self.src[start..self.pos], .line = line, .col = col };
     }
 

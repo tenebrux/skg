@@ -87,9 +87,50 @@ jobs:
             dist/*.sha256
           if-no-files-found: error
 
+  # The VS Code extension is a release asset, not a committed artifact. A
+  # skg.vsix used to live in the tree; it went stale the first time anyone
+  # touched the grammar and shipped a grammar four months older than the
+  # source for the rest of its life. Building it here means the published
+  # .vsix always matches the tag it ships with.
+  vscode:
+    name: Package VS Code extension
+    needs: test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/vscode-skg
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+      - name: Package
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          # vsce only accepts MAJOR.MINOR.PATCH, so an RC packages under its
+          # base version; the filename still carries the full tag.
+          version="${tag%%-*}"
+          node -e '
+            const fs = require("fs");
+            const p = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            p.version = process.argv[1];
+            fs.writeFileSync("package.json", JSON.stringify(p, null, 2) + "\n");
+          ' "$version"
+          mkdir -p ../../dist
+          npx --yes @vscode/vsce package --out "../../dist/skg-vscode-${tag}.vsix"
+          cd ../../dist
+          sha256sum "skg-vscode-${tag}.vsix" > "skg-vscode-${tag}.vsix.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-vscode
+          path: |
+            dist/*.vsix
+            dist/*.sha256
+          if-no-files-found: error
+
   release:
     name: Publish release
-    needs: build
+    needs: [build, vscode]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

@@ -1,0 +1,19 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [],
+  "children": [
+    {
+      "type": "field",
+      "key": "desc",
+      "value": { "type": "string", "data": "line one\nline two" },
+      "trailing_comment": "# trailing on the value"
+    },
+    {
+      "type": "field",
+      "key": "next",
+      "value": { "type": "int", "data": 1 },
+      "trailing_comment": null
+    }
+  ]
+}

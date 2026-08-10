@@ -30,6 +30,11 @@ func encodeStruct(rv reflect.Value) ([]Node, error) {
 
 	for _, sf := range structFields(rv.Type()) {
 		tag := sf.name
+		// A `skg:"..."` tag becomes a bare key, so the same identifier rule that
+		// guards map keys guards tags.
+		if !isIdentifier(tag) {
+			return nil, fmt.Errorf("skg: struct tag %q is not a valid SKG identifier", tag)
+		}
 		fv, ok := fieldByIndexRO(rv, sf.index)
 		if !ok {
 			continue // promoted through a nil embedded pointer: nothing to encode
@@ -86,10 +91,22 @@ func encodeStruct(rv reflect.Value) ([]Node, error) {
 }
 
 func encodeMap(rv reflect.Value) ([]Node, error) {
+	// A map key becomes a bare SKG identifier, so it has to be one. Without
+	// these checks Marshal produced output it could not read back: an int-keyed
+	// map emitted the literal "<int Value>" that reflect.Value.String returns
+	// for a non-string kind, and a key like "bad-key" emitted `bad-key: 1`,
+	// which fails to parse at the hyphen.
+	if k := rv.Type().Key().Kind(); k != reflect.String {
+		return nil, fmt.Errorf("map key must be a string, got %s", k)
+	}
+
 	var nodes []Node
 	iter := rv.MapRange()
 	for iter.Next() {
 		key := iter.Key().String()
+		if !isIdentifier(key) {
+			return nil, fmt.Errorf("map key %q is not a valid SKG identifier", key)
+		}
 		val := iter.Value()
 
 		// Unwrap interface{}

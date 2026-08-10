@@ -8,7 +8,15 @@ Source: [tools/tree-sitter-skg/](../tools/tree-sitter-skg/)
 
 ## What it covers
 
-The grammar matches the full language spec in [spec.md](spec.md):
+The grammar covers every construct in [spec.md](spec.md). It is a
+**highlighting** grammar, not a conformance peer, and is deliberately looser
+than the parsers - see [conformance.md](conformance.md#non-goals). Its only gate
+is that every valid fixture parses without an `ERROR` or `MISSING` node; it does
+not enforce header order, reject absolute import paths, check array element
+uniformity, or object to `007` or `5.`, and its tree is not expected to match
+the Go or Zig AST.
+
+Constructs covered:
 
 - `import "..."` and `import [ ... ]`
 - Named blocks: `name { ... }`

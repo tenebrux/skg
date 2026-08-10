@@ -11,11 +11,12 @@ import (
 func Emit(f *File) []byte {
 	var buf strings.Builder
 
+	// Header order is normative: skg_version, imports, schema_version
+	// (docs/spec.md, "File Structure"). The emitter used to write
+	// schema_version before the imports, which meant canonical output did not
+	// match the order the spec asks authors to write.
 	if f.SKGVersion != nil {
 		fmt.Fprintf(&buf, "skg_version: %q\n", *f.SKGVersion)
-	}
-	if f.SchemaVersion != nil {
-		fmt.Fprintf(&buf, "schema_version: %q\n", *f.SchemaVersion)
 	}
 
 	if len(f.ImportPaths) > 0 {
@@ -32,6 +33,10 @@ func Emit(f *File) []byte {
 			}
 			buf.WriteString("]\n")
 		}
+	}
+
+	if f.SchemaVersion != nil {
+		fmt.Fprintf(&buf, "schema_version: %q\n", *f.SchemaVersion)
 	}
 
 	hasHeader := f.SKGVersion != nil || f.SchemaVersion != nil || len(f.ImportPaths) > 0

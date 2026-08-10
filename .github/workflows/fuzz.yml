@@ -1,0 +1,46 @@
+name: Fuzz
+
+# go/fuzz_test.go's FuzzParse asserts that Parse is total: any input yields a
+# *File or an error, never a panic and never a stack overflow (which recover()
+# cannot catch, which is why MaxNestingDepth exists). Without -fuzz, `go test`
+# runs only the seed corpus, so CI on every push proves nothing about inputs
+# nobody thought of.
+#
+# This runs the fuzzer proper on a schedule instead of on every push: it is a
+# time-boxed search, not a pass/fail gate a contributor can act on in a PR.
+# A crasher is written to testdata/fuzz/ by the fuzzer and uploaded here, so it
+# can be committed as a seed and turned into a regression test.
+on:
+  schedule:
+    # 04:17 Mondays. Off the hour so it does not queue behind everything else
+    # scheduled at :00.
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: "How long to fuzz (Go duration, e.g. 30m)"
+        required: false
+        default: "20m"
+
+jobs:
+  fuzz:
+    name: FuzzParse
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: go
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26"
+          cache: false
+      - name: Fuzz
+        run: go test -run '^$' -fuzz=FuzzParse -fuzztime=${{ inputs.duration || '20m' }} ./...
+      - name: Upload crashers
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashers
+          path: go/testdata/fuzz/
+          if-no-files-found: ignore

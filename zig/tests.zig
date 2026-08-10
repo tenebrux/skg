@@ -457,3 +457,59 @@ test "emit: escaped string" {
     const output = try emit_mod.emitFile(a, file);
     try testing.expectEqualStrings(src, output);
 }
+
+// ─── Import resolution ───────────────────────────────────────────────────────
+
+// A diamond graph where every level imports the level below it twice is
+// 2^depth files to load without memoisation, so 30 levels - still inside
+// `max_import_depth` - never finishes. The assertion is the result, not a
+// wall-clock budget: the test simply cannot complete unless the cache works.
+test "imports: a deep diamond does not blow up exponentially" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const depth = 30;
+    var name_buf: [32]u8 = undefined;
+    var body_buf: [128]u8 = undefined;
+
+    try tmp.dir.writeFile(.{
+        .sub_path = try std.fmt.bufPrint(&name_buf, "f{d:0>2}.skg", .{depth}),
+        .data = "leaf: \"bottom\"\n",
+    });
+    var i: usize = 0;
+    while (i < depth) : (i += 1) {
+        const name = try std.fmt.bufPrint(&name_buf, "f{d:0>2}.skg", .{i});
+        const body = try std.fmt.bufPrint(&body_buf, "import [\"./f{d:0>2}.skg\", \"./f{d:0>2}.skg\"]\n\nlevel{d:0>2}: {d}\n", .{ i + 1, i + 1, i, i });
+        try tmp.dir.writeFile(.{ .sub_path = name, .data = body });
+    }
+
+    const entry = try tmp.dir.realpathAlloc(testing.allocator, "f00.skg");
+    defer testing.allocator.free(entry);
+
+    var result = root.parse(testing.allocator, entry);
+    defer result.deinit();
+    try testing.expect(result.file != null);
+    try testing.expectEqual(@as(usize, depth + 1), result.file.?.children.len);
+}
+
+// The cycle guard compares canonical paths, so a cycle spelled `./b.skg` - the
+// spelling docs/spec.md's own examples use - is caught on the second visit
+// rather than after ~2000 re-reads that grow the path to PATH_MAX.
+test "imports: a ./-spelled cycle is detected immediately" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.writeFile(.{ .sub_path = "main.skg", .data = "import \"./b.skg\"\nname: \"main\"\n" });
+    try tmp.dir.writeFile(.{ .sub_path = "b.skg", .data = "import \"./main.skg\"\nname: \"b\"\n" });
+
+    const entry = try tmp.dir.realpathAlloc(testing.allocator, "main.skg");
+    defer testing.allocator.free(entry);
+
+    var result = root.parse(testing.allocator, entry);
+    defer result.deinit();
+    try testing.expect(result.file == null);
+    try testing.expectEqual(ast.ErrorCode.CIRCULAR_IMPORT, result.diagnostic.?.code);
+    // Reported where the import was written, not at 0:0.
+    try testing.expectEqual(@as(u32, 1), result.diagnostic.?.line);
+    try testing.expectEqual(@as(u32, 8), result.diagnostic.?.col);
+}

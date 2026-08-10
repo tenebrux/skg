@@ -12,13 +12,24 @@ local linters = new Mapping<String, Step> {
   ["go-vet"] = builtins.go_vet
 }
 
+// Keep in step with `mise run ci` and .github/workflows/ci.yml. Three gates
+// that check different things is how a push goes green locally and red on CI.
+//
+// -race matches the CI invocation: the conformance runner walks the fixture
+// tree from several subtests, and a data race there would otherwise only ever
+// show up in CI.
 local tests = new Mapping<String, Step> {
   ["zig-test"] {
     check = "zig build test"
     exclusive = true
   }
   ["go-test"] {
-    check = "cd go && go test ./..."
+    check = "cd go && go test -race ./..."
+    exclusive = true
+  }
+  ["tree-sitter"] {
+    glob = List("tools/tree-sitter-skg/**", "testdata/**")
+    check = "mise run test:tree-sitter"
     exclusive = true
   }
 }

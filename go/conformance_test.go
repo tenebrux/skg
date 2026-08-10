@@ -898,13 +898,18 @@ func compareValue(t *testing.T, path string, expected expectedValue, actual Valu
 		}
 
 	case "int":
-		var n float64 // JSON numbers are float64
+		// Decoded as int64, not float64: conformance.md 5.5 says int data is
+		// "compared as a 64-bit integer", and routing it through a float loses
+		// the two extremes - 9223372036854775807 came back as
+		// 9223372036854775808 and the comparison was meaningless exactly where
+		// it mattered most.
+		var n int64
 		if err := json.Unmarshal(expected.Data, &n); err != nil {
 			t.Errorf("%scannot parse expected int data: %v", path, err)
 			return
 		}
-		if actual.Int != int64(n) {
-			t.Errorf("%svalue: expected %d, got %d", path, int64(n), actual.Int)
+		if actual.Int != n {
+			t.Errorf("%svalue: expected %d, got %d", path, n, actual.Int)
 		}
 
 	case "float":

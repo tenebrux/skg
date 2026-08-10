@@ -1,0 +1,24 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [
+    "sub/theme.skg"
+  ],
+  "children": [
+    {
+      "type": "field",
+      "key": "color",
+      "value": { "type": "string", "data": "from-sub-colors" }
+    },
+    {
+      "type": "field",
+      "key": "theme",
+      "value": { "type": "string", "data": "sub" }
+    },
+    {
+      "type": "field",
+      "key": "top",
+      "value": { "type": "string", "data": "main" }
+    }
+  ]
+}

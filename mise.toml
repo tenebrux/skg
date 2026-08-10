@@ -42,9 +42,18 @@ description = "Run Zig parser tests"
 run = "cd go && go test -race -v ./..."
 description = "Run Go parser tests"
 
+# Mirrors the tree-sitter job in .github/workflows/ci.yml, including the drift
+# check: check:fixtures regenerates src/ before parsing, so a committed
+# parser.c built from an older grammar.js shows up as a dirty tree. Neovim and
+# Helix consume the committed file, not grammar.js.
 [tasks."test:tree-sitter"]
-run = "cd tools/tree-sitter-skg && npm install && npm run check:fixtures"
-description = "Parse every valid fixture with the tree-sitter grammar (no ERROR nodes)"
+run = """
+cd tools/tree-sitter-skg
+npm install
+npm run check:fixtures
+git diff --exit-code -- src/
+"""
+description = "Parse every valid fixture with the tree-sitter grammar, and check src/ is not stale"
 
 # Mirrors the checks in .github/workflows/ci.yml so `mise run ci` matches the gate.
 [tasks.lint]
@@ -80,9 +89,12 @@ depends = ["plugins:tree-sitter:generate"]
 run = "cd tools/tree-sitter-skg && npx tree-sitter build --wasm"
 description = "Build the WASM tree-sitter parser (for Zed, web editors)"
 
+# The .vsix is a build artifact and is gitignored. Released copies are built by
+# the vscode job in .github/workflows/release.yml and attached to the release,
+# so the published extension always matches the tag.
 [tasks."plugins:vscode:package"]
-run = "cd tools/vscode-skg && npm install && npx vsce package --out skg.vsix"
-description = "Package the VS Code extension as tools/vscode-skg/skg.vsix"
+run = "cd tools/vscode-skg && npm install && npx --yes @vscode/vsce package --out skg.vsix"
+description = "Package the VS Code extension as tools/vscode-skg/skg.vsix (gitignored)"
 
 [tasks."plugins:vscode:install"]
 depends = ["plugins:vscode:package"]

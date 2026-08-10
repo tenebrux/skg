@@ -1,0 +1,18 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [],
+  "children": [
+    { "type": "field", "key": "name", "value": { "type": "string", "data": "x" } },
+    {
+      "type": "block",
+      "name": "theme",
+      "leading_comments": ["# lead on the first theme", "# lead on the second theme"],
+      "trailing_comments": ["# trailing inside the first", "# trailing inside the second"],
+      "children": [
+        { "type": "field", "key": "a", "value": { "type": "int", "data": 1 } },
+        { "type": "field", "key": "b", "value": { "type": "int", "data": 2 } }
+      ]
+    }
+  ]
+}

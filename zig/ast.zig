@@ -45,6 +45,8 @@ pub const ErrorCode = enum {
     UNSUPPORTED_SKG_VERSION,
     UNTERMINATED_IMPORT_LIST,
     EXPECTED_IMPORT_PATH,
+    ABSOLUTE_IMPORT_PATH,
+    DIRECTIVE_AFTER_BODY,
 
     // Resource limits.
     NESTING_TOO_DEEP,
@@ -58,6 +60,12 @@ pub const ErrorCode = enum {
     // Fallback. Never expected in a fixture - seeing it means a diagnostic
     // site is missing its code.
     UNKNOWN,
+};
+
+/// A 1-based source position. Columns count bytes, not code points.
+pub const Position = struct {
+    line: u32,
+    col: u32,
 };
 
 /// Structured error context for parse failures.
@@ -134,6 +142,10 @@ pub const File = struct {
     schema_version: ?[]const u8,
     /// Raw import path strings (unescaped, no quotes). Allocated from parse arena.
     import_paths: [][]const u8,
+    /// Source position of each entry in `import_paths`, same length and order.
+    /// An import that fails to resolve is reported at its own path token rather
+    /// than at 0:0, so the diagnostic points at the line the author wrote.
+    import_positions: []Position = &.{},
     /// Top-level blocks and fields (after skg_version, imports, schema_version).
     children: []Node,
     /// File path this was parsed from (for error messages and import resolution).

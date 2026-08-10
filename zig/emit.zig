@@ -15,11 +15,12 @@ pub fn emitFile(allocator: std.mem.Allocator, file: ast.File) EmitError![]u8 {
     // File-level leading comments
     try emitCommentLines(w, file.leading_comments, 0);
 
+    // Header order is normative: skg_version, imports, schema_version
+    // (docs/spec.md, "File Structure"). The emitter used to write
+    // schema_version before the imports, which meant canonical output did not
+    // match the order the spec asks authors to write.
     if (file.skg_version) |v| {
         try w.print("skg_version: \"{s}\"\n", .{v});
-    }
-    if (file.schema_version) |v| {
-        try w.print("schema_version: \"{s}\"\n", .{v});
     }
 
     if (file.import_paths.len > 0) {
@@ -34,6 +35,10 @@ pub fn emitFile(allocator: std.mem.Allocator, file: ast.File) EmitError![]u8 {
             }
             try w.writeAll("]\n");
         }
+    }
+
+    if (file.schema_version) |v| {
+        try w.print("schema_version: \"{s}\"\n", .{v});
     }
 
     if ((file.skg_version != null or file.schema_version != null or file.import_paths.len > 0) and file.children.len > 0) {

@@ -8,8 +8,14 @@ Source: [tools/vscode-skg/](../tools/vscode-skg/)
 
 ## What it covers
 
-The TextMate grammar matches the full language spec in
-[spec.md](spec.md):
+The TextMate grammar covers every construct in [spec.md](spec.md). It is a
+**highlighting** grammar, not a validator, and is deliberately looser than the
+parsers: it colours what a construct looks like without checking that it is
+legal. It does not enforce header order, reject an absolute import path, notice
+that an array mixes element types, or object to `007` or `5.`. An editor that
+shows no red is not a claim that `skg` will accept the file.
+
+Constructs covered: 
 
 - `import` keyword (single and array forms)
 - Named blocks and block arrays
@@ -27,16 +33,26 @@ Extension features from `language-configuration.json`:
 - Auto-closing `{}`, `[]`, `""`
 - Indent/dedent on brace lines
 
-## Build and install
+## Install
 
-Requires Node.js.
+Every release attaches a packaged extension built from that tag:
 
 ```sh
-cd tools/vscode-skg
-npm install
-npx vsce package          # produces skg-<version>.vsix
-code --install-extension skg-0.1.0.vsix
+# from https://github.com/tenebrux/skg/releases
+code --install-extension skg-vscode-<version>.vsix
 ```
+
+CI also uploads a `vscode-extension` artifact on every commit, so a PR can be
+tried without building anything.
+
+To build from the repo instead (requires Node.js):
+
+```sh
+mise run plugins:vscode:install
+```
+
+The `.vsix` is a build artifact and is not committed. One used to be, and it
+spent most of its life shipping a grammar older than the source beside it.
 
 Reload the VS Code window. Any `.skg` file will activate the
 extension.
@@ -68,5 +84,5 @@ Standard TextMate scopes - themes pick them up automatically:
 
 ## Publishing
 
-Not published to the marketplace yet. Distribute the `.vsix` directly
-or point users at this repo.
+Not published to the marketplace yet. The release workflow packages the
+`.vsix` and attaches it to each release; point users at the releases page.

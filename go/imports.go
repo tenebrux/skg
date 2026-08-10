@@ -23,6 +23,14 @@ import (
 // long import chain, and vice versa.
 const MaxImportDepth = 32
 
+// origin is where an import was written: the file that contains it and the
+// position of its path token. A resolution failure is reported there rather
+// than at 0:0, so the diagnostic points at a line the author can go and fix.
+type origin struct {
+	path string
+	pos  Position
+}
+
 // importResolver carries the state of a single file-loading call.
 type importResolver struct {
 	// visited holds the canonical paths on the chain currently being resolved,
@@ -32,6 +40,20 @@ type importResolver struct {
 	// set in a defer.
 	visited map[string]bool
 
+	// done memoises files that have been fully resolved during this call, keyed
+	// by canonical path.
+	//
+	// Without it, resolution is exponential in the depth of a diamond-shaped
+	// import graph: each level that imports the level below it twice doubles the
+	// work, so 20 levels is around a million parses and 30 - still inside
+	// MaxImportDepth - does not finish. That is a denial of service reachable
+	// from a config file, and umbra parses config files as root.
+	//
+	// The cache holds only completed files, and a completed file has already
+	// been popped off the chain, so a hit can never be a file that is still
+	// being resolved: memoising cannot mask a cycle.
+	done map[string]*File
+
 	// chain holds the same files as visited, in order and spelled as they will
 	// be shown to the user, so an error can name the route that reached a file.
 	chain []string
@@ -39,35 +61,41 @@ type importResolver struct {
 
 // resolveImports loads path, parses it, and recursively resolves its imports.
 //
-// Import semantics mirror the Zig implementation (zig/root.zig
-// parseWithVisited): each import is resolved relative to the importing file,
-// imports merge in declaration order, and the importing file's own values
-// overlay everything it imported.
+// Import semantics mirror the Zig implementation (zig/root.zig Resolver.load):
+// each import is resolved relative to the importing file, imports merge in
+// declaration order, and the importing file's own values overlay everything it
+// imported.
 func resolveImports(path string) (*File, error) {
-	r := &importResolver{visited: make(map[string]bool)}
-	return r.load(path, true)
+	r := &importResolver{visited: make(map[string]bool), done: make(map[string]*File)}
+	return r.load(path, nil)
 }
 
-// load reads, parses and resolves one file. root reports whether this is the
-// file the caller named, as opposed to one reached through an import: failures
-// on the caller's own file are returned unwrapped, so ParseFile keeps handing
-// back the untouched *fs.PathError that callers already match on.
-func (r *importResolver) load(path string, root bool) (*File, error) {
-	if err := r.enter(path); err != nil {
+// load reads, parses and resolves one file. from is nil for the file the caller
+// named, as opposed to one reached through an import: failures on the caller's
+// own file are returned unwrapped, so ParseFile keeps handing back the untouched
+// *fs.PathError that callers already match on.
+func (r *importResolver) load(path string, from *origin) (*File, error) {
+	key := canonicalPath(path)
+	if cached, ok := r.done[key]; ok {
+		return cached, nil
+	}
+	if err := r.enter(key, path, from); err != nil {
 		return nil, err
 	}
-	defer r.leave(path)
+	defer r.leave(key)
 
 	src, err := readCapped(path)
 	if err != nil {
-		if root {
+		if from == nil {
 			return nil, err
 		}
 		// Wrap in a ParseError so the failure carries IMPORT_NOT_FOUND like
 		// every other diagnostic, while %w keeps errors.Is(err, fs.ErrNotExist)
 		// working for callers that check for a missing file.
 		return nil, &ParseError{Diag: Diagnostic{
-			Path:    path,
+			Path:    from.path,
+			Line:    from.pos.Line,
+			Col:     from.pos.Col,
 			Code:    CodeImportNotFound,
 			Message: fmt.Sprintf("cannot read imported file: %v (import chain: %s)", err, r.chainString()),
 		}, Err: err}
@@ -75,13 +103,14 @@ func (r *importResolver) load(path string, root bool) (*File, error) {
 
 	file, err := ParseSource(src, path)
 	if err != nil {
-		if root {
+		if from == nil {
 			return nil, err
 		}
 		return nil, fmt.Errorf("skg: %w (import chain: %s)", err, r.chainString())
 	}
 
 	if len(file.ImportPaths) == 0 {
+		r.done[key] = file
 		return file, nil
 	}
 
@@ -89,8 +118,8 @@ func (r *importResolver) load(path string, root bool) (*File, error) {
 	// file's own children overlay the result: "the main config file always
 	// loads after all its imports, so it always wins" (docs/spec.md).
 	var merged []Node
-	for _, importPath := range file.ImportPaths {
-		imported, err := r.load(resolveImportPath(path, importPath), false)
+	for i, importPath := range file.ImportPaths {
+		imported, err := r.load(resolveImportPath(path, importPath), &origin{path: path, pos: file.ImportPositions[i]})
 		if err != nil {
 			return nil, err
 		}
@@ -98,34 +127,39 @@ func (r *importResolver) load(path string, root bool) (*File, error) {
 	}
 	file.Children = MergeNodes(merged, file.Children)
 
+	r.done[key] = file
 	return file, nil
 }
 
-// enter records that path is being resolved, rejecting a cycle or an over-deep
+// enter records that key is being resolved, rejecting a cycle or an over-deep
 // chain before recursing into it. A successful enter must be paired with leave.
-func (r *importResolver) enter(path string) error {
-	key := canonicalPath(path)
+func (r *importResolver) enter(key, path string, from *origin) error {
 	if r.visited[key] {
-		return &ParseError{Diag: Diagnostic{
-			Path:    path,
-			Code:    CodeCircularImport,
-			Message: "circular import: " + r.chainStringWith(path),
-		}}
+		return r.reject(path, from, CodeCircularImport, "circular import: "+r.chainStringWith(path))
 	}
 	if len(r.chain) > MaxImportDepth {
-		return &ParseError{Diag: Diagnostic{
-			Path:    path,
-			Code:    CodeImportChainTooDeep,
-			Message: "import chain too deep (max " + itoa(MaxImportDepth) + "): " + r.chainStringWith(path),
-		}}
+		return r.reject(path, from, CodeImportChainTooDeep,
+			"import chain too deep (max "+itoa(MaxImportDepth)+"): "+r.chainStringWith(path))
 	}
 	r.visited[key] = true
 	r.chain = append(r.chain, path)
 	return nil
 }
 
-func (r *importResolver) leave(path string) {
-	delete(r.visited, canonicalPath(path))
+// reject builds the diagnostic for a file that was refused before it could be
+// entered, anchored at the import statement that named it when there is one.
+func (r *importResolver) reject(path string, from *origin, code ErrorCode, message string) error {
+	d := Diagnostic{Path: path, Code: code, Message: message}
+	if from != nil {
+		d.Path = from.path
+		d.Line = from.pos.Line
+		d.Col = from.pos.Col
+	}
+	return &ParseError{Diag: d}
+}
+
+func (r *importResolver) leave(key string) {
+	delete(r.visited, key)
 	r.chain = r.chain[:len(r.chain)-1]
 }
 
@@ -143,22 +177,16 @@ func (r *importResolver) chainStringWith(target string) string {
 
 // resolveImportPath locates importPath as written inside importingFile.
 //
-// A relative path is joined onto the importing file's directory, per
-// docs/spec.md ("Import paths are relative to the file containing the import
-// statement") and matching zig/root.zig, which joins each import onto
+// The path is joined onto the importing file's directory, per docs/spec.md
+// ("Import paths are relative to the file containing the import statement") and
+// matching zig/root.zig, which joins each import onto
 // `std.fs.path.dirname(path) orelse "."`.
 //
-// An absolute path is used as written. The spec says nothing about absolute
-// imports; taking them literally is the only reading that does what an author
-// who typed one meant. (Note that the Zig implementation instead feeds them
-// through its path join, which quietly reinterprets "/etc/theme.skg" as a
-// subdirectory of the importing file's directory - it is a consequence of how
-// join works rather than a decision, and worth reconciling across the two
-// implementations.)
+// Absolute paths never reach here: the parser rejects them with
+// ABSOLUTE_IMPORT_PATH before resolution begins (go/parser.go
+// isAbsoluteImportPath), so the two implementations no longer have to reconcile
+// two different wrong answers for "/etc/theme.skg".
 func resolveImportPath(importingFile, importPath string) string {
-	if filepath.IsAbs(importPath) {
-		return filepath.Clean(importPath)
-	}
 	return filepath.Join(filepath.Dir(importingFile), importPath)
 }
 

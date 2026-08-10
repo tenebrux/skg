@@ -42,7 +42,7 @@ without an `ERROR` or `MISSING` node (`npm run check:fixtures`).
 | ----------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | Maximum nesting depth   | **128**            | One native stack frame per nested `{`, `[` (block, block array, or array). Beyond this, a recursive-descent parser overflows the stack, which most runtimes cannot catch. Must be enforced by the parser, not left to the runtime. |
 | Maximum file size       | **10 MiB** (`10 * 1024 * 1024` bytes) | Required by the spec. Applies **per file**, not per import tree. |
-| Maximum import depth    | *unspecified*      | See [§10](#10-known-gaps). Reserve `IMPORT_CHAIN_TOO_DEEP` for it. |
+| Maximum import depth    | **32**             | Levels of imports followed below the entry file. A backstop for a loop cycle detection cannot see - a symlink loop, a bind mount - exhausting the stack. Exceeding it is `IMPORT_CHAIN_TOO_DEEP`. Pinned from both sides by `testdata/valid/imports-chain-at-limit/` and `testdata/invalid/import-chain-too-deep/`. |
 
 Depth counting: the counter increases when the parser descends into a `{` of a
 block, a `{` of a block-array entry, the `[` of a block array, or the `[` of a
@@ -58,6 +58,13 @@ implementation supports is `UNSUPPORTED_SKG_VERSION`; anything that is not a
 `MAJOR.MINOR` pair of decimal integers is `MALFORMED_SKG_VERSION`. Parse the two
 components as wide unsigned integers - `"300.0"` is well formed and too new, not
 malformed.
+
+Numeric range is part of the contract, not an implementation detail. An integer
+literal outside the signed 64-bit range is `INVALID_INT`; a float literal whose
+magnitude would become infinity as an IEEE-754 double is `INVALID_FLOAT`. Do not
+saturate: an implementation that lets a literal become `inf` will emit `inf.0`,
+which its own parser cannot read back. Underflow to `0.0` is accepted, because
+zero is a value the language can write.
 
 ---
 
@@ -110,13 +117,23 @@ set against it. A code cannot be used in a fixture until it is registered.
 | `UNTERMINATED_BLOCK`       | A `{` block, or a block inside a block array, hit end of input.             |
 | `UNTERMINATED_BLOCK_ARRAY` | A block array hit end of input before its `]`.                              |
 | `UNTERMINATED_ARRAY`       | A scalar array hit end of input before its `]`.                             |
-| `MIXED_ARRAY_TYPES`        | Array elements did not all share one type tag.                              |
-| `INVALID_INT`              | An integer literal does not fit a signed 64-bit integer.                    |
-| `INVALID_FLOAT`            | A float literal could not be converted to a 64-bit float.                   |
+| `MIXED_ARRAY_TYPES`        | Array elements did not all share one type tag, **or** a block array held a scalar / a scalar array held a block. |
+| `INVALID_INT`              | An integer literal does not fit a signed 64-bit integer, or carries a redundant leading zero. |
+| `INVALID_FLOAT`            | A float literal has no digit after its `.`, carries a redundant leading zero, or is too large for a 64-bit float. |
 
-`EXPECTED_RBRACE`, `EXPECTED_RBRACKET` and `INVALID_FLOAT` are registered but
-unreachable in both reference parsers, so no fixture asserts them. They exist
-because a differently structured parser can legitimately reach them.
+`EXPECTED_RBRACE` and `EXPECTED_RBRACKET` are registered but unreachable in both
+reference parsers, so no fixture asserts them. They exist because a differently
+structured parser can legitimately reach them. `UNEXPECTED_TOKEN` is reachable
+but has no fixture of its own - every input that would produce it has a more
+specific code available first.
+
+`MIXED_ARRAY_TYPES` covers two failures that read as one rule. `name [` chooses
+between a block array and the colonless scalar-array shorthand **from the first
+element only**; after that the collection has committed, and an element of the
+other kind is an error. Silently re-reading `users [ {name: "a"} 99 ]` as
+`users: [99]` discards config with no diagnostic, which is the worst outcome
+available. `testdata/invalid/mixed-block-array` and
+`testdata/invalid/mixed-array-block` pin both directions.
 
 ### Header directives
 
@@ -128,10 +145,20 @@ because a differently structured parser can legitimately reach them.
 | `UNSUPPORTED_SKG_VERSION`  | `skg_version` is well formed but newer than the parser implements. |
 | `UNTERMINATED_IMPORT_LIST` | A bracketed `import [` list hit end of input before its `]`.       |
 | `EXPECTED_IMPORT_PATH`     | `import` was not followed by a string or `[`.                      |
+| `ABSOLUTE_IMPORT_PATH`     | An import path was absolute. See [§9](#absolute-import-paths).      |
+| `DIRECTIVE_AFTER_BODY`     | A directive appeared after the first block or field.               |
 
 Ordering note: the duplicate check runs **before** the version check, so
 `skg_version: "1.0"` followed by `skg_version: "2.0"` is
 `DUPLICATE_SKG_VERSION`, not `UNSUPPORTED_SKG_VERSION`.
+
+`ABSOLUTE_IMPORT_PATH` is a **parse-time** failure, not a resolution failure: the
+path is known from the bytes alone, so the byte API rejects it too, without
+touching the filesystem. It is reported at the path's string token.
+
+`skg_version`, `schema_version` and `import` are reserved at the top level only.
+Inside a block they are ordinary identifiers - a block has no header, so there is
+nothing to be ambiguous with.
 
 ### Resource limits
 
@@ -149,7 +176,13 @@ capability never produces these.
 | ----------------------- | ----------------------------------------------------------------- |
 | `CIRCULAR_IMPORT`       | An import cycle was reached.                                       |
 | `IMPORT_NOT_FOUND`      | An imported file could not be opened.                              |
-| `IMPORT_CHAIN_TOO_DEEP` | Reserved; see [§10](#10-known-gaps). No implementation enforces it yet. |
+| `IMPORT_CHAIN_TOO_DEEP` | Imports nested more than 32 levels below the entry file.           |
+
+All three are reported **at the import statement that named the file**: the
+diagnostic's `path` is the importing file and its `line`/`col` are the position
+of the path's string token. Reporting them at 0:0 is a bug - the whole point of
+1-based positions is that a reader can go to the line. Only a failure on the
+entry file itself, which no import statement named, has no position to report.
 
 ### Fallback
 
@@ -351,8 +384,9 @@ the implementation declares `emit`, two things must hold:
 ### Canonical form
 
 - Indentation is two spaces per depth.
-- Header, in this order, each on its own line: `skg_version`, `schema_version`,
-  then imports. A single import is `import "path"`. Two or more are
+- Header, in this order, each on its own line: `skg_version`, imports, then
+  `schema_version` - the order [`spec.md`](spec.md) asks authors to write. A
+  single import is `import "path"`. Two or more are
 
   ```
   import [
@@ -373,7 +407,10 @@ the implementation declares `emit`, two things must hold:
 - Integers are plain decimal.
 - Floats are the **shortest decimal that round-trips**, never exponent notation
   (the grammar has no exponent form), with `.0` appended when the shortest form
-  has no fractional part. `13.0` stays `13.0`; `-0.5` stays `-0.5`.
+  has no fractional part. `13.0` stays `13.0`; `-0.5` stays `-0.5`. Large and
+  small magnitudes therefore expand to long digit strings - `1e30` is 31 digits
+  and a `.0`. `testdata/valid/emit-large-float` pins that both implementations
+  produce the same expansion.
 - `true`, `false`, `null` are literal.
 - Arrays are `[a, b, c]` - comma **and** space between elements, `[]` when empty.
 - Strings: if the value contains a newline **and** survives a `"""` literal, it
@@ -425,7 +462,9 @@ Resolution, merging and cycle detection are file-API behaviour.
 
 1. Import paths are resolved **relative to the directory of the file containing
    the import statement**, not the process working directory and not the entry
-   file.
+   file. `testdata/valid/imports-subdir/` is the fixture that can tell the
+   difference: every other import fixture keeps its files in one directory, so
+   an implementation resolving against the entry file passes all of them.
 2. Imports are processed in declaration order, depth first: resolve and fully
    load an import (including its own imports) before moving to the next.
 3. Merge order is
@@ -445,10 +484,28 @@ Resolution, merging and cycle detection are file-API behaviour.
    **not** a cycle. Track the current chain, and remove a file from the visited
    set when you finish it - do not use a permanent "seen" set.
    `testdata/valid/imports-diamond/` pins this.
-6. A cycle is `CIRCULAR_IMPORT`; an unopenable file is `IMPORT_NOT_FOUND`.
-7. **Canonicalise paths before the visited-set check.** Comparing raw joined
-   strings means `./b.skg` and `b.skg` look like different files, which delays
-   cycle detection by a level.
+6. A cycle is `CIRCULAR_IMPORT`; an unopenable file is `IMPORT_NOT_FOUND`; a
+   chain more than 32 levels below the entry file is `IMPORT_CHAIN_TOO_DEEP`.
+7. **Canonicalise paths before the visited-set check**, and canonicalise the
+   path you recurse on, not only the key. Comparing raw joined strings means
+   `./b.skg` and `b.skg` look like different files - and worse, joining a
+   directory onto `./b.skg` grows the path a segment at a time, so a cycle
+   spelled the way `spec.md`'s own examples spell it is never detected at all:
+   it runs until the path hits `PATH_MAX` and surfaces as `IMPORT_NOT_FOUND`
+   with a multi-kilobyte path. `testdata/invalid/import-cycle-dotslash/` pins
+   this; `testdata/invalid/import-cycle/` uses bare filenames and cannot.
+
+   Lexical canonicalisation (Go's `filepath.Abs`, Zig's `std.fs.path.resolve`)
+   is enough. Resolving symlinks costs a syscall per import and fails on paths
+   that do not exist; the depth cap is the backstop for what that misses.
+8. **Memoise files you have finished resolving**, keyed by canonical path. The
+   visited set alone makes a diamond-shaped graph exponential: each level that
+   imports the level below it twice doubles the work, so a 30-level graph - well
+   inside the depth cap - never finishes. That is a denial of service reachable
+   from a config file, and SKG's first consumer parses manifests as root.
+
+   Memoising cannot mask a cycle: a file only enters the cache once it has been
+   popped off the chain, so a file still being resolved is never a cache hit.
 
 ### Merge semantics
 
@@ -459,8 +516,11 @@ key or the block/block-array name.
 - Any other collision replaces the base node wholesale. In particular a block
   array replaces the previous value entirely - entries are never merged
   element-wise.
-- A replaced node keeps the **position of the first occurrence** and the
-  **value of the last**.
+- A replaced node keeps the **slot of the first occurrence** - its place in the
+  child ordering - and the **value of the last**. The `line`/`col` recorded on
+  the node are the overlay's, because that is where the winning value was
+  written; only a block-onto-block merge, which produces a genuinely new node,
+  keeps the base's position.
 - A new key is appended.
 
 The same function deduplicates repeated keys *within* one file, so
@@ -468,16 +528,23 @@ The same function deduplicates repeated keys *within* one file, so
 
 ### Absolute import paths
 
-**Explicitly unspecified in skg 1.0.** Do not rely on them.
+**Rejected.** An import path must be relative to the file that wrote it. A path
+beginning with `/` or `\`, or with a drive letter followed by `:`, is
+`ABSOLUTE_IMPORT_PATH`.
+
+The check is host-independent: the Windows spellings are rejected on Linux too,
+so a config cannot mean one thing on one platform and something else on another.
+Do not use your standard library's `IsAbs` - it answers a different,
+host-dependent question.
 
 Reasoning: an absolute path in a config file is not portable between machines,
-and an import that escapes the config tree is a supply-chain hazard. Leaving it
-unspecified is forward compatible - a later version can reject absolute import
-paths outright, which is a strictly smaller behaviour surface than blessing
-them, and a rule you can relax later but never tighten.
+and an import that escapes the config tree is a supply-chain hazard for a parser
+running as root. Rejecting is also the smaller commitment - a later version can
+bless absolute paths, but one that shipped them could never take them back.
 
-Current behaviour differs and neither is a promise: see
-[§10](#10-known-gaps).
+Because the check runs at parse time, `testdata/invalid/absolute-import.skg` is
+a flat fixture: every implementation runs it, including ones without the
+`imports` capability.
 
 ---
 
@@ -488,12 +555,11 @@ each one says why.
 
 | Gap | Status |
 | --- | ------ |
-| **No import-chain depth cap.** Nothing bounds how deep an import chain may go, so a long enough chain exhausts the stack. `IMPORT_CHAIN_TOO_DEEP` is reserved for it. | Needs a parser change in each implementation. Suggested cap: 64. No fixture, because a fixture would fail everywhere today. |
-| **Zig re-interprets absolute import paths.** `std.fs.path.join(dir, "/etc/x.skg")` yields `<dir>/etc/x.skg`, silently turning an absolute path into a relative one. | Path-confusion bug. See [§9](#absolute-import-paths) for the recommended resolution. |
-| **Zig's emitter aborts on very large or very small floats.** After writing the value it re-renders it into a fixed 32-byte buffer purely to test for a `.`, with `catch unreachable`. Any float whose decimal form exceeds 32 bytes (roughly `abs(x) >= 1e32`, or very small magnitudes) hits that `unreachable`. | Crash, not a wrong answer. No fixture: a panic aborts the whole test binary instead of failing one case. Fix by inspecting the bytes already written, or by sizing the buffer from the rendered length. |
 | **Zig's byte API does not enforce the 10 MiB cap.** The cap is applied when reading from disk, so an oversized buffer passed directly to `parseSource` is accepted. Go rejects it. | Go is right: the cap is a parser property, not an I/O property. No fixture - a >10 MiB fixture is not worth committing. |
 | **`skg_version` component width.** Zig parses each component as `u8`, so `"300.0"` is `MALFORMED_SKG_VERSION`; Go parses as 64-bit and reports `UNSUPPORTED_SKG_VERSION`. | Go is right: `"300.0"` is well formed, and the user deserves "too new" rather than "malformed". No fixture until Zig is fixed. |
-| **Emitted header order contradicts the spec.** Both emitters write `skg_version`, `schema_version`, imports; `spec.md` lists imports before `schema_version`. The parser does not enforce order, so the emitted form re-parses. | Consistent across implementations, so not a conformance divergence. Pinned by `emit-header.formatted.skg`. The spec should be updated to match. |
+| **The Go parser discards comments.** `go/conformance.json` declares `comments: false`, so the two `trivia-*` fixtures are skipped there and the skip is printed. | A real gap only if Go-side formatters matter. `skg fmt` is the Zig binary. |
+| **Blank lines are not trivia.** Neither emitter preserves a blank line between nodes except the one it inserts before a top-level block, so `skg fmt` closes up deliberate spacing. `examples/*.skg` parse but do not survive `skg fmt --check`. | Needs blank-line trivia on the AST in both implementations, which is a larger change than comment trivia was. No fixture: a `.formatted.skg` sidecar would just encode the current behaviour. |
+| **Comments between header directives are relocated.** They are kept - they used to be dropped - but they reattach to the file's leading trivia rather than to the directive they preceded, so `skg fmt` moves them to the top of the header. | Keeping the text is the property that matters for an in-place formatter; the exact slot needs per-directive trivia on the AST. |
 
 ---
 
@@ -504,24 +570,29 @@ Work through this in order. Each step is checkable against the suite.
 ### Required
 
 - [ ] **Lexer.** Tokens: identifier, int, float, string (`"..."` and `"""..."""`),
-      `:` `{` `}` `[` `]` `,`, comment, EOF. Identifiers are `[A-Za-z_][A-Za-z0-9_]*`.
+      `:` `{` `}` `[` `]` `,`, comment, EOF. Identifiers are `[A-Za-z_][A-Za-z0-9_]*`;
+      `true`, `false` and `null` lex as value literals, never identifiers.
       A number is a float only when it has a `.`; `13` is an int, `13.0` is a float.
-      `-` starts a number only when a digit follows.
+      `-` starts a number only when a digit follows. Reject `13.` and a redundant
+      leading zero (`007`, `00.5`), reported at the first byte of the literal.
 - [ ] **Escapes.** Exactly `\"`, `\\`, `\n`, `\t` inside `"..."`. Anything else is
       `INVALID_ESCAPE`. `"""..."""` does **no** escape processing - the content is
       literal, indentation included.
 - [ ] **Parser.** Header directives (`skg_version`, `import`, `schema_version`),
       fields, blocks, block arrays. A colonless identifier followed by `[` whose
-      first token is not `{` is a scalar array field.
+      first token is not `{` is a scalar array field. Directives are reserved at
+      the top level and must all precede the first block or field.
 - [ ] **Arrays.** All elements share one type tag, checked one level deep. Nested
       arrays: the outer elements must all be arrays; inner element types may
-      differ. `null` is its own type and cannot mix. Empty arrays default to
-      element type `string`. Trailing commas are allowed; commas between block
-      array entries are optional.
+      differ. `null` is its own type and cannot mix. A block array and a scalar
+      array cannot mix either - the kind is chosen from the first element and
+      fixed thereafter. A colonless `[]` is an empty **block array**; an empty
+      scalar array is `key: []`, element type `string`. Trailing commas are
+      allowed; commas between block array entries are optional.
 - [ ] **Duplicates.** Within a file, a repeated key merges under the rules in
       [§9](#merge-semantics) - not an error.
 - [ ] **Limits.** Depth 128, size 10 MiB, both enforced in the parser and both
-      applied to the byte API.
+      applied to the byte API. Numbers within 64-bit range, not saturated.
 - [ ] **Version rules.** Reject a `skg_version` newer than you support. Reject a
       duplicate `skg_version` or `schema_version`. Record `schema_version` without
       interpreting it.
@@ -538,7 +609,9 @@ Work through this in order. Each step is checkable against the suite.
 ### Optional, but declare it either way
 
 - [ ] `imports` - file API, relative resolution, declaration-order merge,
-      importer-wins, diamond-safe cycle detection.
+      importer-wins, diamond-safe cycle detection over canonical paths,
+      memoised so a diamond is linear, chain depth capped at 32, and failures
+      reported at the import statement that named the file.
 - [ ] `emit` - canonical form in [§7](#7-emit-and-round-trip), byte-exact and
       idempotent.
 - [ ] `comments` - trivia captured on nodes per [§8](#8-comment-trivia) and
@@ -551,7 +624,11 @@ Work through this in order. Each step is checkable against the suite.
 - Column numbers are byte offsets. Counting code points instead will pass every
   ASCII fixture and diverge on the first non-ASCII one.
 - A permanent "visited" set turns a legitimate diamond into a false
-  `CIRCULAR_IMPORT`. Push and pop the chain.
+  `CIRCULAR_IMPORT`. Push and pop the chain - and add a separate cache of
+  *finished* files, or the same diamond becomes exponential instead.
+- Decoding an expected `int` through a double passes every fixture until one
+  uses `9223372036854775807`, and then compares the wrong number against
+  itself. Both reference runners decode it as a 64-bit integer.
 - A `"""` literal cannot carry a `"""`, nor a value ending in `"`. Your emitter
   must fall back to the escaped form or it will produce output it cannot read.
 - Float emission must not use exponent notation - the grammar has no way to

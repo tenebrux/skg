@@ -1,1 +1,6 @@
 node_modules/
+
+# Build artifact. `mise run plugins:vscode:package` regenerates it; the copy
+# that used to be committed here shipped a grammar four months older than
+# syntaxes/skg.tmLanguage.json.
+*.vsix
