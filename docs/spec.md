@@ -158,18 +158,24 @@ import [
 ]
 ```
 
-Import paths are relative to the file containing the import statement - not to
-the entry file, and not to the process working directory.
+Import paths are relative to the canonical file containing the import statement
+- not to the entry file, and not to the process working directory. Canonical
+identity follows symlinks, so imports in a symlinked file resolve beside its
+referent. Reaching the same canonical file through multiple aliases is one file
+for parsing, caching and aggregate budgets. Hard-link aliases are distinct.
 
 **Absolute import paths are rejected** (`ABSOLUTE_IMPORT_PATH`). A path is
 absolute when it begins with `/` or `\`, or when it begins with a drive letter
 followed by `:` (`C:\theme.skg`, `c:theme.skg`). All of those spellings are
 rejected on every platform, so a file cannot mean one thing on Linux and
 another on Windows. The check happens at parse time, so the byte API rejects an absolute import
-without touching the filesystem. This is a portability rule, not a filesystem
-sandbox: `..` components and symlinks can still lead outside the config tree.
-Applications loading untrusted configuration must enforce their own filesystem
-access boundary.
+without touching the filesystem. This portability rule alone provides no
+containment: `..` components and symlinks can still lead outside the config
+tree. The options file API can set a canonical root; then the entry and every
+import target must remain within it or resolution fails with
+`PATH_OUTSIDE_ROOT`. Real-path checking followed by ordinary file opening is not
+an operating-system sandbox against an attacker concurrently changing the
+filesystem. Use an OS sandbox or trusted file store for that threat model.
 
 Circular imports are an error (`CIRCULAR_IMPORT`). The parser detects and
 rejects them, comparing paths in canonical form so `./theme.skg` and
@@ -179,8 +185,15 @@ A file reached twice by different routes through the graph (a diamond) is not a
 cycle.
 
 Import chains are followed to **32 levels** below the entry file; deeper is
-`IMPORT_CHAIN_TOO_DEEP`, including paths through already cached imports. This is a backstop against a loop that cycle detection
-cannot see - a symlink loop, say - exhausting the stack.
+`IMPORT_CHAIN_TOO_DEEP`, including paths through already cached imports. This
+is a recursion backstop independent of canonical cycle detection.
+
+One file-resolution call also has V1 defaults of **64 MiB aggregate source**,
+**1,024 unique canonical files**, **8,000,000 nodes and recursively nested
+values**, and **64,000,000 merge work units**. A merge work unit is one node
+slot scanned at one overlay level; recursive block merges charge each level.
+The options API may set positive lower or higher limits. Lowering these defaults
+in V1.x would be a breaking change.
 
 ---
 

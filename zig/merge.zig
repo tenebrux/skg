@@ -18,7 +18,24 @@ const ast = @import("ast.zig");
 ///
 /// Neither `base` nor `overlay` is modified. The result may reference elements
 /// from both - only free via the allocator/arena that owns this memory.
-pub fn mergeNodes(allocator: Allocator, base: []const ast.Node, overlay: []const ast.Node) ![]ast.Node {
+pub fn mergeNodes(allocator: Allocator, base: []const ast.Node, overlay: []const ast.Node) Allocator.Error![]ast.Node {
+    return mergeNodesBudget(allocator, base, overlay, null) catch |err| switch (err) {
+        error.MergeWorkLimit => unreachable,
+        else => |other| return other,
+    };
+}
+
+/// Bounded resolver form. A work unit is one node slot scanned at each merge
+/// level, including recursive block merges.
+pub fn mergeNodesWithBudget(allocator: Allocator, base: []const ast.Node, overlay: []const ast.Node, remaining: *usize) ![]ast.Node {
+    return mergeNodesBudget(allocator, base, overlay, remaining);
+}
+
+fn mergeNodesBudget(allocator: Allocator, base: []const ast.Node, overlay: []const ast.Node, remaining: ?*usize) ![]ast.Node {
+    if (remaining) |budget| {
+        if (base.len > budget.* or overlay.len > budget.* - base.len) return error.MergeWorkLimit;
+        budget.* -= base.len + overlay.len;
+    }
     var result: std.ArrayListUnmanaged(ast.Node) = .empty;
     var index = std.StringHashMapUnmanaged(usize){};
     defer index.deinit(allocator);
@@ -46,7 +63,7 @@ pub fn mergeNodes(allocator: Allocator, base: []const ast.Node, overlay: []const
                             .name = existing.name,
                             .path = existing.path,
                             .replace = existing.replace,
-                            .children = try mergeNodes(allocator, existing.children, ov_block.children),
+                            .children = try mergeNodesBudget(allocator, existing.children, ov_block.children, remaining),
                             .line = existing.line,
                             .col = existing.col,
                             .leading_comments = try concatComments(allocator, existing.leading_comments, ov_block.leading_comments),

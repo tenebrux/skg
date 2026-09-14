@@ -130,6 +130,26 @@
       "summary": "Imports nested more than 32 levels below the entry file. Only a parser with the 'imports' capability can produce this."
     },
     {
+      "code": "PATH_OUTSIDE_ROOT",
+      "summary": "A canonical entry or import target was outside the explicit resolution root."
+    },
+    {
+      "code": "RESOLUTION_BYTE_LIMIT",
+      "summary": "Unique files in one resolution exceeded its aggregate source-byte budget."
+    },
+    {
+      "code": "RESOLUTION_FILE_LIMIT",
+      "summary": "One resolution exceeded its unique canonical-file budget."
+    },
+    {
+      "code": "RESOLUTION_NODE_LIMIT",
+      "summary": "Parsed nodes and recursively nested values exceeded one resolution's budget."
+    },
+    {
+      "code": "RESOLUTION_WORK_LIMIT",
+      "summary": "Recursive overlay composition exceeded one resolution's merge-work budget."
+    },
+    {
       "code": "UNKNOWN",
       "summary": "Fallback for a diagnostic that reached the caller without a code. Never valid in a fixture - its appearance is a parser bug."
     },

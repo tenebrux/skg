@@ -1,5 +1,9 @@
 package skg
 
+import "errors"
+
+var errMergeWorkLimit = errors.New("SKG resolution merge work limit exceeded")
+
 // MergeNodes composes overlay on base. Deletion and replacement markers survive
 // so the result can be composed again without resurrecting earlier values.
 // Call MaterializeNodes once after all overlays to obtain final values.
@@ -9,8 +13,24 @@ package skg
 // New keys/blocks from overlay are appended.
 // Nodes with no variant set carry no data and are dropped.
 func MergeNodes(base, overlay []Node) []Node {
+	result, _ := mergeNodesBudget(base, overlay, nil)
+	return result
+}
+
+// mergeNodesBudget is the resolver's bounded form of MergeNodes. A work unit is
+// one node slot scanned while composing a node list; recursive block merges are
+// charged independently. nil means unbounded and preserves the public helper's
+// historical signature.
+func mergeNodesBudget(base, overlay []Node, remaining *int64) ([]Node, error) {
+	if remaining != nil {
+		cost := int64(len(base)) + int64(len(overlay))
+		if cost > *remaining {
+			return nil, errMergeWorkLimit
+		}
+		*remaining -= cost
+	}
 	if len(overlay) == 0 {
-		return base
+		return base, nil
 	}
 
 	result := make([]Node, 0, len(base)+len(overlay))
@@ -32,7 +52,10 @@ func MergeNodes(base, overlay []Node) []Node {
 		}
 		if pos, ok := index[key]; ok {
 			if ov.Block != nil && !ov.Block.Replace && result[pos].Block != nil {
-				merged := MergeNodes(result[pos].Block.Children, ov.Block.Children)
+				merged, err := mergeNodesBudget(result[pos].Block.Children, ov.Block.Children, remaining)
+				if err != nil {
+					return nil, err
+				}
 				result[pos] = Node{Block: &Block{
 					Replace:  result[pos].Block.Replace,
 					Path:     result[pos].Block.Path,
@@ -57,7 +80,7 @@ func MergeNodes(base, overlay []Node) []Node {
 		}
 	}
 
-	return result
+	return result, nil
 }
 
 // nodeKey returns the merge key of n. It reports false for a node with all

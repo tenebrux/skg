@@ -44,7 +44,11 @@ without an `ERROR` or `MISSING` node (`npm run check:fixtures`).
 | ----------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | Maximum nesting depth   | **128**            | One native stack frame per nested `{`, `[` (block, block array, or array). Beyond this, a recursive-descent parser overflows the stack, which most runtimes cannot catch. Must be enforced by the parser, not left to the runtime. |
 | Maximum file size       | **10 MiB** (`10 * 1024 * 1024` bytes) | Required by the spec. Applies **per file**, not per import tree. |
-| Maximum import depth    | **32**             | Levels of imports followed below the entry file. A backstop for a loop cycle detection cannot see - a symlink loop, a bind mount - exhausting the stack. Exceeding it is `IMPORT_CHAIN_TOO_DEEP`. Pinned from both sides by `testdata/valid/imports-chain-at-limit/` and `testdata/invalid/import-chain-too-deep/`. |
+| Maximum import depth    | **32**             | Levels of imports followed below the entry file. An independent recursion backstop. Exceeding it is `IMPORT_CHAIN_TOO_DEEP`. Pinned from both sides by `testdata/valid/imports-chain-at-limit/` and `testdata/invalid/import-chain-too-deep/`. |
+| Aggregate source        | **64 MiB**         | Source bytes across unique canonical files in one default file-resolution call. |
+| Canonical files         | **1,024**          | Unique real paths parsed by one default file-resolution call. Cache hits do not charge again. |
+| Nodes and values        | **8,000,000**      | Named nodes plus every recursively nested value parsed across unique files. |
+| Merge work              | **64,000,000**     | Node slots scanned across every recursive overlay merge in one resolution. |
 
 Depth counting: the counter increases when the parser descends into a `{` of a
 block, a `{` of a block-array entry, the `[` of a block array, or the `[` of a
@@ -186,6 +190,10 @@ nothing to be ambiguous with.
 | ------------------ | --------------------------------------------------------------- |
 | `NESTING_TOO_DEEP` | Nesting exceeded 128 levels.                                     |
 | `FILE_TOO_LARGE`   | A single file, or a buffer handed to the byte API, exceeded 10 MiB. |
+| `RESOLUTION_BYTE_LIMIT` | Aggregate bytes across unique files exceeded the resolution option. |
+| `RESOLUTION_FILE_LIMIT` | Unique canonical files exceeded the resolution option. |
+| `RESOLUTION_NODE_LIMIT` | Parsed nodes and recursively nested values exceeded the resolution option. |
+| `RESOLUTION_WORK_LIMIT` | Recursive overlay merge work exceeded the resolution option. |
 
 ### Import resolution
 
@@ -197,8 +205,9 @@ capability never produces these.
 | `CIRCULAR_IMPORT`       | An import cycle was reached.                                       |
 | `IMPORT_NOT_FOUND`      | An imported file could not be opened.                              |
 | `IMPORT_CHAIN_TOO_DEEP` | Imports nested more than 32 levels below the entry file.           |
+| `PATH_OUTSIDE_ROOT`     | A canonical entry or import target escaped the explicit root.      |
 
-All three are reported **at the import statement that named the file**: the
+Import resolution failures are reported **at the import statement that named the file**: the
 diagnostic's `path` is the importing file and its `line`/`col` are the position
 of the path's string token. Reporting them at 0:0 is a bug - the whole point of
 1-based positions is that a reader can go to the line. Only a failure on the
@@ -521,9 +530,12 @@ Resolution, merging and cycle detection are file-API behaviour.
    with a multi-kilobyte path. `testdata/invalid/import-cycle-dotslash/` pins
    this; `testdata/invalid/import-cycle/` uses bare filenames and cannot.
 
-   Lexical canonicalisation (Go's `filepath.Abs`, Zig's `std.fs.path.resolve`)
-   is enough. Resolving symlinks costs a syscall per import and fails on paths
-   that do not exist; the depth cap is the backstop for what that misses.
+   Canonical identity is the host filesystem's real absolute path (Go's
+   `filepath.EvalSymlinks` plus `Abs`, Zig's `realpath`). Resolve imports from
+   the canonical containing directory too: cache identity and relative-import
+   meaning must not disagree for aliases. A path that cannot be canonicalized
+   is `IMPORT_NOT_FOUND`; an operating-system symlink loop therefore fails
+   there rather than as an SKG content cycle. Hard-link aliases remain distinct.
 8. **Memoise files you have finished resolving**, keyed by canonical path. The
    visited set alone makes a diamond-shaped graph exponential: each level that
    imports the level below it twice doubles the work, so a 30-level graph - well
@@ -661,10 +673,10 @@ Work through this in order. Each step is checkable against the suite.
 
 ### Optional, but declare it either way
 
-- [ ] `imports` - file API, relative resolution, declaration-order merge,
-      importer-wins, diamond-safe cycle detection over canonical paths,
-      memoised so a diamond is linear, chain depth capped at 32, and failures
-      reported at the import statement that named the file.
+- [ ] `imports` - file API, canonical relative resolution, declaration-order
+      merge, importer-wins, diamond-safe cycle detection, memoised so a diamond
+      is linear, V1 aggregate budgets, chain depth capped at 32, explicit rooted
+      policy, and failures reported at the import statement that named the file.
 - [ ] `emit` - canonical form in [§7](#7-emit-and-round-trip), byte-exact and
       idempotent.
 - [ ] `comments` - trivia captured on nodes per [§8](#8-comment-trivia) and

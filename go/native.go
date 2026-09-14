@@ -72,8 +72,14 @@ func DecodeSource[T any](data []byte, path string, options DecodeOptions) (T, er
 
 // DecodeFile resolves imports and overlays before native conversion.
 func DecodeFile[T any](path string, options DecodeOptions) (T, error) {
+	return DecodeFileWithOptions[T](path, options, ResolveOptions{})
+}
+
+// DecodeFileWithOptions resolves under an explicit filesystem/resource policy
+// before applying the native typed decoder.
+func DecodeFileWithOptions[T any](path string, options DecodeOptions, resolve ResolveOptions) (T, error) {
 	var out T
-	file, err := ParseFile(path)
+	file, err := ParseFileWithOptions(path, resolve)
 	if err == nil {
 		err = decodeNativeFile(file, reflect.ValueOf(&out).Elem(), options)
 	}
@@ -96,10 +102,14 @@ func DecodeSourceInto(data []byte, path string, target any, options DecodeOption
 	return decodeNativeInto(file, target, options)
 }
 func DecodeFileInto(path string, target any, options DecodeOptions) error {
+	return DecodeFileIntoWithOptions(path, target, options, ResolveOptions{})
+}
+
+func DecodeFileIntoWithOptions(path string, target any, options DecodeOptions, resolve ResolveOptions) error {
 	if err := checkUnmarshalTarget(target); err != nil {
 		return err
 	}
-	file, err := ParseFile(path)
+	file, err := ParseFileWithOptions(path, resolve)
 	if err != nil {
 		return nativeParseError(err, path)
 	}

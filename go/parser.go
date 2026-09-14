@@ -703,3 +703,10 @@ func firstInvalidUTF8(src []byte) (line, col int, invalid bool) {
 func ParseFile(path string) (*File, error) {
 	return resolveImports(path)
 }
+
+// ParseFileWithOptions resolves imports with explicit aggregate limits and an
+// optional canonical root. See ResolveOptions. The returned tree is otherwise
+// identical to ParseFile.
+func ParseFileWithOptions(path string, options ResolveOptions) (*File, error) {
+	return resolveImportsWithOptions(path, options)
+}

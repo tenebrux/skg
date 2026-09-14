@@ -195,12 +195,16 @@ const (
 	CodeNestingTooDeep ErrorCode = "NESTING_TOO_DEEP"
 	CodeFileTooLarge   ErrorCode = "FILE_TOO_LARGE"
 
-	// Import resolution. Only a parser that resolves imports from disk can
-	// produce these; the Go parser records import paths but does not yet
-	// resolve them (see go/conformance.json).
-	CodeCircularImport     ErrorCode = "CIRCULAR_IMPORT"
-	CodeImportNotFound     ErrorCode = "IMPORT_NOT_FOUND"
-	CodeImportChainTooDeep ErrorCode = "IMPORT_CHAIN_TOO_DEEP"
+	// Import resolution. Only file APIs can produce these; byte APIs record
+	// import paths without opening them.
+	CodeCircularImport      ErrorCode = "CIRCULAR_IMPORT"
+	CodeImportNotFound      ErrorCode = "IMPORT_NOT_FOUND"
+	CodeImportChainTooDeep  ErrorCode = "IMPORT_CHAIN_TOO_DEEP"
+	CodePathOutsideRoot     ErrorCode = "PATH_OUTSIDE_ROOT"
+	CodeResolutionByteLimit ErrorCode = "RESOLUTION_BYTE_LIMIT"
+	CodeResolutionFileLimit ErrorCode = "RESOLUTION_FILE_LIMIT"
+	CodeResolutionNodeLimit ErrorCode = "RESOLUTION_NODE_LIMIT"
+	CodeResolutionWorkLimit ErrorCode = "RESOLUTION_WORK_LIMIT"
 
 	// Fallback. Never expected in a fixture - seeing it means a diagnostic
 	// site is missing its code.
@@ -244,6 +248,11 @@ var ErrorCodes = []ErrorCode{
 	CodeCircularImport,
 	CodeImportNotFound,
 	CodeImportChainTooDeep,
+	CodePathOutsideRoot,
+	CodeResolutionByteLimit,
+	CodeResolutionFileLimit,
+	CodeResolutionNodeLimit,
+	CodeResolutionWorkLimit,
 	CodeUnknown,
 }
 

@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -597,4 +598,123 @@ func TestResolveImportPath(t *testing.T) {
 	}
 	// Absolute paths never reach resolveImportPath - the parser rejects them
 	// with ABSOLUTE_IMPORT_PATH. See TestAbsoluteImportPathSpellings.
+}
+
+func parseCode(t *testing.T, err error) ErrorCode {
+	t.Helper()
+	var pe *ParseError
+	if !errors.As(err, &pe) {
+		t.Fatalf("want *ParseError, got %T: %v", err, err)
+	}
+	return pe.Diag.Code
+}
+
+func TestParseFileWithOptionsAggregateLimits(t *testing.T) {
+	t.Run("files", func(t *testing.T) {
+		dir := writeFiles(t, map[string]string{
+			"main.skg":  "import \"child.skg\"\nroot: 1\n",
+			"child.skg": "child: 2\n",
+		})
+		_, err := ParseFileWithOptions(filepath.Join(dir, "main.skg"), ResolveOptions{MaxFiles: 1})
+		if got := parseCode(t, err); got != CodeResolutionFileLimit {
+			t.Fatalf("want %s, got %s", CodeResolutionFileLimit, got)
+		}
+	})
+
+	t.Run("bytes", func(t *testing.T) {
+		const main = "import \"child.skg\"\nroot: 1\n"
+		const child = "child: 2\n"
+		dir := writeFiles(t, map[string]string{"main.skg": main, "child.skg": child})
+		_, err := ParseFileWithOptions(filepath.Join(dir, "main.skg"), ResolveOptions{MaxBytes: int64(len(main) + len(child) - 1)})
+		if got := parseCode(t, err); got != CodeResolutionByteLimit {
+			t.Fatalf("want %s, got %s", CodeResolutionByteLimit, got)
+		}
+	})
+
+	t.Run("nodes and values", func(t *testing.T) {
+		dir := writeFiles(t, map[string]string{"main.skg": "items: [1, 2]\n"})
+		_, err := ParseFileWithOptions(filepath.Join(dir, "main.skg"), ResolveOptions{MaxNodes: 3})
+		if got := parseCode(t, err); got != CodeResolutionNodeLimit {
+			t.Fatalf("want %s, got %s", CodeResolutionNodeLimit, got)
+		}
+	})
+
+	t.Run("merge work", func(t *testing.T) {
+		dir := writeFiles(t, map[string]string{
+			"main.skg":  "import \"child.skg\"\nroot: 1\n",
+			"child.skg": "child: 2\n",
+		})
+		_, err := ParseFileWithOptions(filepath.Join(dir, "main.skg"), ResolveOptions{MaxMergeWork: 2})
+		if got := parseCode(t, err); got != CodeResolutionWorkLimit {
+			t.Fatalf("want %s, got %s", CodeResolutionWorkLimit, got)
+		}
+	})
+}
+
+func TestParseFileWithOptionsRootPolicy(t *testing.T) {
+	root := writeFiles(t, map[string]string{
+		"cfg/main.skg": "import \"../shared.skg\"\nroot: 1\n",
+		"shared.skg":   "shared: 2\n",
+	})
+	file, err := ParseFileWithOptions(filepath.Join(root, "cfg", "main.skg"), ResolveOptions{Root: root})
+	if err != nil {
+		t.Fatalf("parent path that stays inside root: %v", err)
+	}
+	if v := fieldValue(t, file, "shared"); v.Type != TypeInt || v.Int != 2 {
+		t.Fatalf("shared = %#v", v)
+	}
+
+	outside := writeFiles(t, map[string]string{"outside.skg": "outside: 3\n"})
+	escape := filepath.Join(root, "cfg", "escape.skg")
+	rel, err := filepath.Rel(filepath.Dir(escape), filepath.Join(outside, "outside.skg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(escape, []byte("import \""+filepath.ToSlash(rel)+"\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = ParseFileWithOptions(escape, ResolveOptions{Root: root})
+	if got := parseCode(t, err); got != CodePathOutsideRoot {
+		t.Fatalf("want %s for parent escape, got %s", CodePathOutsideRoot, got)
+	}
+
+	_, err = ParseFileWithOptions(filepath.Join(outside, "outside.skg"), ResolveOptions{Root: root})
+	if got := parseCode(t, err); got != CodePathOutsideRoot {
+		t.Fatalf("want %s for entry outside root, got %s", CodePathOutsideRoot, got)
+	}
+}
+
+func TestParseFileWithOptionsSymlinksUseCanonicalIdentity(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("creating symlinks normally requires an elevated token on Windows")
+	}
+	root := writeFiles(t, map[string]string{
+		"main.skg":   "import [\"alias-a.skg\", \"alias-b.skg\"]\n",
+		"target.skg": "value: 1\n",
+	})
+	for _, name := range []string{"alias-a.skg", "alias-b.skg"} {
+		if err := os.Symlink("target.skg", filepath.Join(root, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Root plus one canonical target: aliases are cache hits, not distinct files.
+	file, err := ParseFileWithOptions(filepath.Join(root, "main.skg"), ResolveOptions{Root: root, MaxFiles: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := fieldValue(t, file, "value"); v.Int != 1 {
+		t.Fatalf("value = %d", v.Int)
+	}
+
+	outside := writeFiles(t, map[string]string{"target.skg": "outside: 1\n"})
+	if err := os.Symlink(filepath.Join(outside, "target.skg"), filepath.Join(root, "outside-link.skg")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "escape.skg"), []byte("import \"outside-link.skg\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = ParseFileWithOptions(filepath.Join(root, "escape.skg"), ResolveOptions{Root: root})
+	if got := parseCode(t, err); got != CodePathOutsideRoot {
+		t.Fatalf("want %s for symlink escape, got %s", CodePathOutsideRoot, got)
+	}
 }

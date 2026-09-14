@@ -35,6 +35,19 @@ func UnmarshalFile(path string, v interface{}) error {
 	return decodeNodes(file.Children, reflect.ValueOf(v))
 }
 
+// UnmarshalFileWithOptions is the legacy decoder paired with explicit file
+// resolution policy. New code should generally prefer DecodeFileWithOptions.
+func UnmarshalFileWithOptions(path string, v interface{}, options ResolveOptions) error {
+	if err := checkUnmarshalTarget(v); err != nil {
+		return err
+	}
+	file, err := ParseFileWithOptions(path, options)
+	if err != nil {
+		return err
+	}
+	return decodeNodes(file.Children, reflect.ValueOf(v))
+}
+
 // InvalidUnmarshalError describes a target that Unmarshal cannot decode into:
 // anything that is not a non-nil pointer. It mirrors
 // encoding/json.InvalidUnmarshalError, and exists because the alternative was a

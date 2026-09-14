@@ -60,6 +60,11 @@ pub const ErrorCode = enum {
     CIRCULAR_IMPORT,
     IMPORT_NOT_FOUND,
     IMPORT_CHAIN_TOO_DEEP,
+    PATH_OUTSIDE_ROOT,
+    RESOLUTION_BYTE_LIMIT,
+    RESOLUTION_FILE_LIMIT,
+    RESOLUTION_NODE_LIMIT,
+    RESOLUTION_WORK_LIMIT,
 
     // Fallback. Never expected in a fixture - seeing it means a diagnostic
     // site is missing its code.

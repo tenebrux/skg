@@ -10,6 +10,8 @@ binary, or runtime bridge.
 overlay before decoding into `T`. It records imports but does not read them.
 `decodeFile(T, allocator, path, options)` resolves imports and applies all
 overlays first. Both return `native.Result(T)`.
+`decodeFileWithOptions(T, allocator, path, options, resolve_options)` adds the
+same rooted filesystem and aggregate resource policy as `parseWithOptions`.
 
 ```zig
 const Config = struct {
@@ -128,6 +130,12 @@ containing scope, with line/column zero at the document root. Parse failures
 retain the original parser diagnostic in `parse_diagnostic`.
 
 ## Go typed loading
+
+`DecodeFileWithOptions[T](path, decodeOptions, resolveOptions)` pairs strict
+native decoding with `ResolveOptions`; `DecodeFileIntoWithOptions` does the same
+for caller defaults. `ParseFileWithOptions` and legacy
+`UnmarshalFileWithOptions` expose that resolution policy without changing the
+established entry points. A zero Go `ResolveOptions` selects every V1 default.
 
 `DecodeSource[T](bytes, path, options)` parses and applies local overlays without
 reading imports. `DecodeFile[T](path, options)` resolves imports before decoding.

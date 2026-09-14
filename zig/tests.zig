@@ -515,6 +515,98 @@ test "imports: a ./-spelled cycle is detected immediately" {
     try testing.expectEqual(@as(u32, 8), result.diagnostic.?.col);
 }
 
+test "imports: aggregate resolution limits have stable diagnostics" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const main = "import \"child.skg\"\nroot: 1\n";
+    const child = "child: 2\n";
+    try tmp.dir.writeFile(.{ .sub_path = "main.skg", .data = main });
+    try tmp.dir.writeFile(.{ .sub_path = "child.skg", .data = child });
+    const entry = try tmp.dir.realpathAlloc(testing.allocator, "main.skg");
+    defer testing.allocator.free(entry);
+
+    const Case = struct { options: root.ResolveOptions, code: ast.ErrorCode };
+    for ([_]Case{
+        .{ .options = .{ .max_files = 1 }, .code = .RESOLUTION_FILE_LIMIT },
+        .{ .options = .{ .max_bytes = main.len + child.len - 1 }, .code = .RESOLUTION_BYTE_LIMIT },
+        .{ .options = .{ .max_merge_work = 2 }, .code = .RESOLUTION_WORK_LIMIT },
+    }) |case| {
+        var result = root.parseWithOptions(testing.allocator, entry, case.options);
+        defer result.deinit();
+        try testing.expect(result.file == null);
+        try testing.expectEqual(case.code, result.diagnostic.?.code);
+    }
+
+    try tmp.dir.writeFile(.{ .sub_path = "nodes.skg", .data = "items: [1, 2]\n" });
+    const nodes = try tmp.dir.realpathAlloc(testing.allocator, "nodes.skg");
+    defer testing.allocator.free(nodes);
+    var result = root.parseWithOptions(testing.allocator, nodes, .{ .max_nodes = 3 });
+    defer result.deinit();
+    try testing.expect(result.file == null);
+    try testing.expectEqual(ast.ErrorCode.RESOLUTION_NODE_LIMIT, result.diagnostic.?.code);
+}
+
+test "imports: rooted policy accepts contained parent paths and rejects escapes" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.makePath("root/cfg");
+    try tmp.dir.makePath("outside");
+    try tmp.dir.writeFile(.{ .sub_path = "root/shared.skg", .data = "shared: 2\n" });
+    try tmp.dir.writeFile(.{ .sub_path = "root/cfg/main.skg", .data = "import \"../shared.skg\"\nroot: 1\n" });
+    try tmp.dir.writeFile(.{ .sub_path = "outside/value.skg", .data = "outside: 3\n" });
+    try tmp.dir.writeFile(.{ .sub_path = "root/cfg/escape.skg", .data = "import \"../../outside/value.skg\"\n" });
+    const root_path = try tmp.dir.realpathAlloc(testing.allocator, "root");
+    defer testing.allocator.free(root_path);
+    const entry = try tmp.dir.realpathAlloc(testing.allocator, "root/cfg/main.skg");
+    defer testing.allocator.free(entry);
+    var accepted = root.parseWithOptions(testing.allocator, entry, .{ .root = root_path });
+    defer accepted.deinit();
+    try testing.expect(accepted.file != null);
+
+    const escape = try tmp.dir.realpathAlloc(testing.allocator, "root/cfg/escape.skg");
+    defer testing.allocator.free(escape);
+    var rejected = root.parseWithOptions(testing.allocator, escape, .{ .root = root_path });
+    defer rejected.deinit();
+    try testing.expect(rejected.file == null);
+    try testing.expectEqual(ast.ErrorCode.PATH_OUTSIDE_ROOT, rejected.diagnostic.?.code);
+
+    const outside = try tmp.dir.realpathAlloc(testing.allocator, "outside/value.skg");
+    defer testing.allocator.free(outside);
+    var outside_entry = root.parseWithOptions(testing.allocator, outside, .{ .root = root_path });
+    defer outside_entry.deinit();
+    try testing.expect(outside_entry.file == null);
+    try testing.expectEqual(ast.ErrorCode.PATH_OUTSIDE_ROOT, outside_entry.diagnostic.?.code);
+}
+
+test "imports: canonical symlink identity is cached and rooted" {
+    if (@import("builtin").os.tag == .windows) return error.SkipZigTest;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.makePath("root");
+    try tmp.dir.makePath("outside");
+    try tmp.dir.writeFile(.{ .sub_path = "root/main.skg", .data = "import [\"alias-a.skg\", \"alias-b.skg\"]\n" });
+    try tmp.dir.writeFile(.{ .sub_path = "root/target.skg", .data = "value: 1\n" });
+    try tmp.dir.symLink("target.skg", "root/alias-a.skg", .{});
+    try tmp.dir.symLink("target.skg", "root/alias-b.skg", .{});
+    const root_path = try tmp.dir.realpathAlloc(testing.allocator, "root");
+    defer testing.allocator.free(root_path);
+    const entry = try tmp.dir.realpathAlloc(testing.allocator, "root/main.skg");
+    defer testing.allocator.free(entry);
+    var cached = root.parseWithOptions(testing.allocator, entry, .{ .root = root_path, .max_files = 2 });
+    defer cached.deinit();
+    try testing.expect(cached.file != null);
+
+    try tmp.dir.writeFile(.{ .sub_path = "outside/target.skg", .data = "outside: 1\n" });
+    try tmp.dir.symLink("../outside/target.skg", "root/outside-link.skg", .{});
+    try tmp.dir.writeFile(.{ .sub_path = "root/escape.skg", .data = "import \"outside-link.skg\"\n" });
+    const escape = try tmp.dir.realpathAlloc(testing.allocator, "root/escape.skg");
+    defer testing.allocator.free(escape);
+    var rejected = root.parseWithOptions(testing.allocator, escape, .{ .root = root_path });
+    defer rejected.deinit();
+    try testing.expect(rejected.file == null);
+    try testing.expectEqual(ast.ErrorCode.PATH_OUTSIDE_ROOT, rejected.diagnostic.?.code);
+}
+
 test "source API owns input and path and enforces the file size limit" {
     var src = "value: \"hello\"\n".*;
     var path = "config.skg".*;

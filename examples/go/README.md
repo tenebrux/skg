@@ -92,6 +92,8 @@ The main entry points:
 
 - `skg.DecodeFile[T](path, options) (T, error)` - resolve a file and
   decode with strict native type checks; no partial value on failure
+- `skg.DecodeFileWithOptions[T](path, decodeOptions, resolveOptions)` - strict
+  decode with explicit aggregate budgets and optional rooted resolution
 - `skg.DecodeSource[T](bytes, path, options) (T, error)` - decode bytes
   without reading imports
 - `skg.DecodeFileInto(path, &target, options) error` - stage native defaults
@@ -102,6 +104,8 @@ The main entry points:
   in-memory buffer
 - `skg.ParseFile(path string) (*skg.File, error)` - parse only, get
   the AST
+- `skg.ParseFileWithOptions(path, resolveOptions)` - parse a file graph under
+  the same explicit resolution policy
 - `skg.Marshal(v interface{}) ([]byte, error)` - struct to SKG text
 
 See [../../go/](../../go/) for the full implementation.
