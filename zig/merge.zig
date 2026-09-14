@@ -44,6 +44,7 @@ pub fn mergeNodes(allocator: Allocator, base: []const ast.Node, overlay: []const
                         // rewrites files in place - so the loss was permanent.
                         result.items[pos] = ast.Node{ .block = .{
                             .name = existing.name,
+                            .path = existing.path,
                             .replace = existing.replace,
                             .children = try mergeNodes(allocator, existing.children, ov_block.children),
                             .line = existing.line,

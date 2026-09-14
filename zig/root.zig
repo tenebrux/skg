@@ -223,3 +223,14 @@ const Resolver = struct {
 fn canonicalPath(allocator: Allocator, path: []const u8) ![]const u8 {
     return std.fs.path.resolve(allocator, &.{path});
 }
+
+// Native typed integration; field schemas come from Zig types.
+pub const native = @import("native.zig");
+
+pub fn decodeSource(comptime T: type, backing: Allocator, src: []const u8, path: []const u8, options: native.Options) native.Result(T) {
+    return native.fromParsed(T, backing, parseSource(backing, src, path), options);
+}
+
+pub fn decodeFile(comptime T: type, backing: Allocator, path: []const u8, options: native.Options) native.Result(T) {
+    return native.fromParsed(T, backing, parse(backing, path), options);
+}

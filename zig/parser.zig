@@ -364,6 +364,14 @@ const Parser = struct {
     /// Leading comments are already buffered by the time we get here -
     /// drain them before consuming the key.
     fn parseNode(self: *Parser) ParseError!ast.Node {
+        var node = try self.parseNodeBody();
+        switch (node) {
+            inline else => |*v| v.path = self.path,
+        }
+        return node;
+    }
+
+    fn parseNodeBody(self: *Parser) ParseError!ast.Node {
         const leading = try self.drainComments();
         if ((try self.peek()).tag == .at) return self.parseOperation(leading);
         const name_tok = try self.parseKey();

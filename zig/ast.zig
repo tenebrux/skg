@@ -108,6 +108,7 @@ pub const Value = union(ValueType) {
 
 /// A key-value pair: `key: value`
 pub const Field = struct {
+    path: []const u8 = "",
     key: []const u8, // decoded key, owned by the parse arena
     value: Value,
     line: u32,
@@ -118,6 +119,7 @@ pub const Field = struct {
 
 /// A named scope: `name { children... }`
 pub const Block = struct {
+    path: []const u8 = "",
     replace: bool = false,
     name: []const u8, // slice into source
     children: []Node,
@@ -130,6 +132,7 @@ pub const Block = struct {
 /// A named list of blocks: `name [ { ... } { ... } ]`
 /// Each item is an object or null value.
 pub const BlockArray = struct {
+    path: []const u8 = "",
     name: []const u8, // slice into source
     items: []Value,
     line: u32,
@@ -139,6 +142,7 @@ pub const BlockArray = struct {
 };
 
 pub const Delete = struct {
+    path: []const u8 = "",
     key: []const u8,
     line: u32,
     col: u32,

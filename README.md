@@ -81,19 +81,27 @@ Full walk-through: **[examples/go/](examples/go/)**.
 ```zig
 const skg = @import("skg");
 
-var result = skg.parseSource(allocator, source, "config.skg");
+const Config = struct {
+    name: []const u8,
+    port: u16,
+    debug: bool = false,
+};
+
+var result = skg.decodeFile(Config, allocator, "config.skg", .{});
 defer result.deinit();
 
-if (result.file) |file| {
-    // walk file.children, pattern-match on field keys and block names
+if (result.value) |config| {
+    // use native fields while result is alive
+    _ = config;
 } else if (result.diagnostic) |d| {
-    std.debug.print("{s}:{d}:{d}: {s}\n", .{ d.path, d.line, d.col, d.message });
+    std.debug.print("{s}: {s}\n", .{ d.field_path, d.message });
 }
 ```
 
-No reflection, no tags - you write a small walker that maps keys to
-struct fields. Explicit, arena-allocated, full control over defaults
-and validation.
+Native structs, maps, lists, optional values and enums decode in process.
+Defaults live on the struct; optional name mappings and custom hooks handle
+application-specific types. The result owns all decoded storage.
+See [native types](docs/native-types.md) for exact conversion and ownership rules.
 
 Full walk-through: **[examples/zig/](examples/zig/)**.
 
