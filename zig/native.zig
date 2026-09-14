@@ -7,6 +7,10 @@ const Allocator = std.mem.Allocator;
 
 pub const Error = error{ DecodeFailed, OutOfMemory };
 
+/// Recursive native conversion and default-copy limit. Lowering it in 1.x
+/// would reject a target accepted by V1.0.
+pub const max_nesting_depth: usize = 256;
+
 pub const Code = enum {
     parse_error,
     type_mismatch,
@@ -114,7 +118,7 @@ pub const Context = struct {
     }
 
     pub fn decode(self: *Context, comptime T: type, value: ast.Value) Error!T {
-        if (self.depth >= 256) return self.fail(.nesting_too_deep, "native target nesting exceeds 256");
+        if (self.depth >= max_nesting_depth) return self.fail(.nesting_too_deep, "native target nesting exceeds 256");
         self.depth += 1;
         defer self.depth -= 1;
         const result = try self.decodeInner(T, value);
@@ -311,7 +315,7 @@ pub const Context = struct {
     // Copy defaults and dynamic AST values into the result's arena. No returned
     // slice, pointer, or map allocator borrows caller-owned temporary storage.
     fn clone(self: *Context, comptime T: type, value: T) Error!T {
-        if (self.depth >= 256) return self.fail(.nesting_too_deep, "native default nesting exceeds 256");
+        if (self.depth >= max_nesting_depth) return self.fail(.nesting_too_deep, "native default nesting exceeds 256");
         self.depth += 1;
         defer self.depth -= 1;
         if (comptime mapValueType(T)) |V| {

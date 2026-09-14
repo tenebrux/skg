@@ -27,6 +27,13 @@ pub const BlockArray = ast.BlockArray;
 
 pub const ParseError = parser.ParseError;
 
+pub const language_version = "1.0";
+pub const supported_major_version = parser.supported_major;
+pub const supported_minor_version = parser.supported_minor;
+pub const max_nesting_depth = parser.max_nesting_depth;
+pub const max_file_size = parser.max_file_size;
+pub const max_native_nesting_depth = native.max_nesting_depth;
+
 /// How many levels of imports the file API follows below the file it was handed.
 ///
 /// Real-path cycle detection catches ordinary content and symlink aliases. The
@@ -217,8 +224,8 @@ const Resolver = struct {
             return error.FileNotFound;
         };
         defer f.close();
-        const max_file_size = parser.max_file_size;
-        const src = f.readToEndAlloc(self.allocator, max_file_size) catch {
+        const source_size_limit = parser.max_file_size;
+        const src = f.readToEndAlloc(self.allocator, source_size_limit) catch {
             self.fail(origin, canonical, .FILE_TOO_LARGE, "file too large (max 10MB)");
             return error.FileTooLarge;
         };

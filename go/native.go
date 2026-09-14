@@ -14,6 +14,10 @@ import (
 // NativeCode classifies typed loading failures, independently of message wording.
 type NativeCode string
 
+// MaxNativeNestingDepth bounds recursive native conversion and default-copy
+// work. Lowering it in 1.x would reject a target accepted by V1.0.
+const MaxNativeNestingDepth = 256
+
 const (
 	NativeParseError       NativeCode = "parse_error"
 	NativeTypeMismatch     NativeCode = "type_mismatch"
@@ -191,7 +195,7 @@ func (c *DecodeContext) hookError(err error) error {
 	return &DecodeError{Code: NativeCustomError, FieldPath: c.FieldPath, Source: c.Source, Message: err.Error(), Err: err}
 }
 func (c *DecodeContext) convert(value Value, target reflect.Value) (err error) {
-	if c.depth >= 256 {
+	if c.depth >= MaxNativeNestingDepth {
 		return c.Fail(NativeNestingTooDeep, "native target nesting exceeds 256")
 	}
 	c.depth++
@@ -512,7 +516,7 @@ func nodeLocation(n Node) SourceLocation {
 // Default graphs are copied before conversion. Unsupported mutable private state
 // and cycles are rejected rather than sharing aliases with the caller's target.
 func cloneDefault(v reflect.Value, depth int) (reflect.Value, error) {
-	if depth >= 256 {
+	if depth >= MaxNativeNestingDepth {
 		return reflect.Value{}, &DecodeError{Code: NativeNestingTooDeep, Message: "native defaults are too deep or cyclic"}
 	}
 	out := reflect.New(v.Type()).Elem()

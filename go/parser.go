@@ -20,11 +20,13 @@ const MaxNestingDepth = 128
 // ("The parser SHALL reject files larger than 10MB with a clear error").
 const MaxFileSize = 10 * 1024 * 1024
 
-// Highest skg_version this parser understands. A file declaring a newer
-// version is rejected so it cannot silently lose meaning.
+// LanguageVersion is the highest SKG language contract this package accepts.
+// The numeric components are exposed as well for callers that gate features
+// without parsing the display string.
 const (
-	supportedMajorVersion = 1
-	supportedMinorVersion = 0
+	LanguageVersion       = "1.0"
+	SupportedMajorVersion = 1
+	SupportedMinorVersion = 0
 )
 
 type parser struct {
@@ -130,10 +132,10 @@ func checkVersion(v string) (wellFormed, supported bool) {
 	if err != nil {
 		return false, false
 	}
-	if major != supportedMajorVersion {
+	if major != SupportedMajorVersion {
 		return true, false
 	}
-	if major == supportedMajorVersion && minor > supportedMinorVersion {
+	if major == SupportedMajorVersion && minor > SupportedMinorVersion {
 		return true, false
 	}
 	return true, true
