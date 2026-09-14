@@ -29,6 +29,7 @@ pub const ParseError = LexError || error{
     AbsoluteImportPath,
     DirectiveAfterBody,
     OutOfMemory,
+    FileTooLarge,
 };
 
 /// The highest skg_version this parser supports.
@@ -42,6 +43,7 @@ pub const supported_minor: u8 = 0;
 /// process. The Go sibling parser (go/parser.go) uses the same constant, so both
 /// implementations accept and reject exactly the same inputs.
 pub const max_nesting_depth: u32 = 128;
+pub const max_file_size: usize = 10 * 1024 * 1024;
 
 const nesting_too_deep_message = std.fmt.comptimePrint(
     "nesting too deep (max {d})",
@@ -672,9 +674,8 @@ pub fn isDirective(name: []const u8) bool {
 /// Reports whether an import path escapes the relative-path grammar.
 ///
 /// Absolute imports are rejected outright (docs/spec.md, "Imports"): they are
-/// not portable between machines, and a config parsed as root - which is how
-/// umbra reads its manifests - has no business following a path out of the
-/// config tree. The Windows spellings are rejected too so a file cannot mean
+/// not portable between machines. This is not containment: parent components
+/// and symlinks may still reach outside the config tree. The Windows spellings are rejected too so a file cannot mean
 /// different things on different hosts. go/parser.go carries the same rule.
 pub fn isAbsoluteImportPath(path: []const u8) bool {
     if (path.len == 0) return false;
@@ -698,15 +699,20 @@ pub const VersionCheck = enum {
 /// from values that are merely newer than `supported_major.supported_minor`.
 fn checkVersion(version: []const u8) VersionCheck {
     const dot = std.mem.indexOfScalar(u8, version, '.') orelse return .malformed;
-    const major = std.fmt.parseUnsigned(u8, version[0..dot], 10) catch return .malformed;
-    const minor = std.fmt.parseUnsigned(u8, version[dot + 1 ..], 10) catch return .malformed;
+    for (version, 0..) |c, i| {
+        if (i != dot and !std.ascii.isDigit(c)) return .malformed;
+    }
+    const major = std.fmt.parseUnsigned(u64, version[0..dot], 10) catch return .malformed;
+    const minor = std.fmt.parseUnsigned(u64, version[dot + 1 ..], 10) catch return .malformed;
     if (major > supported_major) return .too_new;
     if (major == supported_major and minor > supported_minor) return .too_new;
     return .ok;
 }
 
 /// Parse an SKG source string into an ast.File.
-/// All AST memory is allocated from `allocator` - use an arena for easy cleanup.
+/// Allocates AST containers from `allocator` but borrows source/path bytes.
+/// Keep those bytes alive until the AST is no longer used. The public
+/// root.parseSource wrapper copies them into an owning arena.
 /// Import paths are recorded but not resolved (see root.zig).
 /// Pass a non-null `diagnostic` pointer to capture error location on failure.
 pub fn parseSource(
@@ -715,6 +721,10 @@ pub fn parseSource(
     path: []const u8,
     diagnostic: ?*?ast_mod.Diagnostic,
 ) ParseError!ast.File {
+    if (src.len > max_file_size) {
+        if (diagnostic) |d| d.* = .{ .code = .FILE_TOO_LARGE, .path = path, .line = 0, .col = 0, .message = "file too large (max 10MB)" };
+        return error.FileTooLarge;
+    }
     var p = Parser.init(allocator, src, path);
     return p.parseFile() catch |err| {
         if (diagnostic) |d| {

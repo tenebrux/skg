@@ -16,16 +16,21 @@ func Emit(f *File) []byte {
 	// schema_version before the imports, which meant canonical output did not
 	// match the order the spec asks authors to write.
 	if f.SKGVersion != nil {
-		fmt.Fprintf(&buf, "skg_version: %q\n", *f.SKGVersion)
+		buf.WriteString("skg_version: ")
+		writeQuoted(&buf, *f.SKGVersion)
+		buf.WriteByte('\n')
 	}
 
 	if len(f.ImportPaths) > 0 {
 		if len(f.ImportPaths) == 1 {
-			fmt.Fprintf(&buf, "import %q\n", f.ImportPaths[0])
+			buf.WriteString("import ")
+			writeQuoted(&buf, f.ImportPaths[0])
+			buf.WriteByte('\n')
 		} else {
 			buf.WriteString("import [\n")
 			for i, p := range f.ImportPaths {
-				fmt.Fprintf(&buf, "  %q", p)
+				buf.WriteString("  ")
+				writeQuoted(&buf, p)
 				if i+1 < len(f.ImportPaths) {
 					buf.WriteByte(',')
 				}
@@ -36,7 +41,9 @@ func Emit(f *File) []byte {
 	}
 
 	if f.SchemaVersion != nil {
-		fmt.Fprintf(&buf, "schema_version: %q\n", *f.SchemaVersion)
+		buf.WriteString("schema_version: ")
+		writeQuoted(&buf, *f.SchemaVersion)
+		buf.WriteByte('\n')
 	}
 
 	hasHeader := f.SKGVersion != nil || f.SchemaVersion != nil || len(f.ImportPaths) > 0
@@ -173,4 +180,11 @@ func writeIndent(buf *strings.Builder, depth int) {
 	for i := 0; i < depth; i++ {
 		buf.WriteString("  ")
 	}
+}
+
+// Go's %q emits escapes such as \r, \x and \u that SKG does not accept.
+func writeQuoted(buf *strings.Builder, s string) {
+	buf.WriteByte('"')
+	writeEscaped(buf, s)
+	buf.WriteByte('"')
 }

@@ -14,78 +14,103 @@ const parser = @import("parser.zig");
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-fn expectParseFailure(src: []const u8) !skg_root.Diagnostic {
+fn expectParseFailure(src: []const u8) !skg_root.ParseResult {
     var result = skg_root.parseSource(testing.allocator, src, "<test>");
-    defer result.deinit();
+    errdefer result.deinit();
     try testing.expect(result.file == null);
-    return result.diagnostic orelse return error.ExpectedDiagnostic;
+    try testing.expect(result.diagnostic != null);
+    return result;
 }
 
 // ─── Lexer errors ─────────────────────────────────────────────────────────────
 
 test "reject unterminated string" {
-    const diag = try expectParseFailure("key: \"unterminated");
+    var failure = try expectParseFailure("key: \"unterminated");
+    defer failure.deinit();
+    const diag = failure.diagnostic.?;
     try testing.expectEqualStrings("unterminated string literal", diag.message);
 }
 
 test "reject bad escape sequence" {
-    const diag = try expectParseFailure("key: \"bad \\q escape\"");
+    var failure = try expectParseFailure("key: \"bad \\q escape\"");
+    defer failure.deinit();
+    const diag = failure.diagnostic.?;
     try testing.expectEqualStrings("invalid escape sequence", diag.message);
 }
 
 // ─── Parser errors ────────────────────────────────────────────────────────────
 
 test "reject missing colon" {
-    const diag = try expectParseFailure("key \"value\"");
+    var failure = try expectParseFailure("key \"value\"");
+    defer failure.deinit();
+    const diag = failure.diagnostic.?;
     try testing.expectEqualStrings("expected ':', '{', or '[' after identifier", diag.message);
 }
 
 test "reject unclosed block" {
-    const diag = try expectParseFailure("theme {\n  accent: \"green\"\n");
+    var failure = try expectParseFailure("theme {\n  accent: \"green\"\n");
+    defer failure.deinit();
+    const diag = failure.diagnostic.?;
     try testing.expectEqualStrings("unterminated block, expected '}'", diag.message);
 }
 
 test "reject mixed array types" {
-    const diag = try expectParseFailure("arr: [1, \"two\", 3]");
+    var failure = try expectParseFailure("arr: [1, \"two\", 3]");
+    defer failure.deinit();
+    const diag = failure.diagnostic.?;
     try testing.expectEqualStrings("mixed types in array", diag.message);
 }
 
 test "reject duplicate skg_version" {
-    const diag = try expectParseFailure("skg_version: \"1.0\"\nskg_version: \"2.0\"\n");
+    var failure = try expectParseFailure("skg_version: \"1.0\"\nskg_version: \"2.0\"\n");
+    defer failure.deinit();
+    const diag = failure.diagnostic.?;
     try testing.expectEqualStrings("duplicate skg_version declaration", diag.message);
 }
 
 test "reject duplicate schema_version" {
-    const diag = try expectParseFailure("schema_version: \"1.0.0\"\nschema_version: \"2.0.0\"\n");
+    var failure = try expectParseFailure("schema_version: \"1.0.0\"\nschema_version: \"2.0.0\"\n");
+    defer failure.deinit();
+    const diag = failure.diagnostic.?;
     try testing.expectEqualStrings("duplicate schema_version declaration", diag.message);
 }
 
 // ─── Additional error paths ──────────────────────────────────────────────────
 
 test "reject expected value" {
-    const diag = try expectParseFailure("key: }");
+    var failure = try expectParseFailure("key: }");
+    defer failure.deinit();
+    const diag = failure.diagnostic.?;
     try testing.expectEqualStrings("expected a value (string, number, bool, or array)", diag.message);
 }
 
 test "reject unterminated array" {
-    const diag = try expectParseFailure("arr: [1, 2");
+    var failure = try expectParseFailure("arr: [1, 2");
+    defer failure.deinit();
+    const diag = failure.diagnostic.?;
     try testing.expectEqualStrings("unterminated array, expected ']'", diag.message);
 }
 
 test "reject bad import syntax" {
-    const diag = try expectParseFailure("import 42");
+    var failure = try expectParseFailure("import 42");
+    defer failure.deinit();
+    const diag = failure.diagnostic.?;
     try testing.expectEqualStrings("expected import path string or '['", diag.message);
 }
 
 test "reject unterminated import list" {
-    const diag = try expectParseFailure("import [\"a.skg\"");
+    var failure = try expectParseFailure("import [\"a.skg\"");
+    defer failure.deinit();
+    const diag = failure.diagnostic.?;
     try testing.expectEqualStrings("unterminated import list, expected ']'", diag.message);
 }
 
 // ─── Diagnostic position tests ───────────────────────────────────────────────
 
 test "diagnostic reports correct line and column" {
-    const diag = try expectParseFailure("name: \"hello\"\nbad_key");
+    var failure = try expectParseFailure("name: \"hello\"\nbad_key");
+    defer failure.deinit();
+    const diag = failure.diagnostic.?;
     try testing.expect(diag.line >= 2);
     try testing.expectEqualStrings("<test>", diag.path);
 }
@@ -101,12 +126,16 @@ test "diagnostic includes file path" {
 // ─── skg_version classification ──────────────────────────────────────────────
 
 test "reject malformed skg_version" {
-    const diag = try expectParseFailure("skg_version: \"abc\"\n");
+    var failure = try expectParseFailure("skg_version: \"abc\"\n");
+    defer failure.deinit();
+    const diag = failure.diagnostic.?;
     try testing.expectEqualStrings("skg_version is malformed, expected \"MAJOR.MINOR\"", diag.message);
 }
 
 test "reject skg_version newer than supported" {
-    const diag = try expectParseFailure("skg_version: \"9.9\"\n");
+    var failure = try expectParseFailure("skg_version: \"9.9\"\n");
+    defer failure.deinit();
+    const diag = failure.diagnostic.?;
     try testing.expectEqualStrings("skg_version is newer than this parser supports", diag.message);
 }
 
@@ -136,7 +165,9 @@ test "reject arrays nested past the depth limit" {
     defer buf.deinit(testing.allocator);
     try nestedArraySource(&buf, max_depth + 1);
 
-    const diag = try expectParseFailure(buf.items);
+    var failure = try expectParseFailure(buf.items);
+    defer failure.deinit();
+    const diag = failure.diagnostic.?;
     try testing.expectEqualStrings("nesting too deep (max 128)", diag.message);
 }
 
@@ -149,7 +180,9 @@ test "reject blocks nested past the depth limit" {
     }
     try buf.appendNTimes(testing.allocator, '}', max_depth + 1);
 
-    const diag = try expectParseFailure(buf.items);
+    var failure = try expectParseFailure(buf.items);
+    defer failure.deinit();
+    const diag = failure.diagnostic.?;
     try testing.expectEqualStrings("nesting too deep (max 128)", diag.message);
 }
 

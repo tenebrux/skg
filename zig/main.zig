@@ -172,30 +172,56 @@ fn fmtFile(allocator: std.mem.Allocator, path: []const u8, check: bool) !bool {
 /// have no other copy of. A rename within the same directory is atomic, so the
 /// file is either the old text or the new text and never something in between.
 fn writeAtomically(allocator: std.mem.Allocator, path: []const u8, contents: []const u8) !void {
-    const dir_path = std.fs.path.dirname(path) orelse ".";
-    const base = std.fs.path.basename(path);
+    // Format the referent of a symlink, rather than replacing the link itself.
+    const resolved = try std.fs.cwd().realpathAlloc(allocator, path);
+    defer allocator.free(resolved);
+    const stat = try std.fs.cwd().statFile(resolved);
+    var atomic = try std.fs.cwd().atomicFile(resolved, .{ .mode = 0o600, .write_buffer = &.{} });
+    defer atomic.deinit();
+    try atomic.file_writer.file.writeAll(contents);
+    // Set the exact mode after writing (umask and writes can strip mode bits).
+    // A failure must leave the original untouched.
+    if (std.fs.has_executable_bit) try atomic.file_writer.file.chmod(stat.mode);
+    try atomic.file_writer.file.sync();
+    try atomic.finish();
+}
 
-    var dir = try std.fs.cwd().openDir(dir_path, .{});
-    defer dir.close();
+test "formatter ignores predictable temporary symlinks and preserves target mode" {
+    if (@import("builtin").os.tag == .windows) return error.SkipZigTest;
+    const t = std.testing;
+    var tmp = t.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(.{ .sub_path = "config.skg", .data = "value:1\n" });
+    try tmp.dir.writeFile(.{ .sub_path = "unrelated", .data = "keep me" });
+    try tmp.dir.symLink("unrelated", ".config.skg.skg-fmt.tmp", .{});
+    const original = try tmp.dir.openFile("config.skg", .{});
+    try original.chmod(0o640);
+    original.close();
+    const path = try tmp.dir.realpathAlloc(t.allocator, "config.skg");
+    defer t.allocator.free(path);
+    try t.expect(try fmtFile(t.allocator, path, false));
+    const untouched = try tmp.dir.readFileAlloc(t.allocator, "unrelated", 100);
+    defer t.allocator.free(untouched);
+    try t.expectEqualStrings("keep me", untouched);
+    try t.expectEqual(@as(std.fs.File.Mode, 0o640), (try tmp.dir.statFile("config.skg")).mode & 0o777);
+    try t.expect(!try fmtFile(t.allocator, path, false));
+}
 
-    const tmp_name = try std.fmt.allocPrint(allocator, ".{s}.skg-fmt.tmp", .{base});
-    defer allocator.free(tmp_name);
-
-    {
-        const tmp = try dir.createFile(tmp_name, .{ .truncate = true });
-        errdefer dir.deleteFile(tmp_name) catch {};
-        defer tmp.close();
-        try tmp.writeAll(contents);
-    }
-    errdefer dir.deleteFile(tmp_name) catch {};
-
-    // Preserve the original mode: createFile would otherwise hand the formatted
-    // file the default 0o666 & ~umask, silently widening or narrowing access.
-    if (dir.statFile(base)) |st| {
-        const tmp = try dir.openFile(tmp_name, .{ .mode = .read_write });
-        defer tmp.close();
-        tmp.chmod(st.mode) catch {};
-    } else |_| {}
-
-    try dir.rename(tmp_name, base);
+test "formatter preserves a config symlink and formats its referent" {
+    if (@import("builtin").os.tag == .windows) return error.SkipZigTest;
+    const t = std.testing;
+    var tmp = t.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(.{ .sub_path = "target.skg", .data = "value:1\n" });
+    try tmp.dir.symLink("target.skg", "link.skg", .{});
+    const dir = try tmp.dir.realpathAlloc(t.allocator, ".");
+    defer t.allocator.free(dir);
+    const path = try std.fs.path.join(t.allocator, &.{ dir, "link.skg" });
+    defer t.allocator.free(path);
+    try t.expect(try fmtFile(t.allocator, path, false));
+    var buf: [128]u8 = undefined;
+    try t.expectEqualStrings("target.skg", try tmp.dir.readLink("link.skg", &buf));
+    const data = try tmp.dir.readFileAlloc(t.allocator, "target.skg", 100);
+    defer t.allocator.free(data);
+    try t.expectEqualStrings("value: 1\n", data);
 }

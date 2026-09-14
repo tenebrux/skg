@@ -59,7 +59,8 @@ that the parser is byte-transparent - it does not validate that string contents
 are well-formed UTF-8, and passes the bytes through unchanged. Columns in
 diagnostics count bytes, not code points.
 
-Line endings are LF (`\n`). The parser treats `\r` as whitespace - CRLF files will parse correctly, but `\r` is stripped on round-trip through the formatter.
+Line endings are LF (`\n`). The parser treats `\r` as whitespace - CRLF files will parse correctly, and line separators are normalized by the formatter. Carriage returns inside
+string values remain part of those values.
 
 ---
 
@@ -148,10 +149,11 @@ the entry file, and not to the process working directory.
 absolute when it begins with `/` or `\`, or when it begins with a drive letter
 followed by `:` (`C:\theme.skg`, `c:theme.skg`). All of those spellings are
 rejected on every platform, so a file cannot mean one thing on Linux and
-another on Windows. Absolute paths are not portable between machines, and an
-import that escapes the config tree is a supply-chain hazard for a parser
-running as root. The check happens at parse time, so the byte API rejects an
-absolute import without touching the filesystem.
+another on Windows. The check happens at parse time, so the byte API rejects an absolute import
+without touching the filesystem. This is a portability rule, not a filesystem
+sandbox: `..` components and symlinks can still lead outside the config tree.
+Applications loading untrusted configuration must enforce their own filesystem
+access boundary.
 
 Circular imports are an error (`CIRCULAR_IMPORT`). The parser detects and
 rejects them, comparing paths in canonical form so `./theme.skg` and
@@ -161,7 +163,7 @@ A file reached twice by different routes through the graph (a diamond) is not a
 cycle.
 
 Import chains are followed to **32 levels** below the entry file; deeper is
-`IMPORT_CHAIN_TOO_DEEP`. This is a backstop against a loop that cycle detection
+`IMPORT_CHAIN_TOO_DEEP`, including paths through already cached imports. This is a backstop against a loop that cycle detection
 cannot see - a symlink loop, say - exhausting the stack.
 
 ---

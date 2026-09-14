@@ -64,8 +64,9 @@ pub fn mergeNodes(allocator: Allocator, base: []const ast.Node, overlay: []const
     return result.toOwnedSlice(allocator);
 }
 
-/// Append `b`'s comments after `a`'s, avoiding an allocation when either side
-/// is empty (which is almost always).
+/// Preserve each source comment once when cached imports meet again. Compare
+/// source identity, not text: identical comments at different source locations
+/// must both survive. Parser comment slices remain live in the parse arena.
 fn concatComments(
     allocator: Allocator,
     a: []const []const u8,
@@ -73,10 +74,18 @@ fn concatComments(
 ) ![]const []const u8 {
     if (b.len == 0) return a;
     if (a.len == 0) return b;
-    const out = try allocator.alloc([]const u8, a.len + b.len);
-    @memcpy(out[0..a.len], a);
-    @memcpy(out[a.len..], b);
-    return out;
+    if (a.ptr == b.ptr and a.len == b.len) return a;
+    const Identity = struct { ptr: usize, len: usize };
+    var seen: std.AutoHashMapUnmanaged(Identity, void) = .empty;
+    defer seen.deinit(allocator);
+    var out: std.ArrayListUnmanaged([]const u8) = .empty;
+    for ([_][]const []const u8{ a, b }) |comments| {
+        for (comments) |comment| {
+            const entry = try seen.getOrPut(allocator, .{ .ptr = @intFromPtr(comment.ptr), .len = comment.len });
+            if (!entry.found_existing) try out.append(allocator, comment);
+        }
+    }
+    return out.toOwnedSlice(allocator);
 }
 
 fn nodeKey(node: ast.Node) []const u8 {

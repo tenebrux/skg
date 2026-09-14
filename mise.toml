@@ -93,7 +93,7 @@ description = "Build the WASM tree-sitter parser (for Zed, web editors)"
 # the vscode job in .github/workflows/release.yml and attached to the release,
 # so the published extension always matches the tag.
 [tasks."plugins:vscode:package"]
-run = "cd tools/vscode-skg && npm install && npx --yes @vscode/vsce package --out skg.vsix"
+run = "cd tools/vscode-skg && npm ci && npx --no-install vsce package --out skg.vsix"
 description = "Package the VS Code extension as tools/vscode-skg/skg.vsix (gitignored)"
 
 [tasks."plugins:vscode:install"]

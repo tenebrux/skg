@@ -2,7 +2,7 @@ name: Release
 
 # Fires on vX.Y.Z and vX.Y.Z-rc.N tags. Two equally supported paths:
 #   1. The Cut Release workflow (computes the version, stamps the tree,
-#      pushes vX.Y.Z + go/vX.Y.Z).
+#      pushes vX.Y.Z + go/vX.Y.Z, then explicitly dispatches this workflow).
 #   2. Direct tagging: `git tag -a vX.Y.Z && git push origin vX.Y.Z`.
 #      The publish job creates the go/vX.Y.Z companion tag automatically
 #      if it's missing, so Go module resolution works either way. A tag
@@ -15,6 +15,7 @@ name: Release
 # RC tags publish as prereleases and never move the "latest" pointer.
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - "v*"
@@ -25,6 +26,7 @@ permissions:
 jobs:
   test:
     name: Gate (full suite)
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -104,6 +106,8 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: lts/*
+      - name: Install locked packaging tools
+        run: npm ci
       - name: Package
         run: |
           tag="${GITHUB_REF_NAME#v}"
@@ -117,7 +121,7 @@ jobs:
             fs.writeFileSync("package.json", JSON.stringify(p, null, 2) + "\n");
           ' "$version"
           mkdir -p ../../dist
-          npx --yes @vscode/vsce package --out "../../dist/skg-vscode-${tag}.vsix"
+          npx --no-install vsce package --out "../../dist/skg-vscode-${tag}.vsix"
           cd ../../dist
           sha256sum "skg-vscode-${tag}.vsix" > "skg-vscode-${tag}.vsix.sha256"
       - uses: actions/upload-artifact@v4

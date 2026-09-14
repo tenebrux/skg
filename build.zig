@@ -50,7 +50,18 @@ pub fn build(b: *std.Build) void {
     });
     const run_conformance_tests = b.addRunArtifact(conformance_tests);
 
+    const formatter_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("zig/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "skg", .module = skg_mod }},
+        }),
+    });
+    const run_formatter_tests = b.addRunArtifact(formatter_tests);
+
     const test_step = b.step("test", "Run SKG parser tests");
+    test_step.dependOn(&run_formatter_tests.step);
     test_step.dependOn(&run_tests.step);
     test_step.dependOn(&run_malformed_tests.step);
     test_step.dependOn(&run_conformance_tests.step);

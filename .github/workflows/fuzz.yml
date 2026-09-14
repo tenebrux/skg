@@ -36,7 +36,9 @@ jobs:
           go-version: "1.26"
           cache: false
       - name: Fuzz
-        run: go test -run '^$' -fuzz=FuzzParse -fuzztime=${{ inputs.duration || '20m' }} ./...
+        env:
+          FUZZ_DURATION: ${{ inputs.duration || '20m' }}
+        run: go test -run '^$' -fuzz=FuzzParse -fuzztime="$FUZZ_DURATION" ./...
       - name: Upload crashers
         if: failure()
         uses: actions/upload-artifact@v4

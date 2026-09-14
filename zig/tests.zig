@@ -474,12 +474,12 @@ test "imports: a deep diamond does not blow up exponentially" {
 
     try tmp.dir.writeFile(.{
         .sub_path = try std.fmt.bufPrint(&name_buf, "f{d:0>2}.skg", .{depth}),
-        .data = "leaf: \"bottom\"\n",
+        .data = "leaf: \"bottom\"\nblock {\n# same text, different source\n}\n",
     });
     var i: usize = 0;
     while (i < depth) : (i += 1) {
         const name = try std.fmt.bufPrint(&name_buf, "f{d:0>2}.skg", .{i});
-        const body = try std.fmt.bufPrint(&body_buf, "import [\"./f{d:0>2}.skg\", \"./f{d:0>2}.skg\"]\n\nlevel{d:0>2}: {d}\n", .{ i + 1, i + 1, i, i });
+        const body = try std.fmt.bufPrint(&body_buf, "import [\"./f{d:0>2}.skg\", \"./f{d:0>2}.skg\"]\n\nlevel{d:0>2}: {d}\nblock {{\n# same text, different source\n}}\n", .{ i + 1, i + 1, i, i });
         try tmp.dir.writeFile(.{ .sub_path = name, .data = body });
     }
 
@@ -489,7 +489,8 @@ test "imports: a deep diamond does not blow up exponentially" {
     var result = root.parse(testing.allocator, entry);
     defer result.deinit();
     try testing.expect(result.file != null);
-    try testing.expectEqual(@as(usize, depth + 1), result.file.?.children.len);
+    try testing.expectEqual(@as(usize, depth + 2), result.file.?.children.len);
+    try testing.expectEqual(@as(usize, depth + 1), result.file.?.children[1].block.trailing_comments.len);
 }
 
 // The cycle guard compares canonical paths, so a cycle spelled `./b.skg` - the
@@ -512,4 +513,69 @@ test "imports: a ./-spelled cycle is detected immediately" {
     // Reported where the import was written, not at 0:0.
     try testing.expectEqual(@as(u32, 1), result.diagnostic.?.line);
     try testing.expectEqual(@as(u32, 8), result.diagnostic.?.col);
+}
+
+test "source API owns input and path and enforces the file size limit" {
+    var src = "value: \"hello\"\n".*;
+    var path = "config.skg".*;
+    var result = root.parseSource(testing.allocator, &src, &path);
+    defer result.deinit();
+    @memset(&src, 'x');
+    @memset(&path, 'y');
+    try testing.expectEqualStrings("value", result.file.?.children[0].field.key);
+    try testing.expectEqualStrings("hello", result.file.?.children[0].field.value.string);
+    try testing.expectEqualStrings("config.skg", result.file.?.path);
+    const large = try testing.allocator.alloc(u8, 10 * 1024 * 1024 + 1);
+    defer testing.allocator.free(large);
+    @memset(large, ' ');
+    var rejected = root.parseSource(testing.allocator, large, "large.skg");
+    defer rejected.deinit();
+    try testing.expect(rejected.file == null);
+    try testing.expectEqual(ast.ErrorCode.FILE_TOO_LARGE, rejected.diagnostic.?.code);
+}
+
+test "header strings round-trip using SKG escapes" {
+    for ([_][]const u8{ "a\"b", "a\\b", "a\nb", "a\rb", "\x00", "\xff" }) |value| {
+        var arena = std.heap.ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const a = arena.allocator();
+        var imports = [_][]const u8{value};
+        const file = ast.File{ .skg_version = null, .schema_version = value, .import_paths = &imports, .children = &.{}, .path = "test" };
+        const output = try emit_mod.emitFile(a, file);
+        var result = root.parseSource(testing.allocator, output, "test");
+        defer result.deinit();
+        try testing.expect(result.file != null);
+        try testing.expectEqualStrings(value, result.file.?.schema_version.?);
+        try testing.expectEqualStrings(value, result.file.?.import_paths[0]);
+    }
+}
+
+test "cached suffix depth is checked independent of import order" {
+    for ([_]usize{ 31, 32 }) |length| {
+        for ([_][]const u8{ "import \"f1.skg\"", "import [\"f2.skg\", \"f1.skg\"]", "import [\"f1.skg\", \"f2.skg\"]" }) |imports| {
+            var tmp = testing.tmpDir(.{});
+            defer tmp.cleanup();
+            try tmp.dir.writeFile(.{ .sub_path = "main.skg", .data = imports });
+            try tmp.dir.writeFile(.{ .sub_path = "leaf.skg", .data = "value: 1" });
+            var name_buf: [32]u8 = undefined;
+            var body_buf: [64]u8 = undefined;
+            for (1..length + 1) |i| {
+                const name = try std.fmt.bufPrint(&name_buf, "f{d}.skg", .{i});
+                const body = if (i == length) "import \"leaf.skg\"" else try std.fmt.bufPrint(&body_buf, "import \"f{d}.skg\"", .{i + 1});
+                try tmp.dir.writeFile(.{ .sub_path = name, .data = body });
+            }
+            const entry = try tmp.dir.realpathAlloc(testing.allocator, "main.skg");
+            defer testing.allocator.free(entry);
+            var result = root.parse(testing.allocator, entry);
+            defer result.deinit();
+            if (length == 31) {
+                try testing.expect(result.file != null);
+            } else {
+                try testing.expect(result.file == null);
+                try testing.expectEqual(ast.ErrorCode.IMPORT_CHAIN_TOO_DEEP, result.diagnostic.?.code);
+                try testing.expect(result.diagnostic.?.line > 0);
+                try testing.expect(result.diagnostic.?.col > 0);
+            }
+        }
+    }
 }

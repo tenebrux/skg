@@ -31,13 +31,18 @@ type origin struct {
 	pos  Position
 }
 
+// resolvedImport retains the longest suffix so cache hits enforce the same
+// graph-depth limit regardless of import order.
+type resolvedImport struct {
+	file  *File
+	depth int
+}
+
 // importResolver carries the state of a single file-loading call.
 type importResolver struct {
 	// visited holds the canonical paths on the chain currently being resolved,
 	// not every file ever loaded. Entries are removed on the way back out, so a
-	// diamond - a imports b and c, both of which import d - is legal and loads d
-	// twice. This mirrors zig/root.zig, which removes each path from its visited
-	// set in a defer.
+	// diamond - a imports b and c, both of which import d - is legal and reuses d. Each path is removed from the active set on return.
 	visited map[string]bool
 
 	// done memoises files that have been fully resolved during this call, keyed
@@ -52,7 +57,7 @@ type importResolver struct {
 	// The cache holds only completed files, and a completed file has already
 	// been popped off the chain, so a hit can never be a file that is still
 	// being resolved: memoising cannot mask a cycle.
-	done map[string]*File
+	done map[string]resolvedImport
 
 	// chain holds the same files as visited, in order and spelled as they will
 	// be shown to the user, so an error can name the route that reached a file.
@@ -66,7 +71,7 @@ type importResolver struct {
 // declaration order, and the importing file's own values overlay everything it
 // imported.
 func resolveImports(path string) (*File, error) {
-	r := &importResolver{visited: make(map[string]bool), done: make(map[string]*File)}
+	r := &importResolver{visited: make(map[string]bool), done: make(map[string]resolvedImport)}
 	return r.load(path, nil)
 }
 
@@ -77,7 +82,10 @@ func resolveImports(path string) (*File, error) {
 func (r *importResolver) load(path string, from *origin) (*File, error) {
 	key := canonicalPath(path)
 	if cached, ok := r.done[key]; ok {
-		return cached, nil
+		if len(r.chain)+cached.depth > MaxImportDepth {
+			return nil, r.reject(path, from, CodeImportChainTooDeep, "import chain too deep through cached file: "+r.chainStringWith(path))
+		}
+		return cached.file, nil
 	}
 	if err := r.enter(key, path, from); err != nil {
 		return nil, err
@@ -110,7 +118,7 @@ func (r *importResolver) load(path string, from *origin) (*File, error) {
 	}
 
 	if len(file.ImportPaths) == 0 {
-		r.done[key] = file
+		r.done[key] = resolvedImport{file: file}
 		return file, nil
 	}
 
@@ -118,16 +126,19 @@ func (r *importResolver) load(path string, from *origin) (*File, error) {
 	// file's own children overlay the result: "the main config file always
 	// loads after all its imports, so it always wins" (docs/spec.md).
 	var merged []Node
+	depth := 0
 	for i, importPath := range file.ImportPaths {
-		imported, err := r.load(resolveImportPath(path, importPath), &origin{path: path, pos: file.ImportPositions[i]})
+		childPath := resolveImportPath(path, importPath)
+		imported, err := r.load(childPath, &origin{path: path, pos: file.ImportPositions[i]})
 		if err != nil {
 			return nil, err
 		}
+		depth = max(depth, 1+r.done[canonicalPath(childPath)].depth)
 		merged = MergeNodes(merged, imported.Children)
 	}
 	file.Children = MergeNodes(merged, file.Children)
 
-	r.done[key] = file
+	r.done[key] = resolvedImport{file: file, depth: depth}
 	return file, nil
 }
 

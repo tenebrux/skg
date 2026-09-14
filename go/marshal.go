@@ -4,153 +4,173 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"sort"
 )
 
 // Marshal encodes a Go struct into SKG text using `skg:"name"` struct tags.
+// Cycles, excessive nesting and values outside the SKG grammar return errors.
 func Marshal(v interface{}) ([]byte, error) {
-	rv := reflect.ValueOf(v)
-	if rv.Kind() == reflect.Ptr {
-		rv = rv.Elem()
+	rv, err := unwrapValue(reflect.ValueOf(v))
+	if err != nil {
+		return nil, err
 	}
 	if rv.Kind() != reflect.Struct {
 		return nil, fmt.Errorf("skg: marshal source must be a struct, got %s", rv.Kind())
 	}
-
-	nodes, err := encodeStruct(rv)
+	nodes, err := encodeStruct(rv, 0)
 	if err != nil {
 		return nil, err
 	}
-
-	file := &File{Children: nodes}
-	return Emit(file), nil
+	for _, node := range nodes {
+		key, _ := nodeKey(node)
+		if isDirective(key) {
+			return nil, fmt.Errorf("skg: top-level name %q is reserved for a header directive", key)
+		}
+	}
+	data := Emit(&File{Children: nodes})
+	if len(data) > MaxFileSize {
+		return nil, fmt.Errorf("skg: marshaled file exceeds %d bytes", MaxFileSize)
+	}
+	return data, nil
 }
 
-func encodeStruct(rv reflect.Value) ([]Node, error) {
-	var nodes []Node
-
-	for _, sf := range structFields(rv.Type()) {
-		tag := sf.name
-		// A `skg:"..."` tag becomes a bare key, so the same identifier rule that
-		// guards map keys guards tags.
-		if !isIdentifier(tag) {
-			return nil, fmt.Errorf("skg: struct tag %q is not a valid SKG identifier", tag)
+// Bound pointer/interface chains separately from syntactic nesting. A pointer
+// to an interface can point back to itself without introducing a block.
+func unwrapValue(rv reflect.Value) (reflect.Value, error) {
+	for i := 0; rv.Kind() == reflect.Ptr || rv.Kind() == reflect.Interface; i++ {
+		if i >= MaxNestingDepth {
+			return reflect.Value{}, fmt.Errorf("skg: excessive pointer indirection (possible cycle)")
 		}
-		fv, ok := fieldByIndexRO(rv, sf.index)
-		if !ok {
-			continue // promoted through a nil embedded pointer: nothing to encode
-		}
-
-		// Handle pointer fields
-		if fv.Kind() == reflect.Ptr {
-			if fv.IsNil() {
-				nodes = append(nodes, Node{Field: &Field{Key: tag, Value: Value{Type: TypeNull}}})
-				continue
-			}
-			fv = fv.Elem()
-		}
-
-		if fv.Kind() == reflect.Struct {
-			children, err := encodeStruct(fv)
-			if err != nil {
-				return nil, fmt.Errorf("skg: block %q: %w", tag, err)
-			}
-			nodes = append(nodes, Node{Block: &Block{Name: tag, Children: children}})
-			continue
-		}
-
-		if fv.Kind() == reflect.Map {
-			children, err := encodeMap(fv)
-			if err != nil {
-				return nil, fmt.Errorf("skg: block %q: %w", tag, err)
-			}
-			nodes = append(nodes, Node{Block: &Block{Name: tag, Children: children}})
-			continue
-		}
-
-		if fv.Kind() == reflect.Slice && fv.Type().Elem().Kind() == reflect.Struct {
-			var items [][]Node
-			for i := 0; i < fv.Len(); i++ {
-				children, err := encodeStruct(fv.Index(i))
-				if err != nil {
-					return nil, fmt.Errorf("skg: block array %q index %d: %w", tag, i, err)
-				}
-				items = append(items, children)
-			}
-			nodes = append(nodes, Node{BlockArray: &BlockArray{Name: tag, Items: items}})
-			continue
-		}
-
-		val, err := encodeValue(fv)
-		if err != nil {
-			return nil, fmt.Errorf("skg: field %q: %w", tag, err)
-		}
-		nodes = append(nodes, Node{Field: &Field{Key: tag, Value: val}})
-	}
-
-	return nodes, nil
-}
-
-func encodeMap(rv reflect.Value) ([]Node, error) {
-	// A map key becomes a bare SKG identifier, so it has to be one. Without
-	// these checks Marshal produced output it could not read back: an int-keyed
-	// map emitted the literal "<int Value>" that reflect.Value.String returns
-	// for a non-string kind, and a key like "bad-key" emitted `bad-key: 1`,
-	// which fails to parse at the hyphen.
-	if k := rv.Type().Key().Kind(); k != reflect.String {
-		return nil, fmt.Errorf("map key must be a string, got %s", k)
-	}
-
-	var nodes []Node
-	iter := rv.MapRange()
-	for iter.Next() {
-		key := iter.Key().String()
-		if !isIdentifier(key) {
-			return nil, fmt.Errorf("map key %q is not a valid SKG identifier", key)
-		}
-		val := iter.Value()
-
-		// Unwrap interface{}
-		if val.Kind() == reflect.Interface {
-			val = val.Elem()
-		}
-
-		if val.Kind() == reflect.Struct {
-			children, err := encodeStruct(val)
-			if err != nil {
-				return nil, fmt.Errorf("key %q: %w", key, err)
-			}
-			nodes = append(nodes, Node{Block: &Block{Name: key, Children: children}})
-			continue
-		}
-
-		if val.Kind() == reflect.Map {
-			children, err := encodeMap(val)
-			if err != nil {
-				return nil, fmt.Errorf("key %q: %w", key, err)
-			}
-			nodes = append(nodes, Node{Block: &Block{Name: key, Children: children}})
-			continue
-		}
-
-		v, err := encodeValue(val)
-		if err != nil {
-			return nil, fmt.Errorf("key %q: %w", key, err)
-		}
-		nodes = append(nodes, Node{Field: &Field{Key: key, Value: v}})
-	}
-	return nodes, nil
-}
-
-func encodeValue(rv reflect.Value) (Value, error) {
-	// Unwrap interface{}
-	if rv.Kind() == reflect.Interface {
 		if rv.IsNil() {
-			return Value{Type: TypeNull}, nil
+			return reflect.Value{}, nil
 		}
 		rv = rv.Elem()
 	}
+	return rv, nil
+}
 
+func checkEncodeDepth(depth int) error {
+	if depth > MaxNestingDepth {
+		return fmt.Errorf("skg: marshal nesting exceeds %d (possible cycle)", MaxNestingDepth)
+	}
+	return nil
+}
+
+func encodeStruct(rv reflect.Value, depth int) ([]Node, error) {
+	if err := checkEncodeDepth(depth); err != nil {
+		return nil, err
+	}
+	var nodes []Node
+	for _, sf := range structFields(rv.Type()) {
+		fv, ok := fieldByIndexRO(rv, sf.index)
+		if !ok {
+			continue
+		}
+		node, err := encodeNode(sf.name, fv, depth)
+		if err != nil {
+			return nil, fmt.Errorf("skg: field %q: %w", sf.name, err)
+		}
+		nodes = append(nodes, node)
+	}
+	return nodes, nil
+}
+
+func encodeMap(rv reflect.Value, depth int) ([]Node, error) {
+	if err := checkEncodeDepth(depth); err != nil {
+		return nil, err
+	}
+	if rv.Type().Key().Kind() != reflect.String {
+		return nil, fmt.Errorf("map key must be a string, got %s", rv.Type().Key().Kind())
+	}
+	keys := rv.MapKeys()
+	sort.Slice(keys, func(i, j int) bool { return keys[i].String() < keys[j].String() })
+	nodes := make([]Node, 0, len(keys))
+	for _, key := range keys {
+		node, err := encodeNode(key.String(), rv.MapIndex(key), depth)
+		if err != nil {
+			return nil, fmt.Errorf("key %q: %w", key.String(), err)
+		}
+		nodes = append(nodes, node)
+	}
+	return nodes, nil
+}
+
+func encodeNode(key string, rv reflect.Value, depth int) (Node, error) {
+	if !isIdentifier(key) {
+		return Node{}, fmt.Errorf("%q is not a valid SKG identifier", key)
+	}
+	rv, err := unwrapValue(rv)
+	if err != nil {
+		return Node{}, err
+	}
 	switch rv.Kind() {
+	case reflect.Struct, reflect.Map:
+		children, err := encodeChildren(rv, depth+1)
+		if err != nil {
+			return Node{}, err
+		}
+		return Node{Block: &Block{Name: key, Children: children}}, nil
+	case reflect.Slice:
+		// Empty typed collections still retain their block-array shape.
+		elem := rv.Type().Elem()
+		for indirection := 0; elem.Kind() == reflect.Ptr; indirection++ {
+			if indirection >= MaxNestingDepth {
+				return Node{}, fmt.Errorf("skg: excessive element pointer indirection")
+			}
+			elem = elem.Elem()
+		}
+		blocks := elem.Kind() == reflect.Struct || elem.Kind() == reflect.Map
+		if !blocks && rv.Len() > 0 {
+			first, err := unwrapValue(rv.Index(0))
+			if err != nil {
+				return Node{}, err
+			}
+			blocks = first.Kind() == reflect.Struct || first.Kind() == reflect.Map
+		}
+		if blocks {
+			if err := checkEncodeDepth(depth + 1); err != nil {
+				return Node{}, err
+			}
+			items := make([][]Node, rv.Len())
+			for i := 0; i < rv.Len(); i++ {
+				item, err := unwrapValue(rv.Index(i))
+				if err != nil {
+					return Node{}, err
+				}
+				items[i], err = encodeChildren(item, depth+2)
+				if err != nil {
+					return Node{}, fmt.Errorf("index %d: %w", i, err)
+				}
+			}
+			return Node{BlockArray: &BlockArray{Name: key, Items: items}}, nil
+		}
+	}
+	value, err := encodeValue(rv, depth)
+	if err != nil {
+		return Node{}, err
+	}
+	return Node{Field: &Field{Key: key, Value: value}}, nil
+}
+
+func encodeChildren(rv reflect.Value, depth int) ([]Node, error) {
+	switch rv.Kind() {
+	case reflect.Struct:
+		return encodeStruct(rv, depth)
+	case reflect.Map:
+		return encodeMap(rv, depth)
+	default:
+		return nil, fmt.Errorf("block array entries must be structs or maps, got %s", rv.Kind())
+	}
+}
+
+func encodeValue(rv reflect.Value, depth int) (Value, error) {
+	rv, err := unwrapValue(rv)
+	if err != nil {
+		return Value{}, err
+	}
+	switch rv.Kind() {
+	case reflect.Invalid:
+		return Value{Type: TypeNull}, nil
 	case reflect.String:
 		return Value{Type: TypeString, Str: rv.String()}, nil
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -164,26 +184,29 @@ func encodeValue(rv reflect.Value) (Value, error) {
 	case reflect.Float32, reflect.Float64:
 		f := rv.Float()
 		if math.IsNaN(f) || math.IsInf(f, 0) {
-			// SKG has no literal for NaN or infinity, so there is no
-			// representation that would parse back.
 			return Value{}, fmt.Errorf("cannot encode non-finite float %v", f)
 		}
 		return Value{Type: TypeFloat, Float: f}, nil
 	case reflect.Bool:
 		return Value{Type: TypeBool, Bool: rv.Bool()}, nil
 	case reflect.Slice:
-		if rv.Len() == 0 {
-			return Value{Type: TypeArray, Array: &Array{ElementType: TypeString}}, nil
+		if err := checkEncodeDepth(depth + 1); err != nil {
+			return Value{}, err
 		}
 		items := make([]Value, rv.Len())
+		kind := TypeString
 		for i := 0; i < rv.Len(); i++ {
-			v, err := encodeValue(rv.Index(i))
+			v, err := encodeValue(rv.Index(i), depth+1)
 			if err != nil {
 				return Value{}, fmt.Errorf("index %d: %w", i, err)
 			}
+			if i > 0 && v.Type != kind {
+				return Value{}, fmt.Errorf("index %d: mixed array types %s and %s", i, kind, v.Type)
+			}
+			kind = v.Type
 			items[i] = v
 		}
-		return Value{Type: TypeArray, Array: &Array{ElementType: items[0].Type, Items: items}}, nil
+		return Value{Type: TypeArray, Array: &Array{ElementType: kind, Items: items}}, nil
 	default:
 		return Value{}, fmt.Errorf("unsupported type %s", rv.Kind())
 	}

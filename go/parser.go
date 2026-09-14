@@ -294,8 +294,8 @@ func (p *parser) appendImport(list *[]string, positions *[]Position, tok token) 
 // grammar.
 //
 // Absolute imports are rejected outright (docs/spec.md, "Imports"): they are not
-// portable between machines, and a config parsed as root - which is how umbra
-// reads its manifests - has no business following a path out of the config tree.
+// portable between machines. This is not containment: parent components and
+// symlinks may still reach outside the config tree.
 // The Windows spellings are rejected too so a file cannot mean different things
 // on different hosts. This is deliberately not filepath.IsAbs, which is
 // host-dependent and would let "/etc/x.skg" through on Windows.

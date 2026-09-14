@@ -550,14 +550,13 @@ a flat fixture: every implementation runs it, including ones without the
 
 ## 10. Known gaps
 
-Recorded here rather than left as folklore. None of these has a fixture, and
-each one says why.
+Recorded here rather than left as folklore. The byte-API size cap and version
+component-width divergences are fixed; unit tests cover oversized buffers, and
+shared version fixtures cover wide components and invalid separators.
 
 | Gap | Status |
 | --- | ------ |
-| **Zig's byte API does not enforce the 10 MiB cap.** The cap is applied when reading from disk, so an oversized buffer passed directly to `parseSource` is accepted. Go rejects it. | Go is right: the cap is a parser property, not an I/O property. No fixture - a >10 MiB fixture is not worth committing. |
-| **`skg_version` component width.** Zig parses each component as `u8`, so `"300.0"` is `MALFORMED_SKG_VERSION`; Go parses as 64-bit and reports `UNSUPPORTED_SKG_VERSION`. | Go is right: `"300.0"` is well formed, and the user deserves "too new" rather than "malformed". No fixture until Zig is fixed. |
-| **The Go parser discards comments.** `go/conformance.json` declares `comments: false`, so the two `trivia-*` fixtures are skipped there and the skip is printed. | A real gap only if Go-side formatters matter. `skg fmt` is the Zig binary. |
+| **The Go parser discards comments.** `go/conformance.json` declares `comments: false`, so the `trivia-*` fixtures are skipped there and the skip is printed. | A real gap only if Go-side formatters matter. `skg fmt` is the Zig binary. |
 | **Blank lines are not trivia.** Neither emitter preserves a blank line between nodes except the one it inserts before a top-level block, so `skg fmt` closes up deliberate spacing. `examples/*.skg` parse but do not survive `skg fmt --check`. | Needs blank-line trivia on the AST in both implementations, which is a larger change than comment trivia was. No fixture: a `.formatted.skg` sidecar would just encode the current behaviour. |
 | **Comments between header directives are relocated.** They are kept - they used to be dropped - but they reattach to the file's leading trivia rather than to the directive they preceded, so `skg fmt` moves them to the top of the header. | Keeping the text is the property that matters for an in-place formatter; the exact slot needs per-directive trivia on the AST. |
 

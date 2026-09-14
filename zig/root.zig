@@ -1,7 +1,7 @@
 /// SKG public API.
 ///
 /// Usage:
-///   var result = try skg.parse(backing_allocator, "/path/to/config.skg");
+///   var result = skg.parse(backing_allocator, "/path/to/config.skg");
 ///   defer result.deinit();
 ///   const file = result.file;
 ///   // walk file.children...
@@ -73,15 +73,21 @@ pub fn parse(backing: Allocator, path: []const u8) ParseResult {
     const file = resolver.load(canonical, null) catch {
         return ParseResult{ .arena = arena, .diagnostic = diag };
     };
-    return ParseResult{ .arena = arena, .file = file };
+    return ParseResult{ .arena = arena, .file = file.file };
 }
 
 /// Parse SKG source from a string. No import resolution.
+/// Copies the source and path into the result arena; callers may release them.
 /// On parse failure, returns a ParseResult with `file = null` and a diagnostic.
 pub fn parseSource(backing: Allocator, src: []const u8, path: []const u8) ParseResult {
     var arena = std.heap.ArenaAllocator.init(backing);
     var diag: ?Diagnostic = null;
-    const file = parser.parseSource(arena.allocator(), src, path, &diag) catch {
+    const alloc = arena.allocator();
+    const owned_path = alloc.dupe(u8, path) catch return .{ .arena = arena };
+    // Even unescaped strings, keys and comments must outlive the caller's input.
+    // Oversize input is rejected by the parser before it is read or copied.
+    const owned_src = if (src.len > parser.max_file_size) src else alloc.dupe(u8, src) catch return .{ .arena = arena };
+    const file = parser.parseSource(alloc, owned_src, owned_path, &diag) catch {
         return ParseResult{ .arena = arena, .diagnostic = diag };
     };
     return ParseResult{ .arena = arena, .file = file };
@@ -100,7 +106,7 @@ const Resolver = struct {
     allocator: Allocator,
     /// Canonical paths on the chain currently being resolved - not every file
     /// ever loaded. Entries are removed on the way back out, so a diamond (a
-    /// imports b and c, both of which import d) is legal and loads d twice.
+    /// imports b and c, both of which import d) is legal and reuses d.
     visited: std.StringHashMapUnmanaged(void),
     /// Files fully resolved during this call, keyed by canonical path.
     ///
@@ -112,14 +118,22 @@ const Resolver = struct {
     /// The cache holds only completed files, and a completed file has already
     /// been popped off the chain, so a hit can never be a file that is still
     /// being resolved: memoising cannot mask a cycle.
-    done: std.StringHashMapUnmanaged(ast.File),
+    done: std.StringHashMapUnmanaged(Resolved),
     /// The same files, in order, for naming the route that reached one.
     chain: std.ArrayListUnmanaged([]const u8),
     diagnostic: *?Diagnostic,
 
+    const Resolved = struct { file: ast.File, depth: usize };
+
     /// `path` must already be canonical. `origin` is null for the entry file.
-    fn load(self: *Resolver, path: []const u8, origin: ?Origin) !ast.File {
-        if (self.done.get(path)) |cached| return cached;
+    fn load(self: *Resolver, path: []const u8, origin: ?Origin) !Resolved {
+        if (self.done.get(path)) |cached| {
+            if (self.chain.items.len + cached.depth > max_import_depth) {
+                self.fail(origin, path, .IMPORT_CHAIN_TOO_DEEP, try self.formatChain("import chain too deep through cached file: ", path));
+                return error.ImportChainTooDeep;
+            }
+            return cached;
+        }
         if (self.visited.contains(path)) {
             self.fail(origin, path, .CIRCULAR_IMPORT, try self.formatChain("circular import: ", path));
             return error.CircularImport;
@@ -140,7 +154,7 @@ const Resolver = struct {
             return error.FileNotFound;
         };
         defer f.close();
-        const max_file_size = 10 * 1024 * 1024;
+        const max_file_size = parser.max_file_size;
         const src = f.readToEndAlloc(self.allocator, max_file_size) catch {
             self.fail(origin, path, .FILE_TOO_LARGE, "file too large (max 10MB)");
             return error.FileTooLarge;
@@ -148,6 +162,7 @@ const Resolver = struct {
 
         var result = try parser.parseSource(self.allocator, src, path, self.diagnostic);
 
+        var depth: usize = 0;
         if (result.import_paths.len > 0) {
             const dir = std.fs.path.dirname(path) orelse ".";
             var merged: []ast.Node = &.{};
@@ -159,15 +174,17 @@ const Resolver = struct {
                 // so the guard never matched and the chain ran to PATH_MAX.
                 const child = try canonicalPath(self.allocator, try std.fs.path.join(self.allocator, &.{ dir, import_path }));
                 const imported = try self.load(child, .{ .path = path, .pos = pos });
-                merged = try merge.mergeNodes(self.allocator, merged, imported.children);
+                depth = @max(depth, 1 + imported.depth);
+                merged = try merge.mergeNodes(self.allocator, merged, imported.file.children);
             }
 
             // Main file's children overlay the merged imports
             result.children = try merge.mergeNodes(self.allocator, merged, result.children);
         }
 
-        try self.done.put(self.allocator, path, result);
-        return result;
+        const resolved = Resolved{ .file = result, .depth = depth };
+        try self.done.put(self.allocator, path, resolved);
+        return resolved;
     }
 
     fn fail(self: *Resolver, origin: ?Origin, path: []const u8, code: ast.ErrorCode, message: []const u8) void {

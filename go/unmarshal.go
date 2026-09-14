@@ -63,11 +63,22 @@ func checkUnmarshalTarget(v interface{}) error {
 }
 
 func decodeNodes(nodes []Node, target reflect.Value) error {
-	if target.Kind() == reflect.Ptr {
+	for indirection := 0; target.Kind() == reflect.Ptr; indirection++ {
+		if indirection >= MaxNestingDepth {
+			return fmt.Errorf("skg: excessive pointer indirection")
+		}
 		if target.IsNil() {
 			target.Set(reflect.New(target.Type().Elem()))
 		}
 		target = target.Elem()
+	}
+
+	if target.Kind() == reflect.Interface {
+		inner := reflect.MakeMap(reflect.TypeOf(map[string]interface{}{}))
+		if err := decodeMap(nodes, inner); err != nil {
+			return err
+		}
+		return assignInterface(target, inner.Interface())
 	}
 
 	// Map target: block children become map entries.
@@ -145,6 +156,9 @@ func decodeMap(nodes []Node, target reflect.Value) error {
 
 	valType := target.Type().Elem()
 	isAny := valType.Kind() == reflect.Interface
+	if isAny && valType.NumMethod() != 0 {
+		return fmt.Errorf("skg: cannot decode into non-empty interface %s", valType)
+	}
 
 	// The key kind is string, but the key *type* may be a named string type, and
 	// SetMapIndex panics on an unconverted value.
@@ -154,7 +168,11 @@ func decodeMap(nodes []Node, target reflect.Value) error {
 	for _, node := range nodes {
 		if node.Field != nil {
 			if isAny {
-				target.SetMapIndex(mapKey(node.Field.Key), reflect.ValueOf(valueToAny(node.Field.Value)))
+				value := reflect.New(valType).Elem()
+				if err := assignInterface(value, valueToAny(node.Field.Value)); err != nil {
+					return err
+				}
+				target.SetMapIndex(mapKey(node.Field.Key), value)
 			} else {
 				val := reflect.New(valType).Elem()
 				if err := decodeValue(node.Field.Value, val); err != nil {
@@ -204,7 +222,10 @@ func decodeMap(nodes []Node, target reflect.Value) error {
 }
 
 func decodeBlockArray(ba *BlockArray, target reflect.Value) error {
-	if target.Kind() == reflect.Ptr {
+	for indirection := 0; target.Kind() == reflect.Ptr; indirection++ {
+		if indirection >= MaxNestingDepth {
+			return fmt.Errorf("skg: excessive pointer indirection")
+		}
 		if target.IsNil() {
 			target.Set(reflect.New(target.Type().Elem()))
 		}
@@ -228,7 +249,10 @@ func decodeBlockArray(ba *BlockArray, target reflect.Value) error {
 
 func decodeValue(val Value, target reflect.Value) error {
 	// Handle pointer types (nullable)
-	if target.Kind() == reflect.Ptr {
+	for indirection := 0; target.Kind() == reflect.Ptr; indirection++ {
+		if indirection >= MaxNestingDepth {
+			return fmt.Errorf("skg: excessive pointer indirection")
+		}
 		if val.Type == TypeNull {
 			target.Set(reflect.Zero(target.Type()))
 			return nil
@@ -241,8 +265,7 @@ func decodeValue(val Value, target reflect.Value) error {
 
 	// Handle interface{} / any - decode into native Go types
 	if target.Kind() == reflect.Interface {
-		target.Set(reflect.ValueOf(valueToAny(val)))
-		return nil
+		return assignInterface(target, valueToAny(val))
 	}
 
 	switch val.Type {
@@ -308,6 +331,21 @@ func decodeValue(val Value, target reflect.Value) error {
 		}
 		target.Set(slice)
 	}
+	return nil
+}
+
+// A nil reflect.Value means delete in SetMapIndex, and panics in Set. Always
+// represent SKG null as a typed zero, and reject incompatible interfaces.
+func assignInterface(target reflect.Value, value any) error {
+	if value == nil {
+		target.SetZero()
+		return nil
+	}
+	rv := reflect.ValueOf(value)
+	if !rv.Type().AssignableTo(target.Type()) {
+		return fmt.Errorf("cannot assign %s to %s", rv.Type(), target.Type())
+	}
+	target.Set(rv)
 	return nil
 }
 

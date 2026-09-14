@@ -20,16 +20,21 @@ pub fn emitFile(allocator: std.mem.Allocator, file: ast.File) EmitError![]u8 {
     // schema_version before the imports, which meant canonical output did not
     // match the order the spec asks authors to write.
     if (file.skg_version) |v| {
-        try w.print("skg_version: \"{s}\"\n", .{v});
+        try w.writeAll("skg_version: ");
+        try writeQuoted(w, v);
+        try w.writeByte('\n');
     }
 
     if (file.import_paths.len > 0) {
         if (file.import_paths.len == 1) {
-            try w.print("import \"{s}\"\n", .{file.import_paths[0]});
+            try w.writeAll("import ");
+            try writeQuoted(w, file.import_paths[0]);
+            try w.writeByte('\n');
         } else {
             try w.writeAll("import [\n");
             for (file.import_paths, 0..) |p, i| {
-                try w.print("  \"{s}\"", .{p});
+                try w.writeAll("  ");
+                try writeQuoted(w, p);
                 if (i + 1 < file.import_paths.len) try w.writeByte(',');
                 try w.writeByte('\n');
             }
@@ -38,7 +43,9 @@ pub fn emitFile(allocator: std.mem.Allocator, file: ast.File) EmitError![]u8 {
     }
 
     if (file.schema_version) |v| {
-        try w.print("schema_version: \"{s}\"\n", .{v});
+        try w.writeAll("schema_version: ");
+        try writeQuoted(w, v);
+        try w.writeByte('\n');
     }
 
     if ((file.skg_version != null or file.schema_version != null or file.import_paths.len > 0) and file.children.len > 0) {
@@ -182,4 +189,10 @@ fn writeIndent(w: anytype, depth: usize) !void {
     for (0..depth) |_| {
         try w.writeAll("  ");
     }
+}
+
+fn writeQuoted(w: anytype, value: []const u8) !void {
+    try w.writeByte('"');
+    try writeEscaped(w, value);
+    try w.writeByte('"');
 }

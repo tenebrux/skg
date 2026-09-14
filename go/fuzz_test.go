@@ -64,5 +64,18 @@ func FuzzParse(f *testing.F) {
 		case err == nil && file == nil:
 			t.Fatal("Parse returned neither a file nor an error")
 		}
+		if err == nil {
+			canonical := Emit(file)
+			if len(canonical) > MaxFileSize {
+				return
+			}
+			reparsed, err := Parse(canonical)
+			if err != nil {
+				t.Fatalf("emitter produced invalid SKG: %q: %v", canonical, err)
+			}
+			if string(Emit(reparsed)) != string(canonical) {
+				t.Fatal("canonical output is not stable")
+			}
+		}
 	})
 }
