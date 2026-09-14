@@ -59,6 +59,10 @@ git diff --exit-code -- src/
 """
 description = "Parse every valid fixture with the tree-sitter grammar, and check src/ is not stale"
 
+[tasks."test:vscode"]
+run = "cd tools/vscode-skg && npm ci --ignore-scripts && npm test"
+description = "Tokenize every valid fixture and V1 syntax probe with the VS Code grammar"
+
 # Mirrors the checks in .github/workflows/ci.yml so `mise run ci` matches the gate.
 [tasks.lint]
 run = """

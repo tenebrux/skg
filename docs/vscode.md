@@ -18,6 +18,7 @@ shows no red is not a claim that `skg` will accept the file.
 Constructs covered: 
 
 - `import` keyword (single and array forms)
+- `@delete` and `@replace` overlay operations
 - Named blocks and block arrays
 - Fields, colonless scalar array shorthand
 - Scalars: `int`, `float`, `bool`, `string`, `null`
@@ -64,10 +65,10 @@ Extension Development Host, then open a `.skg` file. Edits to
 `syntaxes/skg.tmLanguage.json` take effect on window reload
 (`Ctrl+R`) in the dev host.
 
-To verify the grammar against the shared fixtures, open files from
-[testdata/valid/](../testdata/valid/) and confirm colors match
-expectations (strings, keywords, numbers, identifiers all distinctly
-scoped).
+Run `npm test` in `tools/vscode-skg/` (or `mise run test:vscode`) to load the
+actual TextMate grammar and Oniguruma engine, tokenize every shared valid
+fixture, reject illegal scopes or unterminated grammar states, and assert the
+scopes of representative V1 constructs.
 
 ## Scope names
 

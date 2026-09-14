@@ -102,6 +102,8 @@ jobs:
           node -e 'JSON.parse(require("fs").readFileSync("package.json","utf8"))'
       - name: Install
         run: npm ci
+      - name: Tokenize every valid fixture and V1 syntax probe
+        run: npm test
       # Packaging is the only check that the manifest, the grammar paths and the
       # declared files actually hang together. The artifact is uploaded so a
       # reviewer can install the extension from a PR without building it, and

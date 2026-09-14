@@ -1,7 +1,7 @@
 {
   "name": "vscode-skg",
   "displayName": "SKG Config",
-  "description": "Syntax highlighting for .skg (Static Key Group) configuration files used by Dusk",
+  "description": "Syntax highlighting for .skg (Static Key Group) configuration files",
   "version": "0.1.0",
   "publisher": "tenebrux",
   "license": "MIT",
@@ -39,6 +39,11 @@
     ]
   },
   "devDependencies": {
-    "@vscode/vsce": "^3.9.2"
+    "@vscode/vsce": "^3.9.2",
+    "vscode-oniguruma": "2.0.1",
+    "vscode-textmate": "9.2.1"
+  },
+  "scripts": {
+    "test": "node check-grammar.mjs"
   }
 }
