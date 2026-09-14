@@ -22,5 +22,8 @@ This project follows semantic versioning for packages and explicit
 - Added one reproducible V1 release gate, pinned build tools, cross-platform
   compile and runtime checks, immutable CI action references, dependency update
   automation, and an explicit 1.x compatibility policy.
+- Added standalone Go and Zig consumer projects to the release gate, exercising
+  public package installation, file resolution, native types, hooks,
+  diagnostics, canonical output, and failure behavior from application code.
 - Removed the committed editor `node_modules` tree and its host-specific binary;
   locked clean installs now reproduce all editor build dependencies.

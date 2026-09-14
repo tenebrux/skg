@@ -30,7 +30,15 @@ postinstall = """
 
 [tasks.test]
 run = "zig build test && cd go && go test -race -v ./..."
+depends = ["test:consumers"]
 description = "Run all parser tests (Zig + Go)"
+
+[tasks."test:consumers"]
+run = """
+cd testdata/consumers/go && go vet ./... && go test -race ./...
+cd ../zig && zig build test && zig build test -Doptimize=ReleaseSafe
+"""
+description = "Run standalone Go and Zig application-boundary tests"
 
 [tasks."test:zig"]
 run = "zig build test"

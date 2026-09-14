@@ -40,6 +40,9 @@ jobs:
           go-version: "1.27.1"
           cache: false
       - run: go test ./...
+      - name: Go consumer project
+        working-directory: testdata/consumers/go
+        run: go test ./...
 
   runtime-platforms:
     name: Runtime (${{ matrix.os }})
@@ -59,4 +62,10 @@ jobs:
         run: zig build test -Doptimize=ReleaseSafe
       - name: Go runtime suite
         working-directory: go
+        run: go test ./...
+      - name: Zig consumer project
+        working-directory: testdata/consumers/zig
+        run: zig build test -Doptimize=ReleaseSafe
+      - name: Go consumer project
+        working-directory: testdata/consumers/go
         run: go test ./...

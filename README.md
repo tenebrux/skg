@@ -157,15 +157,17 @@ go test ./...
 skg/
   zig/        # Zig implementation (lexer, parser, ast, merge, emit)
   go/         # Go implementation (+ unmarshal, marshal)
-  testdata/   # Shared conformance fixtures - the contract
+  testdata/   # Shared conformance fixtures + standalone consumers
   examples/   # Working Go and Zig examples + real-world .skg files
   tools/      # tree-sitter grammar + VS Code extension
   docs/       # Language spec and editor integration guides
 ```
 
-Each language directory is a self-contained implementation with its
-own build tooling. Both are validated against the same `testdata/`
-fixtures on every test run.
+Each language directory is a self-contained implementation with its own build
+tooling. Both are validated against the same `testdata/` fixtures on every test
+run. Independent Go and Zig projects under
+[`testdata/consumers/`](testdata/consumers/) also compile and exercise the
+public packages exactly as application code does.
 
 The package is currently a V1 release candidate while package metadata remains
 `0.x`. Starting at package `v1.0.0`, the [V1 compatibility

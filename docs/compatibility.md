@@ -27,13 +27,14 @@ For the lifetime of package major version 1:
 - Parsing source bytes remains filesystem-free. File APIs continue to resolve
   relative imports and apply overlays before native decoding.
 
-The compatibility gate compiles downstream-style consumers of both public APIs
-and verifies hashes for every V1.0 normative fixture. The 1.0 syntax, value
-model, error registry, and canonical representation remain frozen throughout
-package 1.x. A later `skg_version` feature is allowed in V1 only when it can be
-represented without changing an existing public declaration and when its new
-fixtures live in a separate additive contract manifest. Otherwise it waits for
-V2. Unversioned input always remains 1.0.
+The compatibility gate compiles standalone downstream-style projects for both
+public packages and runs their application-level workflows. It also verifies
+hashes for every V1.0 normative fixture. The 1.0 syntax, value model, error
+registry, and canonical representation remain frozen throughout package 1.x. A
+later `skg_version` feature is allowed in V1 only when it can be represented
+without changing an existing public declaration and when its new fixtures live
+in a separate additive contract manifest. Otherwise it waits for V2.
+Unversioned input always remains 1.0.
 
 ## Additions allowed in 1.x
 

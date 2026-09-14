@@ -381,6 +381,16 @@ from the same fixed seed byte-for-byte. The scheduled Go fuzz workflow searches
 parser round trips, overlay associativity/materialization, and constrained
 resource resolution independently.
 
+Standalone projects under [`../testdata/consumers/`](../testdata/consumers/)
+verify the public package boundary separately from implementation-internal
+tests. Each maintained language package needs one. It must use the language's
+normal dependency manifest and exercise source and file APIs, native composite
+types and defaults, custom hooks, structured diagnostics with provenance, and
+failure ownership or transactional behavior. Emitters must also prove that a
+resolved graph produces parseable canonical output without active operations.
+These projects are release-gate tests; the versioned fixture manifests remain
+the normative behavior contract.
+
 ## 6. Capability manifest
 
 Each implementation declares what it supports in a manifest beside its source:
@@ -714,6 +724,9 @@ Work through this in order. Each step is checkable against the suite.
       disk, strictly validates `expected.json`, enforces the capability rules in
       [§6](#6-capability-manifest), and fails on every condition in
       [§5.4](#54-runner-failures).
+- [ ] **Standalone consumer project** with its own dependency manifest that
+      exercises the public package boundary and the capabilities described
+      above; wire it into `mise run v1:check`.
 
 ### Required V1 core
 

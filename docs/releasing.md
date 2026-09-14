@@ -22,11 +22,13 @@ Before any V1 stable or release-candidate tag:
    and consume its Go and Zig packages from a small external project.
 
 The gate verifies the immutable V1 corpus, both public API surfaces, Debug and
-ReleaseSafe suites, Go race/vet, generated Go/Zig differential cases, examples,
-both editor grammars, VSIX packaging, all shipped Zig targets, and the Go
-portability compile matrix. Pull-request CI also runs the Go and Zig suites on
-macOS and Windows so their resolver and formatter behavior is exercised on the
-host operating system.
+ReleaseSafe suites, Go race/vet, generated Go/Zig differential cases, standalone
+Go and Zig consumer projects, examples, both editor grammars, VSIX packaging,
+all shipped Zig targets, and the Go portability compile matrix. The consumer
+projects have their own module/package manifests and exercise public APIs from
+application code. Pull-request CI also runs the Go and Zig suites on macOS and
+Windows so their resolver and formatter behavior is exercised on the host
+operating system.
 
 ## Path 1: the Cut Release workflow (recommended)
 

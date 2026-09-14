@@ -46,6 +46,18 @@ echo "[v1] Go vet, race suite, and examples"
   go build -o "$artifacts/go-example" .
 )
 
+echo "[v1] standalone native consumer projects"
+(
+  cd testdata/consumers/go
+  go vet ./...
+  go test -race ./...
+)
+(
+  cd testdata/consumers/zig
+  zig build test
+  zig build test -Doptimize=ReleaseSafe
+)
+
 echo "[v1] cross-implementation generated corpus"
 zig build
 (
