@@ -1,9 +1,12 @@
 {
+  "contract_version": 1,
+  "language_version": "1.0",
   "implementation": "go",
   "capabilities": {
     "parse": true,
     "emit": true,
     "imports": true,
+    "native": true,
     "comments": false
   },
   "notes": {

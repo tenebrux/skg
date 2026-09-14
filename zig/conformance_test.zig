@@ -24,12 +24,13 @@ const ast = @import("ast.zig");
 
 /// The closed set of capability names. A manifest naming anything else fails
 /// the run.
-const Capability = enum { parse, emit, imports, comments };
+const Capability = enum { parse, emit, imports, native, comments };
 
 const Capabilities = struct {
     parse: bool,
     emit: bool,
     imports: bool,
+    native: bool,
     comments: bool,
 };
 
@@ -46,6 +47,34 @@ fn loadCapabilities(alloc: std.mem.Allocator) !Capabilities {
         std.debug.print("zig/conformance.json: top level must be an object\n", .{});
         return error.BadManifest;
     };
+
+    const RootField = enum { contract_version, language_version, implementation, capabilities, notes };
+    var root_it = root_obj.iterator();
+    while (root_it.next()) |kv| {
+        if (std.meta.stringToEnum(RootField, kv.key_ptr.*) == null) {
+            std.debug.print("zig/conformance.json: unknown top-level field \"{s}\"\n", .{kv.key_ptr.*});
+            return error.BadManifest;
+        }
+    }
+
+    const contract_json = root_obj.get("contract_version") orelse {
+        std.debug.print("zig/conformance.json: \"contract_version\" is required\n", .{});
+        return error.BadManifest;
+    };
+    if (expectJsonInt(contract_json) != 1) {
+        std.debug.print("zig/conformance.json: contract_version must be 1\n", .{});
+        return error.BadManifest;
+    }
+
+    const language_json = root_obj.get("language_version") orelse {
+        std.debug.print("zig/conformance.json: \"language_version\" is required\n", .{});
+        return error.BadManifest;
+    };
+    const language_version = expectJsonString(language_json) orelse return error.BadManifest;
+    if (!std.mem.eql(u8, language_version, "1.0")) {
+        std.debug.print("zig/conformance.json: language_version must be \"1.0\"\n", .{});
+        return error.BadManifest;
+    }
 
     const impl_json = root_obj.get("implementation") orelse {
         std.debug.print("zig/conformance.json: \"implementation\" is required\n", .{});
@@ -83,20 +112,29 @@ fn loadCapabilities(alloc: std.mem.Allocator) !Capabilities {
         };
     }
 
-    if (!caps.parse) {
-        std.debug.print("zig/conformance.json: the \"parse\" capability is mandatory\n", .{});
+    if (!caps.parse or !caps.imports or !caps.native) {
+        std.debug.print("zig/conformance.json: parse, imports, and native are mandatory core capabilities\n", .{});
         return error.BadManifest;
     }
 
-    // An undeclared capability is allowed, but it has to be a decision someone
-    // wrote down. That is what keeps partial conformance honest rather than
-    // quiet.
-    const notes_obj: ?std.json.ObjectMap = if (root_obj.get("notes")) |n| expectJsonObject(n) else null;
+    // An undeclared optional capability is allowed, but it has to be a decision
+    // someone wrote down.
+    const notes_json = root_obj.get("notes") orelse {
+        std.debug.print("zig/conformance.json: \"notes\" is required (use an empty object when no notes apply)\n", .{});
+        return error.BadManifest;
+    };
+    const notes_obj = expectJsonObject(notes_json) orelse return error.BadManifest;
+    var notes_it = notes_obj.iterator();
+    while (notes_it.next()) |kv| {
+        if (std.meta.stringToEnum(Capability, kv.key_ptr.*) == null or expectJsonString(kv.value_ptr.*) == null) {
+            std.debug.print("zig/conformance.json: notes must map known capabilities to strings\n", .{});
+            return error.BadManifest;
+        }
+    }
     inline for (std.meta.fields(Capability)) |f| {
         if (!@field(caps, f.name)) {
             const note: []const u8 = blk: {
-                const n = notes_obj orelse break :blk "";
-                const v = n.get(f.name) orelse break :blk "";
+                const v = notes_obj.get(f.name) orelse break :blk "";
                 break :blk expectJsonString(v) orelse "";
             };
             if (note.len == 0) {
@@ -117,6 +155,7 @@ fn hasCapability(caps: Capabilities, cap: Capability) bool {
         .parse => caps.parse,
         .emit => caps.emit,
         .imports => caps.imports,
+        .native => caps.native,
         .comments => caps.comments,
     };
 }
@@ -757,18 +796,16 @@ fn compareNullableString(expected_json: std.json.Value, actual: ?[]const u8) !vo
 
 // ─── Skip accounting ────────────────────────────────────────────────────────
 //
-// Honest partial conformance is allowed; quiet partial conformance is not. Each
-// skip prints as it happens and the totals print again at the end of the file.
+// Each optional-capability skip prints as it happens and the totals print again
+// at the end of the file.
 
 var skipped_emit: usize = 0;
-var skipped_imports: usize = 0;
 var skipped_comments: usize = 0;
 
 fn recordSkip(cap: Capability, subdir: []const u8, name: []const u8) void {
     switch (cap) {
-        .parse => unreachable, // "parse" is mandatory; loadCapabilities rejects a manifest without it.
+        .parse, .imports, .native => unreachable, // mandatory core capabilities
         .emit => skipped_emit += 1,
-        .imports => skipped_imports += 1,
         .comments => skipped_comments += 1,
     }
     std.debug.print(
@@ -1008,13 +1045,6 @@ test "conformance: invalid fixtures" {
 // declaration order.
 test "conformance: capability report" {
     var any_skipped = false;
-    if (skipped_imports > 0) {
-        std.debug.print(
-            "CONFORMANCE: SKIPPED {d} fixtures: capability \"imports\" not declared in zig/conformance.json\n",
-            .{skipped_imports},
-        );
-        any_skipped = true;
-    }
     if (skipped_emit > 0) {
         std.debug.print(
             "CONFORMANCE: SKIPPED {d} fixtures: capability \"emit\" not declared in zig/conformance.json\n",

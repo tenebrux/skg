@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -35,16 +36,20 @@ const (
 	capParse    = "parse"
 	capEmit     = "emit"
 	capImports  = "imports"
+	capNative   = "native"
 	capComments = "comments"
 )
 
 // knownCapabilities is closed: a manifest naming anything else fails the run.
-var knownCapabilities = []string{capParse, capEmit, capImports, capComments}
+var knownCapabilities = []string{capParse, capEmit, capImports, capNative, capComments}
+var mandatoryCapabilities = []string{capParse, capImports, capNative}
 
 type capabilityManifest struct {
-	Implementation string            `json:"implementation"`
-	Capabilities   map[string]bool   `json:"capabilities"`
-	Notes          map[string]string `json:"notes"`
+	ContractVersion int               `json:"contract_version"`
+	LanguageVersion string            `json:"language_version"`
+	Implementation  string            `json:"implementation"`
+	Capabilities    map[string]bool   `json:"capabilities"`
+	Notes           map[string]string `json:"notes"`
 }
 
 func (m capabilityManifest) has(c string) bool { return m.Capabilities[c] }
@@ -61,6 +66,15 @@ func loadManifest(t *testing.T) capabilityManifest {
 	if err := dec.Decode(&m); err != nil {
 		t.Fatalf("go/conformance.json: %v", err)
 	}
+	if err := dec.Decode(&struct{}{}); err != io.EOF {
+		t.Fatal("go/conformance.json: trailing JSON value")
+	}
+	if m.ContractVersion != 1 {
+		t.Fatalf("go/conformance.json: contract_version must be 1, got %d", m.ContractVersion)
+	}
+	if m.LanguageVersion != "1.0" {
+		t.Fatalf("go/conformance.json: language_version must be %q, got %q", "1.0", m.LanguageVersion)
+	}
 	if m.Implementation == "" {
 		t.Fatal("go/conformance.json: \"implementation\" is required")
 	}
@@ -74,12 +88,21 @@ func loadManifest(t *testing.T) capabilityManifest {
 			t.Fatalf("go/conformance.json: unknown capability %q (known: %v)", name, knownCapabilities)
 		}
 	}
-	if !m.has(capParse) {
-		t.Fatal("go/conformance.json: the \"parse\" capability is mandatory")
+	if m.Notes == nil {
+		t.Fatal("go/conformance.json: \"notes\" is required (use an empty object when no notes apply)")
 	}
-	// An undeclared capability is allowed, but it must be a decision someone
-	// wrote down - that is what keeps partial conformance honest rather than
-	// quiet.
+	for name := range m.Notes {
+		if !contains(knownCapabilities, name) {
+			t.Fatalf("go/conformance.json: unknown note key %q (known capabilities: %v)", name, knownCapabilities)
+		}
+	}
+	for _, c := range mandatoryCapabilities {
+		if !m.has(c) {
+			t.Fatalf("go/conformance.json: core capability %q is mandatory", c)
+		}
+	}
+	// An undeclared optional capability is allowed, but it must be a decision
+	// someone wrote down.
 	for _, c := range knownCapabilities {
 		if !m.has(c) && strings.TrimSpace(m.Notes[c]) == "" {
 			t.Fatalf("go/conformance.json: capability %q is not declared and has no entry in \"notes\" explaining why", c)
@@ -604,8 +627,7 @@ type expectedError struct {
 // ─── Skip accounting ────────────────────────────────────────────────────────
 
 // skipped counts fixtures not run because this implementation does not declare
-// the capability they need. The totals are printed unconditionally by TestMain:
-// honest partial conformance is allowed, quiet partial conformance is not.
+// the optional capability they need. TestMain always prints the totals.
 var skipped = map[string][]string{}
 
 func recordSkip(capability, fixtureName string) {

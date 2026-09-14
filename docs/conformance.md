@@ -18,16 +18,19 @@ reading `go/` or `zig/`.
 
 ## 1. What conformance means
 
-An implementation conforms when, for every fixture in `testdata/`:
+An implementation conforms to the V1 core when it implements parsing, import
+resolution, and native typed decoding and, for every applicable shared case:
 
 - valid fixtures parse to the AST described by `expected.json`;
 - invalid fixtures fail with the declared **error code** (and line/column when
   the fixture states them);
-- optional fixtures that exercise a capability the implementation **declares**
-  also pass.
+- the native conversion corpus passes without skips;
+- optional emitter and comment-trivia fixtures pass when those capabilities are
+  declared.
 
-An implementation may decline a capability. It may not decline one quietly -
-see [§6](#6-capability-manifest).
+An implementation may decline emission or comment trivia. It may not claim V1
+core conformance without parsing, import resolution, or native typed decoding.
+See [§6](#6-capability-manifest).
 
 ### Non-goals
 
@@ -197,8 +200,7 @@ nothing to be ambiguous with.
 
 ### Import resolution
 
-Only reachable from the file API. An implementation without the `imports`
-capability never produces these.
+Only reachable from the mandatory file API; the byte API never produces these.
 
 | Code                    | Raised when                                                     |
 | ----------------------- | ----------------------------------------------------------------- |
@@ -356,11 +358,14 @@ Each implementation declares what it supports in a manifest beside its source:
 
 ```json
 {
+  "contract_version": 1,
+  "language_version": "1.0",
   "implementation": "go",
   "capabilities": {
     "parse": true,
     "emit": true,
     "imports": true,
+    "native": true,
     "comments": false
   },
   "notes": {
@@ -369,13 +374,19 @@ Each implementation declares what it supports in a manifest beside its source:
 }
 ```
 
-### The four capabilities
+`contract_version` versions the manifest and runner protocol. It is independent
+of `language_version`, which states the SKG language contract implemented by the
+package. V1 runners accept exactly contract version `1` and language version
+`1.0`; later protocol or language support must change these fields explicitly.
+
+### The five capabilities
 
 | Capability | Meaning                                                                   | A fixture needs it when                            |
 | ---------- | ------------------------------------------------------------------------- | ---------------------------------------------------- |
-| `parse`    | Byte API producing the AST. **Mandatory.**                                 | Always.                                              |
+| `parse`    | Byte API producing the AST. **Core; mandatory.**                            | Always.                                              |
 | `emit`     | Serialising an AST back to canonical SKG text.                             | The fixture has a `.formatted.skg` / `formatted.skg` sidecar. |
-| `imports`  | File API that resolves and merges imports.                                 | The fixture is a directory.                          |
+| `imports`  | File API that resolves and merges imports. **Core; mandatory.**             | The fixture is a directory.                          |
+| `native`   | Strict conversion into the language's native static types. **Core; mandatory.** | The separate native corpus always runs.          |
 | `comments` | Comment trivia attached to AST nodes and reproduced by the emitter.        | The fixture's `expected.json` contains any comment key. |
 
 Requirement detection is **structural**, never declared by the fixture. Nobody
@@ -383,22 +394,23 @@ has to remember to tag a fixture, and nobody can mistag one.
 
 ### What the runner enforces
 
-1. The manifest lists exactly the four capability names. An unknown name, or a
-   missing one, fails the run.
-2. `parse` must be `true`.
+1. The manifest has exactly the five top-level fields shown above and lists
+   exactly the five capability names. An unknown or missing field fails the run.
+2. `contract_version` is `1`, `language_version` is `"1.0"`, and `parse`,
+   `imports`, and `native` are `true`.
 3. **Declared → obliged.** Every fixture needing a declared capability runs, and
    must pass.
-4. **Not declared → skipped, loudly.** Those fixtures are skipped and the runner
-   prints an unconditional summary line per capability:
+4. **Optional and not declared → skipped, loudly.** Those fixtures are skipped
+   and the runner prints an unconditional summary line per capability:
 
    ```
-   CONFORMANCE: SKIPPED 7 fixtures: capability "imports" not declared in go/conformance.json (...)
+   CONFORMANCE: SKIPPED 7 fixtures: capability "comments" not declared in go/conformance.json (...)
    ```
 
    When nothing is skipped it says so instead. There is no silent path.
-5. **Every undeclared capability needs a `notes` entry** saying why. Dropping a
-   capability has to be a decision someone wrote down and a reviewer can see in
-   the diff.
+5. **Every undeclared optional capability needs a `notes` entry** saying why.
+   Dropping one has to be a decision someone wrote down and a reviewer can see
+   in the diff.
 
 Because `go test` discards a passing package's output, the Go suite is run with
 `-v` in CI and in `mise run test:go` so the summary always reaches the log. The
@@ -602,8 +614,7 @@ running as root. Rejecting is also the smaller commitment - a later version can
 bless absolute paths, but one that shipped them could never take them back.
 
 Because the check runs at parse time, `testdata/invalid/absolute-import.skg` is
-a flat fixture: every implementation runs it, including ones without the
-`imports` capability.
+a flat fixture: every implementation runs it through the byte API.
 
 ---
 
@@ -666,19 +677,25 @@ Work through this in order. Each step is checkable against the suite.
 - [ ] **Diagnostics.** Code, path, 1-based line, 1-based byte column, message.
       Codes from [§4](#4-error-code-registry) only.
 - [ ] **Byte API that never opens a file.**
-- [ ] **Capability manifest** at `<impl>/conformance.json` with all four keys and
-      a `notes` entry for each one you decline.
+- [ ] **Capability manifest** at `<impl>/conformance.json` with contract and
+      language versions, all five capability keys, mandatory core capabilities
+      enabled, and a `notes` entry for each optional capability you decline.
 - [ ] **Runner** that enumerates `testdata/valid` and `testdata/invalid` from
       disk, strictly validates `expected.json`, enforces the capability rules in
       [§6](#6-capability-manifest), and fails on every condition in
       [§5.4](#54-runner-failures).
 
-### Optional, but declare it either way
+### Required V1 core
 
 - [ ] `imports` - file API, canonical relative resolution, declaration-order
       merge, importer-wins, diamond-safe cycle detection, memoised so a diamond
       is linear, V1 aggregate budgets, chain depth capped at 32, explicit rooted
       policy, and failures reported at the import statement that named the file.
+- [ ] `native` - strict native conversion in the host language, backed by the
+      complete shared native corpus with no skips.
+
+### Optional, but declare it either way
+
 - [ ] `emit` - canonical form in [§7](#7-emit-and-round-trip), byte-exact and
       idempotent.
 - [ ] `comments` - trivia captured on nodes per [§8](#8-comment-trivia) and
