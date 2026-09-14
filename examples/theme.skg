@@ -5,11 +5,9 @@
 #
 # This file sets defaults; the importing file can override any value
 # by setting it again (including to null to unset).
-
 theme {
   accent: "green"
   radius: 4.0
-
   colors {
     background: "#0d0d0d"
     surface: "#161616"
@@ -18,7 +16,6 @@ theme {
     text: "#e5e5e5"
     text_dim: "#6b6b6b"
   }
-
   font {
     family: "JetBrains Mono"
     size: 13.0

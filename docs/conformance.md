@@ -461,6 +461,9 @@ the implementation declares `emit`, two things must hold:
   line at the owning node's indent, including its `#`; a field's trailing
   comment appended after the value separated by one space; a block's trailing
   comments at child indent, just before the closing delimiter.
+- Blank lines are canonical whitespace rather than trivia: none between headers,
+  one between a header and body, one before a non-first top-level block or block
+  array, and none elsewhere.
 
 NaN and infinity have no SKG literal. The emitter cannot report an error, so it
 writes `null`; reject them earlier if your API can.
@@ -613,8 +616,7 @@ shared version fixtures cover wide components and invalid separators.
 | Gap | Status |
 | --- | ------ |
 | **The Go parser discards comments.** `go/conformance.json` declares `comments: false`, so the `trivia-*` fixtures are skipped there and the skip is printed. | A real gap only if Go-side formatters matter. `skg fmt` is the Zig binary. |
-| **Blank lines are not trivia.** Neither emitter preserves a blank line between nodes except the one it inserts before a top-level block, so `skg fmt` closes up deliberate spacing. `examples/*.skg` parse but do not survive `skg fmt --check`. | Needs blank-line trivia on the AST in both implementations, which is a larger change than comment trivia was. No fixture: a `.formatted.skg` sidecar would just encode the current behaviour. |
-| **Comments between header directives are relocated.** They are kept - they used to be dropped - but they reattach to the file's leading trivia rather than to the directive they preceded, so `skg fmt` moves them to the top of the header. | Keeping the text is the property that matters for an in-place formatter; the exact slot needs per-directive trivia on the AST. |
+| **Canonical formatting is not source-layout preservation.** Blank lines are normalized. Comments between headers become file-leading comments; comments between scalar array values become array-trailing comments. | This is the explicit V1 formatter contract. Every comment's text is preserved exactly once; source-exact tools must retain source bytes. |
 
 ---
 

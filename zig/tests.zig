@@ -697,6 +697,58 @@ test "structured values retain object and array closing comments" {
     try testing.expectEqualStrings(text, text2);
 }
 
+test "emit preserves every comment exactly once across relocatable trivia" {
+    const src =
+        \\# file top
+        \\skg_version: "1.0"
+        \\# before import
+        \\import "base.skg"
+        \\# before schema
+        \\schema_version: "4"
+        \\
+        \\# field leading
+        \\values: [1, # after first item
+        \\# before second item
+        \\2,
+        \\# array end
+        \\]
+        \\
+        \\block {
+        \\  value: true # inline field
+        \\  # block end
+        \\}
+        \\# file end
+    ;
+    var parsed = root.parseSource(testing.allocator, src, "comments.skg");
+    defer parsed.deinit();
+    const output = try emit_mod.emitFile(testing.allocator, parsed.file orelse return error.UnexpectedParseFailure);
+    defer testing.allocator.free(output);
+
+    var before = try commentCounts(testing.allocator, src);
+    defer before.deinit();
+    var after = try commentCounts(testing.allocator, output);
+    defer after.deinit();
+    try testing.expectEqual(before.count(), after.count());
+    var iterator = before.iterator();
+    while (iterator.next()) |entry| {
+        try testing.expectEqual(entry.value_ptr.*, after.get(entry.key_ptr.*) orelse 0);
+    }
+}
+
+fn commentCounts(allocator: std.mem.Allocator, source: []const u8) !std.StringHashMap(usize) {
+    var counts = std.StringHashMap(usize).init(allocator);
+    var lexer = Lexer.init(source);
+    while (true) {
+        const token = try lexer.next();
+        if (token.tag == .eof) break;
+        if (token.tag != .comment) continue;
+        const entry = try counts.getOrPut(token.text);
+        if (!entry.found_existing) entry.value_ptr.* = 0;
+        entry.value_ptr.* += 1;
+    }
+    return counts;
+}
+
 test "overlay materialization preserves source instructions and clears nested markers" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();

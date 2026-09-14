@@ -9,7 +9,6 @@
 #
 # This kind of config appears in load balancers, service meshes,
 # reverse proxies, and rack-manifest tooling.
-
 pool {
   name: "api-backends"
   algorithm: "round_robin"
@@ -22,8 +21,7 @@ servers [
     host: "10.0.1.10"
     port: 8080
     weight: 100
-    labels ["primary", "us-west"]
-
+    labels: ["primary", "us-west"]
     health_check {
       path: "/healthz"
       interval_s: 5
@@ -36,8 +34,7 @@ servers [
     host: "10.0.1.11"
     port: 8080
     weight: 100
-    labels ["primary", "us-west"]
-
+    labels: ["primary", "us-west"]
     health_check {
       path: "/healthz"
       interval_s: 5
@@ -50,10 +47,9 @@ servers [
     host: "10.0.2.20"
     port: 8080
     weight: 50
-    labels ["secondary", "us-east"]
+    labels: ["secondary", "us-east"]
     # TLS is optional on this backend - null documents that explicitly
     tls: null
-
     health_check {
       path: "/healthz"
       interval_s: 10

@@ -76,7 +76,11 @@ string values remain part of those values.
 
 ## Comments
 
-Comments begin with `#` and run to the end of the line. Comments are preserved through parse-emit round-trips.
+Comments begin with `#` and run to the end of the line. A formatter with the
+`comments` capability preserves every comment's text through parse-emit
+round-trips. Canonical placement follows the AST attachment rules and can move
+comments from header or array-value positions; see the
+[formatter contract](formatter.md#source-and-trivia).
 
 ```
 # This is a comment

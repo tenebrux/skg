@@ -7,7 +7,6 @@
 # Entries use `{ ... }` braces. Commas between entries are optional
 # (matching the one-way-to-do-it philosophy: either all commas or no
 # commas is fine, mixed is fine, linters may have opinions).
-
 users [
   {
     name: "admin"

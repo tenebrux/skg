@@ -1,5 +1,6 @@
 const std = @import("std");
 const skg = @import("skg");
+const builtin = @import("builtin");
 
 const usage =
     \\Usage: skg <command> [options] [files...]
@@ -130,10 +131,16 @@ fn fmtStdin(allocator: std.mem.Allocator, check: bool) !u8 {
 }
 
 fn fmtFile(allocator: std.mem.Allocator, path: []const u8, check: bool) !bool {
-    const file = try std.fs.cwd().openFile(path, .{});
+    // Resolve once, then keep using that referent. A symlink changed while the
+    // formatter runs cannot redirect the eventual replacement elsewhere.
+    const resolved = try std.fs.cwd().realpathAlloc(allocator, path);
+    defer allocator.free(resolved);
+    const file = try std.fs.cwd().openFile(resolved, .{});
     defer file.close();
     const src = try file.readToEndAlloc(allocator, 10 * 1024 * 1024);
     defer allocator.free(src);
+    const snapshot = try file.stat();
+    if (snapshot.kind != .file) return error.NotRegularFile;
 
     var result = skg.parseSource(allocator, src, path);
     defer result.deinit();
@@ -160,7 +167,8 @@ fn fmtFile(allocator: std.mem.Allocator, path: []const u8, check: bool) !bool {
         return true;
     }
 
-    try writeAtomically(allocator, path, formatted);
+    try ensureSingleLink(file);
+    try writeAtomically(allocator, resolved, formatted, src, file, snapshot);
     return true;
 }
 
@@ -171,19 +179,135 @@ fn fmtFile(allocator: std.mem.Allocator, path: []const u8, check: bool) !bool {
 /// behind if the process dies mid-write - and `skg fmt` runs over files people
 /// have no other copy of. A rename within the same directory is atomic, so the
 /// file is either the old text or the new text and never something in between.
-fn writeAtomically(allocator: std.mem.Allocator, path: []const u8, contents: []const u8) !void {
-    // Format the referent of a symlink, rather than replacing the link itself.
-    const resolved = try std.fs.cwd().realpathAlloc(allocator, path);
-    defer allocator.free(resolved);
-    const stat = try std.fs.cwd().statFile(resolved);
+fn writeAtomically(
+    allocator: std.mem.Allocator,
+    resolved: []const u8,
+    contents: []const u8,
+    expected_contents: []const u8,
+    original: std.fs.File,
+    snapshot: std.fs.File.Stat,
+) !void {
     var atomic = try std.fs.cwd().atomicFile(resolved, .{ .mode = 0o600, .write_buffer = &.{} });
     defer atomic.deinit();
     try atomic.file_writer.file.writeAll(contents);
-    // Set the exact mode after writing (umask and writes can strip mode bits).
-    // A failure must leave the original untouched.
-    if (std.fs.has_executable_bit) try atomic.file_writer.file.chmod(stat.mode);
+    try copyMetadata(allocator, original, atomic.file_writer.file, snapshot);
     try atomic.file_writer.file.sync();
+    // Reject an edit or metadata change observed after the bytes were read.
+    // This narrows the unavoidable portable check/rename race to the final
+    // rename operation instead of silently overwriting ordinary editor saves.
+    try ensureUnchanged(allocator, resolved, expected_contents, snapshot);
     try atomic.finish();
+}
+
+fn sameSnapshot(a: std.fs.File.Stat, b: std.fs.File.Stat) bool {
+    return a.inode == b.inode and a.kind == b.kind and a.size == b.size and
+        a.mode == b.mode and a.mtime == b.mtime and a.ctime == b.ctime;
+}
+
+fn ensureUnchanged(allocator: std.mem.Allocator, path: []const u8, expected: []const u8, snapshot: std.fs.File.Stat) !void {
+    const current = try std.fs.cwd().openFile(path, .{});
+    defer current.close();
+    const current_stat = try current.stat();
+    if (!sameSnapshot(snapshot, current_stat)) return error.FileChanged;
+    try ensureSingleLink(current);
+    const data = current.readToEndAlloc(allocator, 10 * 1024 * 1024) catch return error.FileChanged;
+    defer allocator.free(data);
+    if (!std.mem.eql(u8, expected, data)) return error.FileChanged;
+    if (!sameSnapshot(snapshot, try current.stat())) return error.FileChanged;
+    try ensureSingleLink(current);
+}
+
+fn ensureSingleLink(file: std.fs.File) !void {
+    if (builtin.os.tag == .windows) {
+        const info = try windowsFileInfo(file);
+        if (info.StandardInformation.NumberOfLinks != 1) return error.HardLinkedFile;
+    } else if (builtin.os.tag != .wasi) {
+        const info = try std.posix.fstat(file.handle);
+        if (info.nlink != 1) return error.HardLinkedFile;
+    }
+}
+
+fn copyMetadata(allocator: std.mem.Allocator, source: std.fs.File, destination: std.fs.File, snapshot: std.fs.File.Stat) !void {
+    if (builtin.os.tag == .windows) {
+        const info = try windowsFileInfo(source);
+        var io_status: std.os.windows.IO_STATUS_BLOCK = undefined;
+        var basic = std.os.windows.FILE_BASIC_INFORMATION{
+            .CreationTime = 0,
+            .LastAccessTime = 0,
+            .LastWriteTime = 0,
+            .ChangeTime = 0,
+            .FileAttributes = info.BasicInformation.FileAttributes,
+        };
+        const rc = std.os.windows.ntdll.NtSetInformationFile(destination.handle, &io_status, &basic, @sizeOf(@TypeOf(basic)), .FileBasicInformation);
+        if (rc != .SUCCESS) return error.MetadataCopyFailed;
+        const copied = try windowsFileInfo(destination);
+        if (copied.BasicInformation.FileAttributes != info.BasicInformation.FileAttributes) return error.MetadataCopyFailed;
+        return;
+    }
+    if (builtin.os.tag == .wasi) return;
+
+    const source_posix = try std.posix.fstat(source.handle);
+    const destination_posix = try std.posix.fstat(destination.handle);
+    if (source_posix.uid != destination_posix.uid or source_posix.gid != destination_posix.gid) {
+        try destination.chown(source_posix.uid, source_posix.gid);
+    }
+    // chown can clear set-id bits, so restore the complete mode afterwards.
+    try destination.chmod(snapshot.mode);
+    if (builtin.os.tag == .linux) try copyLinuxXattrs(allocator, source, destination);
+    const copied = try destination.stat();
+    const copied_posix = try std.posix.fstat(destination.handle);
+    if (copied.mode != snapshot.mode or copied_posix.uid != source_posix.uid or copied_posix.gid != source_posix.gid) {
+        return error.MetadataCopyFailed;
+    }
+}
+
+fn windowsFileInfo(file: std.fs.File) !std.os.windows.FILE_ALL_INFORMATION {
+    if (builtin.os.tag != .windows) unreachable;
+    var io_status: std.os.windows.IO_STATUS_BLOCK = undefined;
+    var info: std.os.windows.FILE_ALL_INFORMATION = undefined;
+    const rc = std.os.windows.ntdll.NtQueryInformationFile(file.handle, &io_status, &info, @sizeOf(@TypeOf(info)), .FileAllInformation);
+    return switch (rc) {
+        .SUCCESS, .BUFFER_OVERFLOW => info,
+        else => error.MetadataReadFailed,
+    };
+}
+
+const max_extended_attribute_bytes = 1024 * 1024;
+
+fn copyLinuxXattrs(allocator: std.mem.Allocator, source: std.fs.File, destination: std.fs.File) !void {
+    if (builtin.os.tag != .linux) unreachable;
+    const linux = std.os.linux;
+    var placeholder: [1]u8 = .{0};
+    const names_size_raw = linux.flistxattr(source.handle, &placeholder, 0);
+    if (std.posix.errno(names_size_raw) != .SUCCESS) return error.MetadataReadFailed;
+    const names_size: usize = @intCast(names_size_raw);
+    if (names_size > max_extended_attribute_bytes) return error.MetadataTooLarge;
+    if (names_size == 0) return;
+    const names = try allocator.alloc(u8, names_size);
+    defer allocator.free(names);
+    const names_read = linux.flistxattr(source.handle, names.ptr, names.len);
+    if (std.posix.errno(names_read) != .SUCCESS or names_read != names.len) return error.MetadataChanged;
+
+    var offset: usize = 0;
+    var total_value_bytes: usize = 0;
+    while (offset < names.len) {
+        const end = std.mem.indexOfScalarPos(u8, names, offset, 0) orelse return error.MetadataReadFailed;
+        const name = try allocator.dupeZ(u8, names[offset..end]);
+        defer allocator.free(name);
+        const value_size_raw = linux.fgetxattr(source.handle, name.ptr, &placeholder, 0);
+        if (std.posix.errno(value_size_raw) != .SUCCESS) return error.MetadataChanged;
+        const value_size: usize = @intCast(value_size_raw);
+        if (value_size > max_extended_attribute_bytes -| total_value_bytes) return error.MetadataTooLarge;
+        total_value_bytes += value_size;
+        const value = try allocator.alloc(u8, value_size);
+        defer allocator.free(value);
+        const value_ptr: [*]u8 = if (value.len == 0) &placeholder else value.ptr;
+        const value_read = linux.fgetxattr(source.handle, name.ptr, value_ptr, value.len);
+        if (std.posix.errno(value_read) != .SUCCESS or value_read != value.len) return error.MetadataChanged;
+        const set_result = linux.fsetxattr(destination.handle, name.ptr, value_ptr, value.len, 0);
+        if (std.posix.errno(set_result) != .SUCCESS) return error.MetadataCopyFailed;
+        offset = end + 1;
+    }
 }
 
 test "formatter ignores predictable temporary symlinks and preserves target mode" {
@@ -196,6 +320,7 @@ test "formatter ignores predictable temporary symlinks and preserves target mode
     try tmp.dir.symLink("unrelated", ".config.skg.skg-fmt.tmp", .{});
     const original = try tmp.dir.openFile("config.skg", .{});
     try original.chmod(0o640);
+    const original_identity = try std.posix.fstat(original.handle);
     original.close();
     const path = try tmp.dir.realpathAlloc(t.allocator, "config.skg");
     defer t.allocator.free(path);
@@ -204,6 +329,11 @@ test "formatter ignores predictable temporary symlinks and preserves target mode
     defer t.allocator.free(untouched);
     try t.expectEqualStrings("keep me", untouched);
     try t.expectEqual(@as(std.fs.File.Mode, 0o640), (try tmp.dir.statFile("config.skg")).mode & 0o777);
+    const rewritten = try tmp.dir.openFile("config.skg", .{});
+    const rewritten_identity = try std.posix.fstat(rewritten.handle);
+    rewritten.close();
+    try t.expectEqual(original_identity.uid, rewritten_identity.uid);
+    try t.expectEqual(original_identity.gid, rewritten_identity.gid);
     try t.expect(!try fmtFile(t.allocator, path, false));
 }
 
@@ -224,4 +354,75 @@ test "formatter preserves a config symlink and formats its referent" {
     const data = try tmp.dir.readFileAlloc(t.allocator, "target.skg", 100);
     defer t.allocator.free(data);
     try t.expectEqualStrings("value: 1\n", data);
+}
+
+test "formatter refuses hard links before replacement" {
+    if (builtin.os.tag == .windows or builtin.os.tag == .wasi) return error.SkipZigTest;
+    const t = std.testing;
+    var tmp = t.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(.{ .sub_path = "config.skg", .data = "value:1\n" });
+    const source = try tmp.dir.realpathAlloc(t.allocator, "config.skg");
+    defer t.allocator.free(source);
+    const alias = try std.fs.path.join(t.allocator, &.{ std.fs.path.dirname(source).?, "alias.skg" });
+    defer t.allocator.free(alias);
+    try std.posix.link(source, alias);
+    try t.expectError(error.HardLinkedFile, fmtFile(t.allocator, source, false));
+    const source_data = try tmp.dir.readFileAlloc(t.allocator, "config.skg", 100);
+    defer t.allocator.free(source_data);
+    const alias_data = try tmp.dir.readFileAlloc(t.allocator, "alias.skg", 100);
+    defer t.allocator.free(alias_data);
+    try t.expectEqualStrings("value:1\n", source_data);
+    try t.expectEqualStrings(source_data, alias_data);
+}
+
+test "formatter rejects a changed file and removes its temporary" {
+    const t = std.testing;
+    var tmp = t.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(.{ .sub_path = "config.skg", .data = "value:1\n" });
+    const path = try tmp.dir.realpathAlloc(t.allocator, "config.skg");
+    defer t.allocator.free(path);
+    const original = try std.fs.cwd().openFile(path, .{});
+    defer original.close();
+    const snapshot = try original.stat();
+    try tmp.dir.writeFile(.{ .sub_path = "config.skg", .data = "value:3\n" });
+    try t.expectError(error.FileChanged, writeAtomically(t.allocator, path, "value: 1\n", "value:1\n", original, snapshot));
+    const data = try tmp.dir.readFileAlloc(t.allocator, "config.skg", 100);
+    defer t.allocator.free(data);
+    try t.expectEqualStrings("value:3\n", data);
+    var iterable = try tmp.dir.openDir(".", .{ .iterate = true });
+    defer iterable.close();
+    var iterator = iterable.iterate();
+    var count: usize = 0;
+    while (try iterator.next()) |_| count += 1;
+    try t.expectEqual(@as(usize, 1), count);
+}
+
+test "formatter preserves Linux extended attributes" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    const t = std.testing;
+    var tmp = t.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(.{ .sub_path = "config.skg", .data = "value:1\n" });
+    const path = try tmp.dir.realpathAlloc(t.allocator, "config.skg");
+    defer t.allocator.free(path);
+    const file = try std.fs.cwd().openFile(path, .{});
+    const name: [:0]const u8 = "user.skg-test";
+    const value = "kept";
+    const set_result = std.os.linux.fsetxattr(file.handle, name.ptr, value.ptr, value.len, 0);
+    if (std.posix.errno(set_result) == .OPNOTSUPP) {
+        file.close();
+        return error.SkipZigTest;
+    }
+    try t.expectEqual(std.posix.E.SUCCESS, std.posix.errno(set_result));
+    file.close();
+
+    try t.expect(try fmtFile(t.allocator, path, false));
+    const rewritten = try std.fs.cwd().openFile(path, .{});
+    defer rewritten.close();
+    var buffer: [32]u8 = undefined;
+    const read_result = std.os.linux.fgetxattr(rewritten.handle, name.ptr, &buffer, buffer.len);
+    try t.expectEqual(std.posix.E.SUCCESS, std.posix.errno(read_result));
+    try t.expectEqualStrings(value, buffer[0..@intCast(read_result)]);
 }

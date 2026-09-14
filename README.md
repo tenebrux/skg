@@ -142,6 +142,8 @@ go test ./...
 - **[docs/tree-sitter.md](docs/tree-sitter.md)** - tree-sitter grammar
   for Neovim, Helix, Zed, Emacs
 - **[docs/vscode.md](docs/vscode.md)** - VS Code extension
+- **[docs/formatter.md](docs/formatter.md)** - formatter behavior and in-place
+  write guarantees
 
 ## Repo layout
 

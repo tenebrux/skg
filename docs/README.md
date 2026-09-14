@@ -26,6 +26,8 @@ Reference material for the SKG (Static Key Group) config language.
 
 - [Native types](native-types.md) — Go and Zig typed loading, defaults, ownership and hooks.
 - [Native conformance](native-conformance.md) — port-facing conversion contract and shared native profiles.
+- [Formatter contract](formatter.md) — canonical whitespace, comment movement,
+  atomic replacement and platform metadata guarantees.
 
 Pick your language and read the README in that directory:
 

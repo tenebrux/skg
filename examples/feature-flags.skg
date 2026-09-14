@@ -7,7 +7,6 @@
 # The `environments` block is a map of maps: each environment name
 # holds a block of overrides. Values not overridden inherit from the
 # defaults block.
-
 defaults {
   new_checkout_flow: false
   dark_mode: true
@@ -22,12 +21,10 @@ environments {
     experimental_search: true
     sentry_sampling: 1.0
   }
-
   staging {
     new_checkout_flow: true
     experimental_search: true
   }
-
   production {
     # Produces identical output to `{}`; an empty block is valid.
     # Shown here to document intent ("prod takes all defaults").
@@ -42,7 +39,6 @@ rollouts {
     cohorts: ["beta", "internal"]
     start: "2026-04-01"
   }
-
   experimental_search {
     percent: 5
     cohorts: ["internal"]
