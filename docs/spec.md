@@ -5,13 +5,15 @@
 Version: 1.0
 Extension: `.skg`
 Encoding: UTF-8 (no BOM)
-Status: Draft
+Status: V1 release candidate; language contract frozen
 
 ---
 
 ## Overview
 
-SKG (Static Key Group) is a simple, hierarchical configuration language. It is designed to be human-readable, easy to extend, and unambiguous. There is one way to write each construct - no alternatives, no shortcuts, no implicit behavior.
+SKG (Static Key Group) is a small, hierarchical configuration language. It is
+designed to be human-readable, easy to extend, and unambiguous. Its few accepted
+surface conveniences normalize to one canonical representation.
 
 SKG is not a general-purpose language. It has no variables, no templates, no expressions, no computation. It is structured data. The application consuming the config defines and validates the schema.
 
@@ -288,8 +290,8 @@ adjustment: -0.5
 ```
 
 A trailing zero after the decimal is required. `13` is an int. `13.0` is a
-float. `13.` is neither - it is `INVALID_FLOAT`, because there is one way to
-write each value and `13.0` is it.
+float. `13.` is neither - it is `INVALID_FLOAT`, because at least one digit is
+required on each side of the decimal point; write `13.0`.
 
 Scientific notation, a leading `+`, leading-dot decimals, hexadecimal/binary
 integers, numeric separators and unit suffixes are not part of V1. Write a
@@ -432,7 +434,8 @@ theme {
 }
 ```
 
-Block names are unique within their parent scope. If the same block name appears twice, the contents are merged with last-wins semantics.
+Repeated block names within a parent scope merge their contents with last-wins
+semantics, under the same duplicate-key rules as every other node shape.
 
 Blocks may be empty:
 
@@ -608,7 +611,10 @@ The parser enforces:
 - Header directives before the body, and no duplicate `skg_version` or
   `schema_version` declarations
 
-**Semantic validation** - unknown fields, wrong types for a schema, missing required fields - is the responsibility of the consuming application. The application maps the parsed AST onto its own types and produces schema errors.
+**Semantic validation** uses the consuming application's native types and
+validation hooks. The first-party native loaders map the materialized value
+tree into those types, enforce conversion and presence rules, and report
+structured errors; the application owns its field set and cross-field rules.
 
 ---
 
@@ -637,7 +643,9 @@ Comment trivia is attached to nodes, not stored as standalone AST nodes:
 - **Blocks/BlockArrays**: `leading_comments` (before the block) and `trailing_comments` (before closing delimiter)
 - **File**: `leading_comments` (before first declaration) and `trailing_comments` (after last node)
 
-The consuming application walks this tree against its own type definitions to populate its config struct.
+The native loaders consume this tree directly to populate application structs,
+maps and lists. Tooling can use the AST APIs when it needs source structure
+rather than a native configuration value.
 
 ---
 

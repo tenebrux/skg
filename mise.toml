@@ -2,12 +2,15 @@
 experimental = true
 
 [tools]
-zig = "0.15"
-go = "latest"
-node = "lts"
-pkl = "latest"
-hk = "latest"
-"npm:@fission-ai/openspec" = "latest"
+zig = "0.15.2"
+go = "1.26.8"
+node = "24.21.0"
+pkl = "0.32.1"
+hk = "1.58.1"
+shellcheck = "0.11.0"
+"npm:@fission-ai/openspec" = "1.13.0"
+"go:golang.org/x/vuln/cmd/govulncheck" = "1.6.0"
+"go:github.com/rhysd/actionlint/cmd/actionlint" = "1.7.12"
 
 [env]
 HK_MISE = "1"
@@ -23,7 +26,6 @@ postinstall = """
   # Pre-stage so `mise install` leaves a build-ready tree.
   zig build --fetch >/dev/null 2>&1 || true
   (cd go && go mod download) || true
-  command -v govulncheck >/dev/null 2>&1 || go install golang.org/x/vuln/cmd/govulncheck@latest || true
 """
 
 [tasks.test]
@@ -149,3 +151,7 @@ run = "cd go && govulncheck ./..."
 [tasks.ci]
 description = "Run the full CI check locally (lint + test + tree-sitter + security)"
 depends = ["lint", "test", "test:tree-sitter", "security"]
+
+[tasks."v1:check"]
+description = "Run the complete V1 compatibility and release gate"
+run = "bash tools/v1-check.sh"

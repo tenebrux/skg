@@ -1,0 +1,20 @@
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      workflow-actions:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /tools/tree-sitter-skg
+    schedule:
+      interval: monthly
+
+  - package-ecosystem: npm
+    directory: /tools/vscode-skg
+    schedule:
+      interval: monthly

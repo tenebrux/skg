@@ -45,12 +45,12 @@ jobs:
     name: Cut ${{ inputs.level }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: master
           fetch-depth: 0
 
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         with:
           version: "2026.4.10"
 
@@ -61,31 +61,11 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Cutting v$version" >> "$GITHUB_STEP_SUMMARY"
 
-      # Go modules encode the major version in the import path from v2 on.
-      # Tagging go/v2.0.0 while go.mod still says .../go would publish a
-      # version Go tooling refuses to fetch — fail here instead.
-      - name: Check go.mod major-version suffix
-        run: |
-          version="${{ steps.version.outputs.version }}"
-          major="${version%%.*}"
-          module=$(head -1 go/go.mod | awk '{print $2}')
-          if [ "$major" -ge 2 ]; then
-            case "$module" in
-              */v"$major") ;;
-              *) echo "::error::go.mod module path '$module' must end in /v$major before releasing v$version (Go semantic import versioning)"; exit 1 ;;
-            esac
-          else
-            case "$module" in
-              */v[0-9]*) echo "::error::go.mod module path '$module' carries a major suffix but the release is v$version"; exit 1 ;;
-              *) ;;
-            esac
-          fi
+      - name: Validate the prospective release version
+        run: node tools/check-release.mjs --version "${{ steps.version.outputs.version }}"
 
       - name: Test gate
-        run: |
-          zig build test
-          zig fmt --check zig/
-          cd go && go vet ./... && go test -race ./...
+        run: mise run v1:check
 
       - name: Stamp version
         run: |
@@ -113,6 +93,8 @@ jobs:
               done
               ;;
           esac
+
+          node tools/check-release.mjs --tag "v$version"
 
       - name: Commit and tag
         run: |

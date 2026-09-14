@@ -4,7 +4,7 @@
 # merges its top-level nodes with last-wins semantics.
 #
 # This file sets defaults; the importing file can override any value
-# by setting it again (including to null to unset).
+# by setting it again (including to an explicit null).
 theme {
   accent: "green"
   radius: 4.0

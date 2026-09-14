@@ -5,10 +5,52 @@ on:
     branches:
       - master
 
-permissions:
-  contents: write
-
 jobs:
+  v1:
+    name: V1 release gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+        with:
+          version: "2026.4.10"
+      - run: mise run v1:check
+
   edge:
-    uses: tenebrux/github-workflows/.github/workflows/zig-edge.yml@master
-    secrets: inherit
+    needs: v1
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+        with:
+          version: "2026.4.10"
+      - name: Move the daily edge tag
+        run: |
+          tag="edge-$(date +'%Y%m%d')"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f "$tag"
+          git push origin "$tag" -f
+          echo "GORELEASER_CURRENT_TAG=$tag" >> "$GITHUB_ENV"
+      - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7
+        with:
+          version: "v2.18.1"
+          args: release --clean --config .goreleaser.edge.yaml
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: Trigger naur repo update
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.NAUR_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::notice::NAUR_DISPATCH_TOKEN is not configured; skipping naur update"
+            exit 0
+          fi
+          gh api /repos/tenebrux/naur/dispatches -f event_type=release

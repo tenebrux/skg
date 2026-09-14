@@ -1,8 +1,8 @@
 # feature-flags.skg - dynamic keys, per-environment overrides
 #
 # Feature flags are the canonical use case for blocks with dynamic
-# keys. In Go this maps cleanly to `map[string]Flag`, in Zig you walk
-# the children and build a StringHashMap.
+# keys. In Go this maps to `map[string]Flag`; in Zig it maps to
+# `std.StringHashMap(Flag)` through the native typed loader.
 #
 # The `environments` block is a map of maps: each environment name
 # holds a block of overrides. Values not overridden inherit from the

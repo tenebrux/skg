@@ -7,114 +7,56 @@ on:
     branches: [master]
 
 jobs:
-  build-test:
-    uses: tenebrux/github-workflows/.github/workflows/zig-ci.yml@master
-    with:
-      zig-fmt-paths: "zig/"
-
-  release-targets:
-    name: Compile release targets
+  v1:
+    name: V1 release gate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: jdx/mise-action@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         with:
           version: "2026.4.10"
-      - name: Cross-compile every shipped platform
-        run: |
-          for target in x86_64-linux-musl aarch64-linux-musl x86_64-macos aarch64-macos x86_64-windows; do
-            zig build -Doptimize=ReleaseSafe -Dtarget="$target"
-          done
+      - name: Run the authoritative V1 gate
+        env:
+          SKG_VSIX_OUT: ${{ github.workspace }}/dist/skg-vscode-dev.vsix
+        run: mise run v1:check
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: vscode-extension
+          path: dist/*.vsix
+          if-no-files-found: error
 
-  go:
-    name: Go parser
+  # go.mod names 1.26 as the minimum. The release gate runs that exact line;
+  # this small adjunct catches problems on the current supported Go release.
+  go-current:
+    name: Go 1.27 compatibility
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: go
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: "1.26"
-          # No go.sum (the parser has no dependencies) - nothing to cache.
+          go-version: "1.27.1"
           cache: false
-      - name: Build
-        run: go build ./...
-      - name: Vet
-        run: go vet ./...
-      # Runs the shared testdata/ conformance suite against the Go parser, so a
-      # fixture that only the Go side sees still gates the merge.
-      #
-      # -v is deliberate: `go test` discards a passing package's output, and the
-      # conformance suite ends with an unconditional summary of the fixtures it
-      # skipped for undeclared capabilities (see go/conformance.json). Without
-      # -v that line would never reach the log, which is exactly the silent
-      # partial conformance the harness exists to prevent.
-      - name: Test
-        run: go test -race -v ./...
+      - run: go test ./...
 
-  tree-sitter:
-    name: tree-sitter grammar
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: tools/tree-sitter-skg
+  runtime-platforms:
+    name: Runtime (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         with:
-          node-version: lts/*
-      - name: Install
-        run: npm ci
-      # Regenerates src/parser.c from grammar.js, then parses every
-      # testdata/valid/**/*.skg and fails on any ERROR or MISSING node.
-      # This is a highlighting grammar, not a conformance peer - there is
-      # deliberately no AST comparison against the Go or Zig parsers.
-      - name: Parse every valid fixture
-        run: npm run check:fixtures
-      # check:fixtures regenerates src/ before parsing, so by this point the
-      # working tree holds a parser.c built from the current grammar.js. If it
-      # differs from the committed one, the committed one is stale - and Neovim
-      # and Helix consume the committed file, not the grammar, so they would be
-      # running a parser nobody reviewed.
-      - name: Committed parser.c matches grammar.js
-        run: git diff --exit-code -- src/
-
-  vscode:
-    name: VS Code extension
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: tools/vscode-skg
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: lts/*
-      # A malformed TextMate grammar does not fail loudly - VS Code drops the
-      # grammar and the file renders as plain text, so nothing here was checked
-      # by anything until now.
-      - name: Grammar and manifest are valid JSON
-        run: |
-          node -e 'JSON.parse(require("fs").readFileSync("syntaxes/skg.tmLanguage.json","utf8"))'
-          node -e 'JSON.parse(require("fs").readFileSync("language-configuration.json","utf8"))'
-          node -e 'JSON.parse(require("fs").readFileSync("package.json","utf8"))'
-      - name: Install
-        run: npm ci
-      - name: Tokenize every valid fixture and V1 syntax probe
-        run: npm test
-      # Packaging is the only check that the manifest, the grammar paths and the
-      # declared files actually hang together. The artifact is uploaded so a
-      # reviewer can install the extension from a PR without building it, and
-      # so the packaging path is exercised on every commit rather than only at
-      # release time.
-      - name: Package
-        run: |
-          mkdir -p ../../dist
-          npx --no-install vsce package --out ../../dist/skg-vscode-dev.vsix
-      - uses: actions/upload-artifact@v4
-        with:
-          name: vscode-extension
-          path: dist/*.vsix
-          if-no-files-found: error
+          version: "2026.4.10"
+      - name: Zig runtime suite
+        run: zig build test -Doptimize=ReleaseSafe
+      - name: Go runtime suite
+        working-directory: go
+        run: go test ./...

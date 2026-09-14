@@ -1,12 +1,10 @@
 # users.skg - block array of structured entries
 #
 # Use a block array when you need an ordered list of records with the
-# same shape. In Go this maps to []User; in Zig you walk the items
-# slice and build a []User yourself.
+# same shape. Native typed loading maps it to `[]User` in Go and Zig.
 #
-# Entries use `{ ... }` braces. Commas between entries are optional
-# (matching the one-way-to-do-it philosophy: either all commas or no
-# commas is fine, mixed is fine, linters may have opinions).
+# Entries use `{ ... }` braces. Commas between object entries are accepted but
+# optional; the canonical formatter emits one consistent form.
 users [
   {
     name: "admin"
@@ -25,7 +23,7 @@ users [
     sudo: false
     shell: "/usr/bin/nologin"
     groups: ["users"]
-    # null explicitly unsets a value that an import might have set
+    # null explicitly overrides a value that an import might have set
     home: null
   }
 ]

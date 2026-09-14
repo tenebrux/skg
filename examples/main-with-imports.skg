@@ -23,6 +23,6 @@ theme {
 # Colonless scalar array shorthand - equivalent to:
 #     hostnames: ["alpha", "beta", "gamma"]
 hostnames: ["alpha", "beta", "gamma"]
-# Null explicitly unsets an inherited value. Useful when an imported
-# file set something you don't want in this deployment.
+# Null overrides an inherited value with an explicit null. Use @delete when the
+# key must be absent from the materialized configuration.
 cache_ttl: null

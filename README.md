@@ -29,13 +29,13 @@ motd: """Welcome.
 No warranty expressed or implied.
 You get what you get."""
 
-cache_ttl: null    # explicitly unset an inherited value
+cache_ttl: null    # override an inherited value with explicit null
 ```
 
 ## Why SKG
 
-- **One way to write each construct.** No shortcuts, no alternatives,
-  no implicit behavior.
+- **Small grammar and one canonical output.** The few accepted conveniences,
+  such as colonless arrays, normalize to the same formatter output.
 - **Structured data, nothing more.** No variables, templates,
   expressions, or computation. Configuration is data, not a program.
 - **Your struct is the schema.** The parser hands back an AST; your
@@ -45,9 +45,9 @@ cache_ttl: null    # explicitly unset an inherited value
 - **Typed scalars, nullable, hierarchical.** `int`, `float`, `bool`,
   `string`, `null`, arrays, blocks, block arrays. Triple-quoted
   multiline strings. Imports with last-wins merge.
-- **Two first-party parsers, one conformance suite.** Shared fixtures
-  in [testdata/](testdata/) are the contract between the Zig and Go
-  implementations.
+- **Two first-party parsers, one frozen contract.** Versioned shared fixtures
+  in [testdata/](testdata/) bind Zig and Go to the same syntax, resolution,
+  native decoding, diagnostics, and canonical output.
 
 Created for [dusk](https://github.com/tenebrux/dusk) but standalone -
 nothing in the parser depends on dusk.
@@ -121,7 +121,7 @@ config patterns:
 
 ## Build
 
-### Zig (0.15+)
+### Zig (0.15.2)
 
 ```sh
 zig build       # build the module
@@ -139,6 +139,12 @@ go test ./...
 ## Documentation
 
 - **[docs/spec.md](docs/spec.md)** - full language specification
+- **[docs/compatibility.md](docs/compatibility.md)** - the V1 compatibility,
+  toolchain, platform, and evolution policy
+- **[docs/conformance.md](docs/conformance.md)** - shared parser, resolver, and
+  porting contract
+- **[docs/native-types.md](docs/native-types.md)** - native struct mappings,
+  ownership, conversion, and validation rules
 - **[docs/tree-sitter.md](docs/tree-sitter.md)** - tree-sitter grammar
   for Neovim, Helix, Zed, Emacs
 - **[docs/vscode.md](docs/vscode.md)** - VS Code extension
@@ -160,6 +166,10 @@ skg/
 Each language directory is a self-contained implementation with its
 own build tooling. Both are validated against the same `testdata/`
 fixtures on every test run.
+
+The package is currently a V1 release candidate while package metadata remains
+`0.x`. Starting at package `v1.0.0`, the [V1 compatibility
+policy](docs/compatibility.md) reserves breaking changes for V2.
 
 ## License
 
