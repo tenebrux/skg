@@ -1,5 +1,6 @@
 {
-  "version": 1,
+  "contract_version": 1,
+  "language_version": "1.0",
   "cases": [
     {"name":"u8-zero","profile":"u8","source":"value: 0","expected":0},
     {"name":"u8-max","profile":"u8","source":"value: 255","expected":255},

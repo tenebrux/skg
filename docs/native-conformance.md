@@ -70,8 +70,9 @@ does not prescribe precedence between independent failures.
 ## Shared fixture format
 
 [`testdata/native/cases.json`](../testdata/native/cases.json) is separate from the
-parser fixtures. Its top-level `version: 1` versions this fixture format, not
-the language or a package release. `cases` is a nonempty array. Each case has:
+parser fixtures. Its top-level `contract_version: 1` versions this fixture
+format, while `language_version: "1.0"` binds it to the SKG language contract.
+`cases` is a nonempty array. Each case has:
 
 - A unique, nonempty `name` and a known `profile`.
 - A required `source` string, which may be empty. It always uses the byte API.

@@ -11,6 +11,7 @@ implementation run it.
 
 ```
 error-codes.json                 closed registry of stable parse-error codes
+contracts/v1.0.json             immutable hashes for every V1.0 normative fixture
 native/cases.json                shared native target profiles and conversion outcomes
 resolution/cases.json            shared file resolution, root policy, and aggregate budgets
 valid/<name>.skg                 flat fixture: parsed from BYTES, no filesystem access
@@ -27,6 +28,10 @@ They run through both typed loaders, with no capability-based skips.
 Resolution fixtures build isolated temporary file trees and run through each
 package's option-bearing file API. They pin exact budget boundaries, stable
 limit codes, rooted containment, and resolved merge output.
+
+Every normative fixture belongs to exactly one version manifest. Run
+`node tools/check-contract.mjs` to verify that locked files are byte-identical
+and that new fixtures have an explicit V1.x assignment.
 
 Flat versus directory is not cosmetic. A flat fixture must go through the byte
 API and the parser must not open a file; a directory fixture goes through the

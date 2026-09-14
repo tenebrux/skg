@@ -354,6 +354,27 @@ than ignore it, so no fixture can silently regress to substring matching.
 
 ---
 
+### 5.5 Frozen V1 contract manifests
+
+Every normative file in the parser, diagnostic, formatter, resolver, and native
+corpora is assigned once to a manifest in `testdata/contracts/`. The V1.0
+manifest records a SHA-256 digest for each file that shipped as part of the V1.0
+contract. `node tools/check-contract.mjs` fails when a locked file changes or is
+removed, when two manifests claim the same file, or when a new normative file
+has no version assignment.
+
+This makes V1 evolution additive. A V1.1 feature adds new fixtures and assigns
+only those new files to `v1.1.json`; it does not rewrite `v1.0.json`. Generate
+the candidate manifest on standard output with:
+
+```sh
+node tools/check-contract.mjs --generate 1.1
+```
+
+Review and add that output as `testdata/contracts/v1.1.json`. Changes to an
+existing V1.0 fixture represent a compatibility-contract change and fail the
+gate visibly.
+
 ## 6. Capability manifest
 
 Each implementation declares what it supports in a manifest beside its source:

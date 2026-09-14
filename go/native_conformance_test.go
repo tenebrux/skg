@@ -49,7 +49,9 @@ func TestNativeConformance(t *testing.T) {
 	}
 	// encoding/json accepts case-insensitive names and null for plain booleans.
 	// Check the closed fixture objects explicitly so such mistakes fail the gate.
-	root := nativeFixtureObject(t, data, []string{"version", "cases"}, []string{"version", "cases"})
+	root := nativeFixtureObject(t, data,
+		[]string{"contract_version", "language_version", "cases"},
+		[]string{"contract_version", "language_version", "cases"})
 	var rawCases []json.RawMessage
 	if err := json.Unmarshal(root["cases"], &rawCases); err != nil {
 		t.Fatal(err)
@@ -74,8 +76,9 @@ func TestNativeConformance(t *testing.T) {
 		}
 	}
 	var suite struct {
-		Version int             `json:"version"`
-		Cases   []nativeFixture `json:"cases"`
+		ContractVersion int             `json:"contract_version"`
+		LanguageVersion string          `json:"language_version"`
+		Cases           []nativeFixture `json:"cases"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
@@ -85,7 +88,7 @@ func TestNativeConformance(t *testing.T) {
 	if err := decoder.Decode(new(any)); err != io.EOF {
 		t.Fatal("trailing JSON", err)
 	}
-	if suite.Version != 1 || len(suite.Cases) == 0 {
+	if suite.ContractVersion != 1 || suite.LanguageVersion != "1.0" || len(suite.Cases) == 0 {
 		t.Fatal("unsupported or empty native suite")
 	}
 	names := make(map[string]bool)
@@ -129,7 +132,7 @@ func TestNativeConformance(t *testing.T) {
 			}
 		})
 	}
-	t.Logf("native contract v%d: %d cases, none skipped", suite.Version, len(suite.Cases))
+	t.Logf("native contract v%d for SKG %s: %d cases, none skipped", suite.ContractVersion, suite.LanguageVersion, len(suite.Cases))
 }
 
 func nativeFixtureObject(t *testing.T, data []byte, allowed, required []string) map[string]json.RawMessage {

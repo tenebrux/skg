@@ -30,10 +30,11 @@ test "shared native conformance profiles" {
     const allocator = arena.allocator();
     const data = try std.fs.cwd().readFileAlloc(allocator, "testdata/native/cases.json", 1024 * 1024);
     const raw = try std.json.parseFromSlice(std.json.Value, allocator, data, .{});
-    const Suite = struct { version: u32, cases: []Fixture };
+    const Suite = struct { contract_version: u32, language_version: []const u8, cases: []Fixture };
     // Closed typed structures reject misspelled properties and profile names.
     const suite = (try std.json.parseFromValue(Suite, allocator, raw.value, .{})).value;
-    try testing.expectEqual(@as(u32, 1), suite.version);
+    try testing.expectEqual(@as(u32, 1), suite.contract_version);
+    try testing.expectEqualStrings("1.0", suite.language_version);
     try testing.expect(suite.cases.len > 0);
     var names = std.StringHashMap(void).init(allocator);
     for (suite.cases, raw.value.object.get("cases").?.array.items) |fixture, original| {
@@ -47,7 +48,7 @@ test "shared native conformance profiles" {
             return err;
         };
     }
-    std.debug.print("native contract v{d}: {d} cases, none skipped\n", .{ suite.version, suite.cases.len });
+    std.debug.print("native contract v{d} for SKG {s}: {d} cases, none skipped\n", .{ suite.contract_version, suite.language_version, suite.cases.len });
 }
 
 fn runFixture(fixture: Fixture) !void {
