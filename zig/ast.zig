@@ -21,6 +21,7 @@ pub const ErrorCode = enum {
     UNEXPECTED_CHAR,
     UNTERMINATED_STRING,
     INVALID_ESCAPE,
+    INVALID_UTF8,
 
     // Syntax.
     EXPECTED_COLON,
@@ -29,6 +30,7 @@ pub const ErrorCode = enum {
     EXPECTED_STRING,
     EXPECTED_IDENT,
     EXPECTED_VALUE,
+    EXPECTED_COMMA,
     EXPECTED_NODE_BODY,
     UNEXPECTED_TOKEN,
     UNTERMINATED_BLOCK,

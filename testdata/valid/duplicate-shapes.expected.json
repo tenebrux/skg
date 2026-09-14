@@ -1,0 +1,21 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [],
+  "children": [
+    {"type":"field","key":"scalar","value":{"type":"int","data":2}},
+    {"type":"block","name":"object","children":[
+      {"type":"field","key":"inherited","value":{"type":"int","data":1}},
+      {"type":"field","key":"changed","value":{"type":"int","data":2}},
+      {"type":"field","key":"added","value":{"type":"int","data":3}}
+    ]},
+    {"type":"block","name":"replace_kind","replace":true,"children":[
+      {"type":"field","key":"fresh","value":{"type":"bool","data":true}}
+    ]},
+    {"type":"field","key":"list","value":{"type":"array","element_type":"int","data":[{"type":"int","data":2}]}},
+    {"type":"block_array","name":"records","items":[[
+      {"type":"field","key":"id","value":{"type":"int","data":2}}
+    ]]},
+    {"type":"field","key":"same","value":{"type":"string","data":"quoted"}}
+  ]
+}

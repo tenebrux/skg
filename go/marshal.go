@@ -5,6 +5,7 @@ import (
 	"math"
 	"reflect"
 	"sort"
+	"unicode/utf8"
 )
 
 // Marshal encodes a Go struct into SKG text using `skg:"name"` struct tags.
@@ -90,6 +91,9 @@ func encodeMap(rv reflect.Value, depth int) ([]Node, error) {
 }
 
 func encodeNode(key string, rv reflect.Value, depth int) (Node, error) {
+	if !utf8.ValidString(key) {
+		return Node{}, fmt.Errorf("key is not valid UTF-8")
+	}
 	value, err := encodeValue(rv, depth)
 	if err != nil {
 		return Node{}, err
@@ -141,6 +145,9 @@ func encodeValue(rv reflect.Value, depth int) (Value, error) {
 	case reflect.Invalid:
 		return Value{Type: TypeNull}, nil
 	case reflect.String:
+		if !utf8.ValidString(rv.String()) {
+			return Value{}, fmt.Errorf("string is not valid UTF-8")
+		}
 		return Value{Type: TypeString, Str: rv.String()}, nil
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return Value{Type: TypeInt, Int: rv.Int()}, nil

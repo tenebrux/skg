@@ -1,0 +1,10 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": ["base.skg", "unversioned.skg"],
+  "children": [
+    {"type":"field","key":"from_explicit","value":{"type":"bool","data":true}},
+    {"type":"field","key":"from_unversioned","value":{"type":"bool","data":true}},
+    {"type":"field","key":"local","value":{"type":"bool","data":true}}
+  ]
+}

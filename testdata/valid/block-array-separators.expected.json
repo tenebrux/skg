@@ -1,0 +1,11 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [],
+  "children": [
+    {"type":"block_array","name":"objects","items":[null,null,[{"type":"field","key":"id","value":{"type":"int","data":1}}],null,[{"type":"field","key":"id","value":{"type":"int","data":2}}]]},
+    {"type":"block_array","name":"colon_objects","items":[null,[{"type":"field","key":"id","value":{"type":"int","data":3}}],null]},
+    {"type":"field","key":"values","value":{"type":"array","element_type":"null","data":[{"type":"null"},{"type":"null"}]}},
+    {"type":"field","key":"imports_are_not_here","value":{"type":"array","element_type":"string","data":[{"type":"string","data":"a"},{"type":"string","data":"b"}]}}
+  ]
+}

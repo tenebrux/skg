@@ -62,10 +62,11 @@ theme {
 }
 ```
 
-Files must be UTF-8. No byte-order mark: a leading `EF BB BF` is rejected as
-`UNEXPECTED_CHAR` at 1:1, because no token can start with those bytes. Beyond
-that the parser is byte-transparent - it does not validate that string contents
-are well-formed UTF-8, and passes the bytes through unchanged. Columns in
+Files must be well-formed UTF-8, including strings, quoted keys, comments and
+import paths. Invalid encoding is `INVALID_UTF8` at the first invalid byte. No
+byte-order mark: a leading `EF BB BF` is valid UTF-8 but rejected separately as
+`UNEXPECTED_CHAR` at 1:1, because no token can start with it. Keys are still
+compared by their encoded UTF-8 bytes without Unicode normalization. Columns in
 diagnostics count bytes, not code points.
 
 Line endings are LF (`\n`). The parser treats `\r` as whitespace - CRLF files will parse correctly, and line separators are normalized by the formatter. Carriage returns inside
@@ -128,7 +129,12 @@ theme {
 }
 ```
 
-If a block or field appears twice in the same file, the second occurrence overwrites the first. This is not an error - it is the user's responsibility.
+Repeated keys are not an error. One namespace covers fields, blocks, block
+arrays and operations, and the first occurrence determines the key's position.
+Two objects merge their children recursively; every other collision takes the
+later value wholesale. A scalar/null/deletion followed by an object starts a
+fresh object and does not resurrect older children. Bare and quoted spellings
+of the same decoded key collide. These are the same rules used across imports.
 
 ---
 
@@ -142,7 +148,8 @@ Single import:
 import "./theme.skg"
 ```
 
-Multiple imports (ordered, top to bottom):
+Multiple imports (ordered, top to bottom) use exactly one comma between paths
+and may have one trailing comma. Leading, repeated and omitted commas are invalid:
 
 ```
 import [
@@ -267,6 +274,12 @@ A trailing zero after the decimal is required. `13` is an int. `13.0` is a
 float. `13.` is neither - it is `INVALID_FLOAT`, because there is one way to
 write each value and `13.0` is it.
 
+Scientific notation, a leading `+`, leading-dot decimals, hexadecimal/binary
+integers, numeric separators and unit suffixes are not part of V1. Write a
+decimal integer or a decimal-point float directly: `1000`, `0.5`, and `1.0`.
+`-0` is accepted as integer zero and canonicalizes to `0`; `-0.0` preserves its
+IEEE-754 sign. Extra fractional zeroes are accepted and canonicalized away.
+
 Neither ints nor floats may carry a redundant leading zero: the integer part is
 `0` or begins with a non-zero digit. `007` is `INVALID_INT` and `00.5` is
 `INVALID_FLOAT`; write `7` and `0.5`.
@@ -340,7 +353,10 @@ In this example, "line two" is preceded by two spaces. There is no automatic ind
 
 ### Array
 
-An ordered list of values enclosed in `[ ]`, comma-separated. All non-null elements must be the same type. Null elements are allowed at any position. Trailing comma is allowed.
+An ordered list of values enclosed in `[ ]`. Scalar, nested-array and all-null
+lists use exactly one comma between adjacent values and may have one trailing
+comma. Leading, repeated and omitted commas are invalid. All non-null elements
+must be the same type. Null elements are allowed at any position.
 
 ```
 bindings: ["super+1", "super+2", "super+3"]
@@ -449,7 +465,12 @@ users [
 ]
 ```
 
-Each `{ }` entry in the array is an independent block with its own fields and nested blocks. Entries are ordered - position is significant. Commas between entries are optional.
+Each `{ }` entry in the array is an independent block with its own fields and
+nested blocks. Entries are ordered - position is significant. Object arrays are
+the one collection whose commas are optional between entries, including null
+entries. When a comma is written, only one is allowed. A single trailing comma
+is allowed; leading and repeated commas are invalid. This permits the normal SKG
+block layout while keeping scalar arrays unambiguous.
 
 Block arrays are the way to represent ordered collections of structured items - panels, zones, users, rules, etc.
 
@@ -525,9 +546,26 @@ true: 1           # invalid - reserved literal, never an identifier
 skg_version: "1.0"
 ```
 
-Parsers must reject files declaring an `skg_version` newer than the parser supports. A file declaring `skg_version: "1.1"` will fail to parse on a parser that only supports `1.0`. This ensures files don't silently lose meaning when parsed by an older tool.
+Parsers accept only versions they implement. A V1 parser supporting through
+`1.N` accepts declared `1.0` through `1.N`; another major and a later minor are
+`UNSUPPORTED_SKG_VERSION`. This V1.0 parser therefore rejects `0.9`, `1.1` and
+`2.0`. A well-formed declaration is not proof that a corresponding spec exists.
 
-If omitted, the parser accepts the file without a version check.
+If omitted, the document uses V1.0 language semantics. This default is permanent
+within V1: new V1.x syntax must require the minor version that introduced it,
+so a future parser cannot reinterpret an unversioned or `1.0` document using a
+later grammar. The AST keeps an omitted declaration as null; tools do not invent
+a header merely because they apply V1.0 semantics.
+
+Each imported file declares (or omits) its own language version. Mixed explicit
+`1.0` and unversioned V1.0 files are valid, and an import graph is rejected if
+any file declares a version the parser does not support. An imported header does
+not replace or propagate into the entry file's AST. An importer does not lower
+or raise a dependency's declared version.
+
+The language version, native package/tool release, and application-owned
+`schema_version` are independent. Adding another native language package for
+the same SKG grammar does not change `skg_version`.
 
 ---
 

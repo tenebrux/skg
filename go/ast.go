@@ -160,6 +160,7 @@ const (
 	CodeUnexpectedChar     ErrorCode = "UNEXPECTED_CHAR"
 	CodeUnterminatedString ErrorCode = "UNTERMINATED_STRING"
 	CodeInvalidEscape      ErrorCode = "INVALID_ESCAPE"
+	CodeInvalidUTF8        ErrorCode = "INVALID_UTF8"
 
 	// Syntax.
 	CodeExpectedColon            ErrorCode = "EXPECTED_COLON"
@@ -168,6 +169,7 @@ const (
 	CodeExpectedString           ErrorCode = "EXPECTED_STRING"
 	CodeExpectedIdent            ErrorCode = "EXPECTED_IDENT"
 	CodeExpectedValue            ErrorCode = "EXPECTED_VALUE"
+	CodeExpectedComma            ErrorCode = "EXPECTED_COMMA"
 	CodeExpectedNodeBody         ErrorCode = "EXPECTED_NODE_BODY"
 	CodeUnexpectedToken          ErrorCode = "UNEXPECTED_TOKEN"
 	CodeUnterminatedBlock        ErrorCode = "UNTERMINATED_BLOCK"
@@ -211,12 +213,14 @@ var ErrorCodes = []ErrorCode{
 	CodeUnexpectedChar,
 	CodeUnterminatedString,
 	CodeInvalidEscape,
+	CodeInvalidUTF8,
 	CodeExpectedColon,
 	CodeExpectedRbrace,
 	CodeExpectedRbracket,
 	CodeExpectedString,
 	CodeExpectedIdent,
 	CodeExpectedValue,
+	CodeExpectedComma,
 	CodeExpectedNodeBody,
 	CodeUnexpectedToken,
 	CodeUnterminatedBlock,
@@ -225,6 +229,8 @@ var ErrorCodes = []ErrorCode{
 	CodeMixedArrayTypes,
 	CodeInvalidInt,
 	CodeInvalidFloat,
+	CodeUnknownOverlayOperation,
+	CodeExpectedReplacementBlock,
 	CodeDuplicateSKGVersion,
 	CodeDuplicateSchemaVersion,
 	CodeMalformedSKGVersion,

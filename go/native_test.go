@@ -119,11 +119,18 @@ func TestNativeCollectionsAndBytes(t *testing.T) {
 	type Bytes struct {
 		Text []byte `skg:"text"`
 	}
-	for _, src := range [][]byte{[]byte("text: [65, 255]"), append(append([]byte("text: \""), 65, 255), '"')} {
+	for _, src := range [][]byte{[]byte("text: [65, 255]")} {
 		v, err := DecodeSource[Bytes](src, "", DecodeOptions{})
 		if err != nil || !reflect.DeepEqual(v.Text, []byte{65, 255}) {
 			t.Fatalf("%v %v", v, err)
 		}
+	}
+	invalid := append(append([]byte("text: \""), 65, 255), '"')
+	_, err = DecodeSource[Bytes](invalid, "invalid-utf8.skg", DecodeOptions{})
+	d := expectNativeError(t, err, NativeParseError, "")
+	var parse *ParseError
+	if !errors.As(d, &parse) || parse.Diag.Code != CodeInvalidUTF8 || parse.Diag.Col != 9 {
+		t.Fatal(err)
 	}
 	type Fixed struct {
 		Items [2]uint8 `skg:"items"`

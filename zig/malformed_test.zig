@@ -136,7 +136,7 @@ test "reject skg_version newer than supported" {
     var failure = try expectParseFailure("skg_version: \"9.9\"\n");
     defer failure.deinit();
     const diag = failure.diagnostic.?;
-    try testing.expectEqualStrings("skg_version is newer than this parser supports", diag.message);
+    try testing.expectEqualStrings("skg_version is not supported by this parser", diag.message);
 }
 
 // ─── Nesting depth limit ─────────────────────────────────────────────────────
@@ -191,4 +191,14 @@ test "successful parse has no diagnostic" {
     defer result.deinit();
     try testing.expect(result.file != null);
     try testing.expect(result.diagnostic == null);
+}
+
+test "invalid UTF-8 reports the first bad byte" {
+    const source = [_]u8{ 'n', 'a', 'm', 'e', ':', ' ', '"', 'o', 'k', '"', '\n', '#', ' ', 0xff };
+    var diag: ?skg_root.Diagnostic = null;
+    try testing.expectError(error.InvalidUtf8, parser.parseSource(testing.allocator, &source, "encoding.skg", &diag));
+    try testing.expectEqual(skg_root.ast.ErrorCode.INVALID_UTF8, diag.?.code);
+    try testing.expectEqualStrings("encoding.skg", diag.?.path);
+    try testing.expectEqual(@as(u32, 2), diag.?.line);
+    try testing.expectEqual(@as(u32, 3), diag.?.col);
 }

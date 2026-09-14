@@ -55,11 +55,13 @@ position of the **opening** delimiter that would exceed the cap - so the 129th
 The size cap applies to the **byte API too**, not only when reading from disk.
 A caller that hands the parser an 11 MiB buffer must get `FILE_TOO_LARGE`.
 
-Supported language version: `1.0`. A well-formed `skg_version` newer than the
-implementation supports is `UNSUPPORTED_SKG_VERSION`; anything that is not a
-`MAJOR.MINOR` pair of decimal integers is `MALFORMED_SKG_VERSION`. Parse the two
-components as wide unsigned integers - `"300.0"` is well formed and too new, not
-malformed.
+Supported language version: `1.0`. A well-formed `skg_version` outside the
+implementation's supported versions is `UNSUPPORTED_SKG_VERSION`; anything
+that is not a `MAJOR.MINOR` pair of decimal integers is
+`MALFORMED_SKG_VERSION`. Parse the components as wide unsigned integers:
+`"300.0"` is well formed and unsupported, not malformed. This parser accepts
+exactly `1.0`; unversioned files use 1.0 semantics while retaining a null header.
+Each file in an import graph is checked independently.
 
 Numeric range is part of the contract, not an implementation detail. An integer
 literal outside the signed 64-bit range is `INVALID_INT`; a float literal whose
@@ -103,6 +105,7 @@ set against it. A code cannot be used in a fixture until it is registered.
 | `UNEXPECTED_CHAR`     | A byte appeared where no token can start (including a `-` not followed by a digit). |
 | `UNTERMINATED_STRING` | A `"..."` hit a raw newline or end of input; a `"""..."""` hit end of input.        |
 | `INVALID_ESCAPE`      | A backslash escape other than `\"`, `\\`, `\n`, `\t` inside a quoted string.        |
+| `INVALID_UTF8`        | The first byte that cannot participate in a well-formed UTF-8 source.       |
 
 ### Syntax
 
@@ -113,15 +116,16 @@ set against it. A code cannot be used in a fixture until it is registered.
 | `EXPECTED_RBRACKET`        | A `]` was required and something else was found.                            |
 | `EXPECTED_STRING`          | A quoted string was required (`skg_version`, `schema_version`, import path). |
 | `EXPECTED_IDENT`           | A bare identifier or ordinary quoted key was required.                    |
-| `EXPECTED_VALUE`           | A field value was required and the token cannot start one.                  |
+| `EXPECTED_VALUE`           | A field or array value was required and the token cannot start one.         |
+| `EXPECTED_COMMA`           | A comma was required between scalar array values or import paths.           |
 | `EXPECTED_NODE_BODY`       | A key was not followed by `:`, `{` or `[`.                          |
 | `UNEXPECTED_TOKEN`         | A required token kind has no more specific code.                            |
 | `UNTERMINATED_BLOCK`       | A `{` block, or a block inside a block array, hit end of input.             |
 | `UNTERMINATED_BLOCK_ARRAY` | A block array hit end of input before its `]`.                              |
 | `UNTERMINATED_ARRAY`       | A scalar array hit end of input before its `]`.                             |
 | `MIXED_ARRAY_TYPES`        | Non-null array elements did not all share one type tag, **or** a block array held a scalar / a scalar array held a block. |
-| `INVALID_INT`              | An integer literal does not fit a signed 64-bit integer, or carries a redundant leading zero. |
-| `INVALID_FLOAT`            | A float literal has no digit after its `.`, carries a redundant leading zero, or is too large for a 64-bit float. |
+| `INVALID_INT`              | An integer is out of i64 range, has a leading zero, or carries an identifier/underscore suffix. |
+| `INVALID_FLOAT`            | A float is malformed/out of binary64 range, or uses exponent/leading-dot/suffix syntax. |
 
 `EXPECTED_RBRACE` and `EXPECTED_RBRACKET` are registered but unreachable in both
 reference parsers, so no fixture asserts them. They exist because a differently
@@ -158,7 +162,7 @@ bodies do. Unknown ordinary identifiers remain data keys.
 | `DUPLICATE_SKG_VERSION`    | `skg_version` declared more than once.                             |
 | `DUPLICATE_SCHEMA_VERSION` | `schema_version` declared more than once.                          |
 | `MALFORMED_SKG_VERSION`    | `skg_version` is not a `MAJOR.MINOR` pair of decimal integers.     |
-| `UNSUPPORTED_SKG_VERSION`  | `skg_version` is well formed but newer than the parser implements. |
+| `UNSUPPORTED_SKG_VERSION`  | `skg_version` is well formed but outside the versions implemented. |
 | `UNTERMINATED_IMPORT_LIST` | A bracketed `import [` list hit end of input before its `]`.       |
 | `EXPECTED_IMPORT_PATH`     | `import` was not followed by a string or `[`.                      |
 | `ABSOLUTE_IMPORT_PATH`     | An import path was absolute. See [§9](#absolute-import-paths).      |
@@ -307,7 +311,7 @@ Value objects:
 | -------- | ----------------------- | ---------------------------------- |
 | `string` | JSON string             |                                    |
 | `int`    | JSON number             | Compared as a 64-bit integer.      |
-| `float`  | JSON number             | Compared with 1e-9 absolute tolerance. |
+| `float`  | JSON number             | Parsed as binary64 and compared bit-for-bit. |
 | `bool`   | JSON boolean            |                                    |
 | `null`   | **must be absent**      |                                    |
 | `array`  | array of value objects  | `element_type` **required**, compared with the parsed tag. |
@@ -563,7 +567,8 @@ key or the block/block-array name.
 - A new key is appended.
 
 The same function deduplicates repeated keys *within* one file, so
-`duplicate-lastwins.skg` and import last-wins are the same rule.
+`duplicate-lastwins.skg`, `duplicate-shapes.skg` and import last-wins are the
+same rule. Bare and quoted spellings collide after decoding.
 
 ### Absolute import paths
 
@@ -613,9 +618,14 @@ Work through this in order. Each step is checkable against the suite.
       A number is a float only when it has a `.`; `13` is an int, `13.0` is a float.
       `-` starts a number only when a digit follows. Reject `13.` and a redundant
       leading zero (`007`, `00.5`), reported at the first byte of the literal.
+      Reject exponent, plus, leading-dot, base-prefix, underscore and unit-suffix
+      spellings. Preserve the sign bit of floating-point negative zero.
 - [ ] **Escapes.** Exactly `\"`, `\\`, `\n`, `\t` inside `"..."`. Anything else is
       `INVALID_ESCAPE`. `"""..."""` does **no** escape processing - the content is
       literal, indentation included.
+- [ ] **Encoding.** Validate the complete source as UTF-8 before lexing and
+      report `INVALID_UTF8` at the first bad byte. Reject a UTF-8 BOM as
+      `UNEXPECTED_CHAR`. Count columns in bytes and never normalize keys.
 - [ ] **Parser.** Header directives (`skg_version`, `import`, `schema_version`),
       fields, blocks, block arrays. Accept ordinary double-quoted keys with decoded
       byte equality; reject triple-quoted keys. A colonless key followed by `[` whose
@@ -628,15 +638,17 @@ Work through this in order. Each step is checkable against the suite.
       differ. Null may occupy any array position; all-null arrays have
       element type `null`. Object and scalar entries cannot mix - the kind is
       chosen from the first non-null element and fixed thereafter. A colonless `[]` is an empty **block array**; an empty
-      scalar array is `key: []`, element type `string`. Trailing commas are
-      allowed; commas between block array entries are optional.
+      scalar array is `key: []`, element type `string`. Scalar/all-null arrays
+      require one comma between values and permit one trailing comma. Object/null
+      arrays make separators optional; leading or repeated commas are invalid.
 - [ ] **Duplicates.** Within a file, a repeated key merges under the rules in
       [§9](#merge-semantics) - not an error.
 - [ ] **Limits.** Depth 128, size 10 MiB, both enforced in the parser and both
       applied to the byte API. Numbers within 64-bit range, not saturated.
-- [ ] **Version rules.** Reject a `skg_version` newer than you support. Reject a
-      duplicate `skg_version` or `schema_version`. Record `schema_version` without
-      interpreting it.
+- [ ] **Version rules.** Treat omission as V1.0 semantics without inventing an
+      AST header. Reject any declared `skg_version` you do not implement. Reject
+      a duplicate `skg_version` or `schema_version`. Record `schema_version`
+      without interpreting it. Check every imported file independently.
 - [ ] **Diagnostics.** Code, path, 1-based line, 1-based byte column, message.
       Codes from [§4](#4-error-code-registry) only.
 - [ ] **Byte API that never opens a file.**

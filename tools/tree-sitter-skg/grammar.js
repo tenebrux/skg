@@ -19,7 +19,7 @@ module.exports = grammar({
 
   word: $ => $.identifier,
 
-  conflicts: $ => [[$.block_array, $._value], [$.object, $.block_array_item]],
+  conflicts: $ => [[$.block_array, $._value], [$.object, $.block_array_item], [$.object_array, $.array]],
 
   rules: {
     // A document is zero or more top-level statements.
@@ -69,7 +69,11 @@ module.exports = grammar({
     block_array: $ => prec(2, seq(
       field('name', $._key),
       '[',
-      repeat(choice($.block_array_item, seq($.null, optional(',')))),
+      optional(seq(
+        repeat(seq($.null, optional(','))),
+        $.block_array_item,
+        repeat(choice($.block_array_item, seq($.null, optional(',')))),
+      )),
       ']',
     )),
 
@@ -104,6 +108,7 @@ module.exports = grammar({
       $.boolean,
       $.null,
       $.array,
+      $.object_array,
       $.object,
     ),
 
@@ -121,6 +126,16 @@ module.exports = grammar({
       ),
       ']',
     ),
+
+    // Object arrays use SKG block separators: commas are optional. Require at
+    // least one object so an all-null list remains an ordinary value array.
+    object_array: $ => prec(2, seq(
+      '[',
+      repeat(seq($.null, optional(','))),
+      $.block_array_item,
+      repeat(choice($.block_array_item, seq($.null, optional(',')))),
+      ']',
+    )),
 
     // Triple-quoted multiline string. No escape processing per spec -
     // content is taken literally between the delimiters. Higher precedence

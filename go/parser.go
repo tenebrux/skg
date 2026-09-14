@@ -3,6 +3,7 @@ package skg
 import (
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // MaxNestingDepth bounds how deeply blocks, block arrays, and arrays may nest.
@@ -129,7 +130,7 @@ func checkVersion(v string) (wellFormed, supported bool) {
 	if err != nil {
 		return false, false
 	}
-	if major > supportedMajorVersion {
+	if major != supportedMajorVersion {
 		return true, false
 	}
 	if major == supportedMajorVersion && minor > supportedMinorVersion {
@@ -201,7 +202,7 @@ func (p *parser) parseFile() (*File, error) {
 					return nil, &ParseError{Diag: Diagnostic{Code: CodeMalformedSKGVersion, Path: p.path, Line: valTok.line, Col: valTok.col, Message: "malformed skg_version, expected \"major.minor\" (e.g. \"1.0\")"}}
 				}
 				if !supported {
-					return nil, &ParseError{Diag: Diagnostic{Code: CodeUnsupportedSKGVersion, Path: p.path, Line: valTok.line, Col: valTok.col, Message: "skg_version is newer than this parser supports (max \"" + itoa(supportedMajorVersion) + "." + itoa(supportedMinorVersion) + "\")"}}
+					return nil, &ParseError{Diag: Diagnostic{Code: CodeUnsupportedSKGVersion, Path: p.path, Line: valTok.line, Col: valTok.col, Message: "skg_version is not supported by this parser"}}
 				}
 				skgVersion = &s
 				continue
@@ -247,6 +248,7 @@ func (p *parser) parseImports(list *[]string, positions *[]Position) error {
 		if _, err := p.consume(); err != nil {
 			return err
 		}
+		needPath := true
 		for {
 			nt, err := p.peek()
 			if err != nil {
@@ -256,12 +258,16 @@ func (p *parser) parseImports(list *[]string, positions *[]Position) error {
 				p.consume()
 				return nil
 			}
-			if nt.tag == tokComma {
-				p.consume()
-				continue
-			}
 			if nt.tag == tokEOF {
 				return &ParseError{Diag: Diagnostic{Code: CodeUnterminatedImportList, Path: p.path, Line: nt.line, Col: nt.col, Message: "unterminated import list, expected ']'"}}
+			}
+			if !needPath {
+				if nt.tag != tokComma {
+					return &ParseError{Diag: Diagnostic{Code: CodeExpectedComma, Path: p.path, Line: nt.line, Col: nt.col, Message: "expected ',' or ']' in import list"}}
+				}
+				p.consume()
+				needPath = true
+				continue
 			}
 			pathTok, err := p.expect(tokString)
 			if err != nil {
@@ -270,6 +276,7 @@ func (p *parser) parseImports(list *[]string, positions *[]Position) error {
 			if err := p.appendImport(list, positions, pathTok); err != nil {
 				return err
 			}
+			needPath = false
 		}
 	}
 	return &ParseError{Diag: Diagnostic{Code: CodeExpectedImportPath, Path: p.path, Line: t.line, Col: t.col, Message: "expected import path string or '['"}}
@@ -520,6 +527,8 @@ func (p *parser) parseValue() (Value, error) {
 func (p *parser) parseArray(colonless bool) (Value, error) {
 	var items []Value
 	var elemType *ValueType
+	needValue := true
+	var firstMissingSeparator *token
 
 	for {
 		t, err := p.peek()
@@ -530,8 +539,9 @@ func (p *parser) parseArray(colonless bool) (Value, error) {
 			p.consume()
 			break
 		}
-		if t.tag == tokComma {
+		if !needValue && t.tag == tokComma {
 			p.consume()
+			needValue = true
 			continue
 		}
 		if t.tag == tokEOF {
@@ -540,6 +550,18 @@ func (p *parser) parseArray(colonless bool) (Value, error) {
 				code = CodeUnterminatedBlockArray
 			}
 			return Value{}, &ParseError{Diag: Diagnostic{Code: code, Path: p.path, Line: t.line, Col: t.col, Message: "unterminated array, expected ']'"}}
+		}
+		if needValue && t.tag == tokComma {
+			return Value{}, &ParseError{Diag: Diagnostic{Code: CodeExpectedValue, Path: p.path, Line: t.line, Col: t.col, Message: "expected an array value after ','"}}
+		}
+		if !needValue {
+			if elemType != nil && *elemType != TypeNull && *elemType != TypeObject {
+				return Value{}, &ParseError{Diag: Diagnostic{Code: CodeExpectedComma, Path: p.path, Line: t.line, Col: t.col, Message: "expected ',' or ']' in value array"}}
+			}
+			if firstMissingSeparator == nil {
+				missing := t
+				firstMissingSeparator = &missing
+			}
 		}
 		val, err := p.parseValue()
 		if err != nil {
@@ -554,6 +576,15 @@ func (p *parser) parseArray(colonless bool) (Value, error) {
 			elemType = &et
 		}
 		items = append(items, val)
+		needValue = false
+		if elemType != nil && *elemType == TypeObject {
+			firstMissingSeparator = nil
+		} else if elemType != nil && *elemType != TypeNull && firstMissingSeparator != nil {
+			return Value{}, &ParseError{Diag: Diagnostic{Code: CodeExpectedComma, Path: p.path, Line: firstMissingSeparator.line, Col: firstMissingSeparator.col, Message: "expected ',' or ']' in value array"}}
+		}
+	}
+	if firstMissingSeparator != nil {
+		return Value{}, &ParseError{Diag: Diagnostic{Code: CodeExpectedComma, Path: p.path, Line: firstMissingSeparator.line, Col: firstMissingSeparator.col, Message: "expected ',' or ']' in value array"}}
 	}
 
 	et := TypeString // default for empty array
@@ -634,8 +665,28 @@ func ParseSource(src []byte, path string) (*File, error) {
 	if len(src) > MaxFileSize {
 		return nil, &ParseError{Diag: Diagnostic{Code: CodeFileTooLarge, Path: path, Line: 0, Col: 0, Message: "file too large (max 10MB)"}}
 	}
+	if line, col, invalid := firstInvalidUTF8(src); invalid {
+		return nil, &ParseError{Diag: Diagnostic{Code: CodeInvalidUTF8, Path: path, Line: line, Col: col, Message: "source is not valid UTF-8"}}
+	}
 	p := newParser(src, path)
 	return p.parseFile()
+}
+
+func firstInvalidUTF8(src []byte) (line, col int, invalid bool) {
+	line, col = 1, 1
+	for i := 0; i < len(src); {
+		r, size := utf8.DecodeRune(src[i:])
+		if r == utf8.RuneError && size == 1 {
+			return line, col, true
+		}
+		if src[i] == '\n' {
+			line, col = line+1, 1
+		} else {
+			col += size
+		}
+		i += size
+	}
+	return line, col, false
 }
 
 // ParseFile reads and parses an SKG file from disk, resolving its imports.

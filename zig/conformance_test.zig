@@ -622,7 +622,7 @@ fn compareValue(expected_obj: std.json.ObjectMap, actual: ast.Value) !void {
     } else if (std.mem.eql(u8, type_str, "float")) {
         try testing.expectEqual(ast.ValueType.float, std.meta.activeTag(actual));
         const expected_data = expectJsonFloat(expected_obj.get("data") orelse return error.MissingData) orelse return error.BadData;
-        try testing.expectApproxEqAbs(expected_data, actual.float, 1e-9);
+        try testing.expectEqual(@as(u64, @bitCast(expected_data)), @as(u64, @bitCast(actual.float)));
     } else if (std.mem.eql(u8, type_str, "bool")) {
         try testing.expectEqual(ast.ValueType.bool, std.meta.activeTag(actual));
         const expected_data = expectJsonBool(expected_obj.get("data") orelse return error.MissingData) orelse return error.BadData;

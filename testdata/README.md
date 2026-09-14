@@ -98,6 +98,9 @@ formatted sidecar means `emit`, comment keys mean `comments`.
 | `nesting-*`   | The 128-level depth boundary, accepted and rejected                      |
 | `mixed-*`     | Array element uniformity, including block-versus-scalar in both directions |
 | `int-*`, `float-*` | Number literal spelling and 64-bit range boundaries                 |
+| UTF-8/BOM and string fixtures | Encoding validity, byte columns, escapes and literal multiline text |
+| `array-*`, `all-null-*` | Required scalar separators and invalid leading/repeated commas |
+| `import-*comma*` | Required import-list separators and invalid leading/repeated commas |
 
 Two fixtures look redundant and are not. `import-cycle` spells its cycle with
 bare filenames and `import-cycle-dotslash` spells it `./b.skg`; only the second

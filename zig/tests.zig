@@ -535,7 +535,7 @@ test "source API owns input and path and enforces the file size limit" {
 }
 
 test "header strings round-trip using SKG escapes" {
-    for ([_][]const u8{ "a\"b", "a\\b", "a\nb", "a\rb", "\x00", "\xff" }) |value| {
+    for ([_][]const u8{ "a\"b", "a\\b", "a\nb", "a\rb", "\x00", "é" }) |value| {
         var arena = std.heap.ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
         const a = arena.allocator();

@@ -16,6 +16,7 @@ const merge = @import("merge.zig");
 pub const ParseError = LexError || error{
     UnexpectedToken,
     ExpectedValue,
+    ExpectedComma,
     ExpectedRbrace,
     ExpectedRbracket,
     MixedArrayTypes,
@@ -26,6 +27,7 @@ pub const ParseError = LexError || error{
     NestingTooDeep,
     InvalidInt,
     InvalidFloat,
+    InvalidUtf8,
     AbsoluteImportPath,
     DirectiveAfterBody,
     OutOfMemory,
@@ -255,7 +257,7 @@ const Parser = struct {
                             return error.MalformedSKGVersion;
                         },
                         .too_new => {
-                            self.setDiagnostic(val_tok.line, val_tok.col, .UNSUPPORTED_SKG_VERSION, "skg_version is newer than this parser supports");
+                            self.setDiagnostic(val_tok.line, val_tok.col, .UNSUPPORTED_SKG_VERSION, "skg_version is not supported by this parser");
                             return error.UnsupportedSKGVersion;
                         },
                     }
@@ -311,22 +313,29 @@ const Parser = struct {
             try self.appendImport(list, positions, t);
         } else if (t.tag == .lbracket) {
             _ = try self.consume();
+            var need_path = true;
             while (true) {
                 const nt = try self.peek();
                 if (nt.tag == .rbracket) {
                     _ = try self.consume();
                     break;
                 }
-                if (nt.tag == .comma) {
-                    _ = try self.consume();
-                    continue;
-                }
                 if (nt.tag == .eof) {
                     self.setDiagnostic(nt.line, nt.col, .UNTERMINATED_IMPORT_LIST, "unterminated import list, expected ']'");
                     return error.ExpectedRbracket;
                 }
+                if (!need_path) {
+                    if (nt.tag != .comma) {
+                        self.setDiagnostic(nt.line, nt.col, .EXPECTED_COMMA, "expected ',' or ']' in import list");
+                        return error.ExpectedComma;
+                    }
+                    _ = try self.consume();
+                    need_path = true;
+                    continue;
+                }
                 const path_tok = try self.expect(.string);
                 try self.appendImport(list, positions, path_tok);
+                need_path = false;
             }
         } else {
             self.setDiagnostic(t.line, t.col, .EXPECTED_IMPORT_PATH, "expected import path string or '['");
@@ -511,19 +520,34 @@ const Parser = struct {
 
         var items: std.ArrayListUnmanaged(ast.Value) = .empty;
         var element_type: ?ast.ValueType = null;
+        var need_value = true;
+        var first_missing_separator: ?Token = null;
 
         while (true) {
             const t = try self.peek();
             if (t.tag == .rbracket) {
                 break;
             }
-            if (t.tag == .comma) {
+            if (!need_value and t.tag == .comma) {
                 _ = try self.consume();
+                need_value = true;
                 continue;
             }
             if (t.tag == .eof) {
                 self.setDiagnostic(t.line, t.col, if (colonless and (element_type == null or element_type == .object)) .UNTERMINATED_BLOCK_ARRAY else .UNTERMINATED_ARRAY, "unterminated array, expected ']'");
                 return error.ExpectedRbracket;
+            }
+
+            if (need_value and t.tag == .comma) {
+                self.setDiagnostic(t.line, t.col, .EXPECTED_VALUE, "expected an array value after ','");
+                return error.ExpectedValue;
+            }
+            if (!need_value) {
+                if (element_type != null and element_type.? != .null and element_type.? != .object) {
+                    self.setDiagnostic(t.line, t.col, .EXPECTED_COMMA, "expected ',' or ']' in value array");
+                    return error.ExpectedComma;
+                }
+                if (first_missing_separator == null) first_missing_separator = t;
             }
 
             const val = try self.parseValue();
@@ -538,6 +562,20 @@ const Parser = struct {
                 element_type = vtype;
             }
             try items.append(self.allocator, val);
+            need_value = false;
+            if (element_type == .object) {
+                first_missing_separator = null;
+            } else if (element_type != null and element_type.? != .null) {
+                if (first_missing_separator) |missing| {
+                    self.setDiagnostic(missing.line, missing.col, .EXPECTED_COMMA, "expected ',' or ']' in value array");
+                    return error.ExpectedComma;
+                }
+            }
+        }
+
+        if (first_missing_separator) |missing| {
+            self.setDiagnostic(missing.line, missing.col, .EXPECTED_COMMA, "expected ',' or ']' in value array");
+            return error.ExpectedComma;
         }
 
         const trailing = try self.drainComments();
@@ -626,12 +664,12 @@ pub const VersionCheck = enum {
     ok,
     /// Not a "MAJOR.MINOR" pair of decimal numbers.
     malformed,
-    /// Well-formed, but newer than this parser supports.
+    /// Well-formed, but outside the versions this parser supports.
     too_new,
 };
 
 /// Classify a declared skg_version: malformed values are reported separately
-/// from values that are merely newer than `supported_major.supported_minor`.
+/// from values outside the supported major/minor range.
 fn checkVersion(version: []const u8) VersionCheck {
     const dot = std.mem.indexOfScalar(u8, version, '.') orelse return .malformed;
     for (version, 0..) |c, i| {
@@ -639,7 +677,7 @@ fn checkVersion(version: []const u8) VersionCheck {
     }
     const major = std.fmt.parseUnsigned(u64, version[0..dot], 10) catch return .malformed;
     const minor = std.fmt.parseUnsigned(u64, version[dot + 1 ..], 10) catch return .malformed;
-    if (major > supported_major) return .too_new;
+    if (major != supported_major) return .too_new;
     if (major == supported_major and minor > supported_minor) return .too_new;
     return .ok;
 }
@@ -660,6 +698,10 @@ pub fn parseSource(
         if (diagnostic) |d| d.* = .{ .code = .FILE_TOO_LARGE, .path = path, .line = 0, .col = 0, .message = "file too large (max 10MB)" };
         return error.FileTooLarge;
     }
+    if (firstInvalidUtf8(src)) |location| {
+        if (diagnostic) |d| d.* = .{ .code = .INVALID_UTF8, .path = path, .line = location.line, .col = location.col, .message = "source is not valid UTF-8" };
+        return error.InvalidUtf8;
+    }
     var p = Parser.init(allocator, src, path);
     return p.parseFile() catch |err| {
         if (diagnostic) |d| {
@@ -673,4 +715,24 @@ pub fn parseSource(
         }
         return err;
     };
+}
+
+fn firstInvalidUtf8(src: []const u8) ?ast_mod.Position {
+    var index: usize = 0;
+    var line: u32 = 1;
+    var col: u32 = 1;
+    while (index < src.len) {
+        const size = std.unicode.utf8ByteSequenceLength(src[index]) catch return .{ .line = line, .col = col };
+        const end = index + size;
+        if (end > src.len) return .{ .line = line, .col = col };
+        _ = std.unicode.utf8Decode(src[index..end]) catch return .{ .line = line, .col = col };
+        if (src[index] == '\n') {
+            line += 1;
+            col = 1;
+        } else {
+            col += size;
+        }
+        index = end;
+    }
+    return null;
 }

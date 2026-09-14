@@ -128,7 +128,7 @@ func TestMarshalNullMapRoundTrip(t *testing.T) {
 }
 
 func TestHeaderStringRoundTrip(t *testing.T) {
-	for _, value := range []string{"a\"b", "a\\b", "a\nb", "a\rb", "\x00", "\xff"} {
+	for _, value := range []string{"a\"b", "a\\b", "a\nb", "a\rb", "\x00", "é"} {
 		f := &File{SchemaVersion: &value, ImportPaths: []string{value}}
 		data := Emit(f)
 		got, err := Parse(data)

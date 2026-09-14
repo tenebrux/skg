@@ -52,6 +52,16 @@
       }
     },
     {
+      "type": "field",
+      "key": "é",
+      "value": { "type": "string", "data": "composed" }
+    },
+    {
+      "type": "field",
+      "key": "é",
+      "value": { "type": "string", "data": "decomposed" }
+    },
+    {
       "type": "block",
       "name": "example.com",
       "children": [

@@ -15,7 +15,7 @@ func TestMarshalQuotedKeys(t *testing.T) {
 	}
 	want := Config{1, "data", true, map[string]string{
 		"": "empty", "Content-Type": "json", "true": "literal", "null": "literal",
-		"日本語": "unicode", "a\nb\t\"\\": "escaped", "\x00\xff\r": "bytes",
+		"日本語": "unicode", "a\nb\t\"\\": "escaped", "\x00é\r": "bytes",
 	}, []map[string]int{{"404": 1}}}
 	data, err := Marshal(want)
 	if err != nil {
@@ -37,5 +37,18 @@ func TestMarshalQuotedKeys(t *testing.T) {
 	}
 	if string(Emit(parsed)) != string(data) {
 		t.Fatal("canonical output changed")
+	}
+}
+
+func TestMarshalRejectsInvalidUTF8(t *testing.T) {
+	for _, value := range []struct {
+		Value map[string]string `skg:"value"`
+	}{
+		{map[string]string{"key": "\xff"}},
+		{map[string]string{"\xff": "value"}},
+	} {
+		if _, err := Marshal(value); err == nil {
+			t.Fatal("expected invalid UTF-8 to fail")
+		}
 	}
 }

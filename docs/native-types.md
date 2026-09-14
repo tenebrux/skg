@@ -199,8 +199,9 @@ are application-owned and cannot be rolled back.
 | Any supported value | Pointer to the supported target |
 | Any value | `skg.Value`, or `any` using maps/slices and scalar Go values |
 
-Byte slices also accept checked integer arrays; string bytes are preserved,
-including non-ASCII text and invalid UTF-8. `any` represents integers as `int64`
+Byte slices also accept checked integer arrays; valid non-ASCII UTF-8 bytes are
+preserved exactly. Invalid UTF-8 source is rejected before conversion. `any`
+represents integers as `int64`
 and floats as `float64`, without converting integers through floating point.
 Nonempty interfaces require an application wrapper/custom decoder.
 
@@ -249,7 +250,8 @@ typed loaders' stricter policy implicitly.
 
 `Marshal` encodes structs using the same tags, supports maps, nested slices and
 fixed arrays, and checks integer ranges, finite floats and homogeneous array
-values. It is a value encoder, not an inverse of arbitrary custom decode hooks:
+values. It rejects invalid UTF-8 in native strings and map/tag keys. It is a
+value encoder, not an inverse of arbitrary custom decode hooks:
 it does not invoke those hooks or `encoding.TextMarshaler`. Byte slices encode
 as integer arrays; nil slices/maps encode as empty collections, while nil
 pointers/interfaces encode as null. Encoding into a present native struct can

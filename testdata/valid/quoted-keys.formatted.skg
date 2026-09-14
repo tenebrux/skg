@@ -4,6 +4,8 @@
 "": "empty"
 "true": false
 "quote\"slash\\line\ntab\t": 2
+"é": "composed"
+"é": "decomposed"
 
 "example.com" {
   "Content-Type": "application/json"

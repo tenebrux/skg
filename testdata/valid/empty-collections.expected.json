@@ -10,6 +10,17 @@
     },
     { "type": "block_array", "name": "tags", "items": [] },
     { "type": "block_array", "name": "panels", "items": [] },
-    { "type": "block", "name": "defaults", "children": [] }
+    { "type": "block", "name": "defaults", "children": [] },
+    { "type": "block", "name": "colon_object", "children": [] },
+    { "type": "block_array", "name": "object_items", "items": [[]] },
+    { "type": "field", "key": "nested", "value": {
+      "type": "array", "element_type": "array", "data": [
+        {"type":"array","element_type":"string","data":[]},
+        {"type":"array","element_type":"object","data":[{"type":"object","data":[]}]}
+      ]
+    } },
+    { "type": "field", "key": "nulls", "value": {
+      "type": "array", "element_type": "null", "data": [{"type":"null"}]
+    } }
   ]
 }

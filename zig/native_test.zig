@@ -276,10 +276,13 @@ test "native byte arrays are range checked and no failed value escapes" {
     try testing.expectEqualStrings("/later", result.diagnostic.?.field_path);
 }
 
-test "native strings preserve invalid UTF-8 bytes" {
+test "native loading rejects invalid UTF-8 bytes" {
     const Config = struct { text: []const u8 };
     const source = [_]u8{ 't', 'e', 'x', 't', ':', ' ', '"', 0xff, '"' };
     var result = skg.decodeSource(Config, testing.allocator, &source, "bytes.skg", .{});
     defer result.deinit();
-    try testing.expectEqualSlices(u8, &.{0xff}, result.value.?.text);
+    try testing.expect(result.value == null);
+    try testing.expectEqual(native.Code.parse_error, result.diagnostic.?.code);
+    try testing.expectEqual(skg.ast.ErrorCode.INVALID_UTF8, result.diagnostic.?.parse_diagnostic.?.code);
+    try testing.expectEqual(@as(u32, 8), result.diagnostic.?.source.col);
 }

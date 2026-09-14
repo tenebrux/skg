@@ -14,6 +14,10 @@
       "summary": "A backslash escape other than \\\" \\\\ \\n \\t appeared inside a quoted string."
     },
     {
+      "code": "INVALID_UTF8",
+      "summary": "The source contains an invalid UTF-8 byte sequence."
+    },
+    {
       "code": "EXPECTED_COLON",
       "summary": "A ':' was required and something else was found."
     },
@@ -36,6 +40,10 @@
     {
       "code": "EXPECTED_VALUE",
       "summary": "A field value was required and the token could not start one."
+    },
+    {
+      "code": "EXPECTED_COMMA",
+      "summary": "A comma was required between scalar array values or import paths."
     },
     {
       "code": "EXPECTED_NODE_BODY",
@@ -83,7 +91,7 @@
     },
     {
       "code": "UNSUPPORTED_SKG_VERSION",
-      "summary": "skg_version was well formed but newer than the parser implements."
+      "summary": "skg_version was well formed but outside the versions the parser implements."
     },
     {
       "code": "UNTERMINATED_IMPORT_LIST",

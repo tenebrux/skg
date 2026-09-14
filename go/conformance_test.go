@@ -19,6 +19,7 @@ package skg
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -800,8 +801,8 @@ func TestConformanceInvalid(t *testing.T) {
 			if parseErr == nil {
 				t.Fatal("expected parse error, got success")
 			}
-			pe, ok := parseErr.(*ParseError)
-			if !ok {
+			var pe *ParseError
+			if !errors.As(parseErr, &pe) {
 				t.Fatalf("expected *ParseError, got %T: %v", parseErr, parseErr)
 			}
 			if string(pe.Diag.Code) != expected.Code {
@@ -956,7 +957,7 @@ func compareValue(t *testing.T, path string, expected expectedValue, actual Valu
 			t.Errorf("%scannot parse expected float data: %v", path, err)
 			return
 		}
-		if math.Abs(actual.Float-f) > 1e-9 {
+		if math.Float64bits(actual.Float) != math.Float64bits(f) {
 			t.Errorf("%svalue: expected %g, got %g", path, f, actual.Float)
 		}
 

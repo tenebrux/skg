@@ -118,6 +118,10 @@ func (l *lexer) next() (token, error) {
 		return l.lexString(line, col)
 	case '-':
 		return l.lexNegativeNumber(line, col)
+	case '.':
+		if next, ok := l.peekAhead(1); ok && next >= '0' && next <= '9' {
+			return token{}, &ParseError{Diag: Diagnostic{Code: CodeInvalidFloat, Line: line, Col: col, Message: "float literals require a digit before '.'"}}
+		}
 	}
 
 	if c >= '0' && c <= '9' {
@@ -235,11 +239,23 @@ func (l *lexer) lexNumber(line, col int) (token, error) {
 			return token{}, &ParseError{Diag: Diagnostic{Code: CodeInvalidFloat, Line: line, Col: col,
 				Message: "invalid float literal, expected a digit after '.' and no leading zero"}}
 		}
+		if c, ok := l.peek(); ok && (isIdentChar(c) || c == '.') {
+			return token{}, &ParseError{Diag: Diagnostic{Code: CodeInvalidFloat, Line: line, Col: col,
+				Message: "invalid float literal suffix"}}
+		}
 		return token{tag: tokFloat, text: string(l.src[start:l.pos]), line: line, col: col}, nil
 	}
 	if leadingZero {
 		return token{}, &ParseError{Diag: Diagnostic{Code: CodeInvalidInt, Line: line, Col: col,
 			Message: "invalid integer literal, a leading zero is not allowed"}}
+	}
+	if c, ok := l.peek(); ok && isIdentChar(c) {
+		code := CodeInvalidInt
+		if c == 'e' || c == 'E' {
+			code = CodeInvalidFloat
+		}
+		return token{}, &ParseError{Diag: Diagnostic{Code: code, Line: line, Col: col,
+			Message: "invalid numeric literal suffix"}}
 	}
 	return token{tag: tokInt, text: string(l.src[start:l.pos]), line: line, col: col}, nil
 }
