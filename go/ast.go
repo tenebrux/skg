@@ -61,7 +61,7 @@ type Value struct {
 	// TypeNull uses no fields.
 }
 
-// Array is a typed array. All elements must be the same type (enforced by parser).
+// Array is a typed array. All non-null elements have the same type (enforced by parser).
 type Array struct {
 	ElementType ValueType
 	Items       []Value

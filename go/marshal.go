@@ -21,12 +21,6 @@ func Marshal(v interface{}) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, node := range nodes {
-		key, _ := nodeKey(node)
-		if isDirective(key) {
-			return nil, fmt.Errorf("skg: top-level name %q is reserved for a header directive", key)
-		}
-	}
 	data := Emit(&File{Children: nodes})
 	if len(data) > MaxFileSize {
 		return nil, fmt.Errorf("skg: marshaled file exceeds %d bytes", MaxFileSize)
@@ -96,9 +90,6 @@ func encodeMap(rv reflect.Value, depth int) ([]Node, error) {
 }
 
 func encodeNode(key string, rv reflect.Value, depth int) (Node, error) {
-	if !isIdentifier(key) {
-		return Node{}, fmt.Errorf("%q is not a valid SKG identifier", key)
-	}
 	rv, err := unwrapValue(rv)
 	if err != nil {
 		return Node{}, err
@@ -200,10 +191,12 @@ func encodeValue(rv reflect.Value, depth int) (Value, error) {
 			if err != nil {
 				return Value{}, fmt.Errorf("index %d: %w", i, err)
 			}
-			if i > 0 && v.Type != kind {
+			if i > 0 && kind != TypeNull && v.Type != TypeNull && v.Type != kind {
 				return Value{}, fmt.Errorf("index %d: mixed array types %s and %s", i, kind, v.Type)
 			}
-			kind = v.Type
+			if i == 0 || kind == TypeNull {
+				kind = v.Type
+			}
 			items[i] = v
 		}
 		return Value{Type: TypeArray, Array: &Array{ElementType: kind, Items: items}}, nil

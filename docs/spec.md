@@ -32,11 +32,20 @@ block or field**; one that follows the body is an error
 themselves, but the formatter always writes them in the order above, so
 canonical text matches the order shown here.
 
-`skg_version`, `schema_version` and `import` are reserved at the top level of a
-file: they always introduce a directive and can never name a block or a field
-there. Inside a block they are ordinary identifiers, because a block has no
-header. `true`, `false` and `null` are reserved everywhere - they are value
-literals, never identifiers, so they can never be used as a key.
+`skg_version`, `schema_version` and `import` are reserved as **bare** names at
+the top level: they introduce directives. Inside a block they are ordinary
+identifiers. Bare `true`, `false` and `null` are value literals everywhere.
+
+Field keys, block names and block-array names may be bare identifiers
+(`[A-Za-z_][A-Za-z0-9_]*`) or ordinary double-quoted strings. Quoted keys use
+the same escapes as string values; triple-quoted keys are not supported.
+Empty keys, Unicode, punctuation and escaped newlines are allowed. Keys are
+compared by their decoded bytes without normalization: `name` and `"name"`
+identify the same key. A quoted name is always data, so `"import": 1` is a
+field, including at the top level. Quoting also permits `"true"` and `"null"`.
+
+The formatter uses a bare key wherever that spelling preserves its meaning,
+and an escaped double-quoted key otherwise.
 
 ```
 skg_version: "1.0"
@@ -225,7 +234,7 @@ The literal `null` represents an absent value. No quotes.
 background: null
 ```
 
-Null is useful for explicitly unsetting an inherited value from an import. Null is not a valid array element - it is its own type and arrays require uniform types.
+Null replaces an inherited value with an explicit null; it does not delete the key. Null may also appear in scalar arrays alongside one non-null element type.
 
 ### String
 
@@ -271,7 +280,7 @@ In this example, "line two" is preceded by two spaces. There is no automatic ind
 
 ### Array
 
-An ordered list of values enclosed in `[ ]`, comma-separated. All elements must be the same type. Trailing comma is allowed.
+An ordered list of values enclosed in `[ ]`, comma-separated. All non-null elements must be the same type. Null elements are allowed at any position. Trailing comma is allowed.
 
 ```
 bindings: ["super+1", "super+2", "super+3"]
@@ -279,7 +288,7 @@ bindings: ["super+1", "super+2", "super+3"]
 sizes: [8.0, 12.0, 16.0]
 ```
 
-Type uniformity is checked one level deep: every element in an array must have the same type tag. For nested arrays, the outer array requires all elements to be arrays, but inner arrays may have different element types:
+Type uniformity is checked one level deep: every non-null element in an array must have the same type tag. For nested arrays, the outer array requires all elements to be arrays, but inner arrays may have different element types:
 
 ```
 # valid - outer elements are both arrays
@@ -291,9 +300,17 @@ mixed: [[1, 2], ["a", "b"]]
 # invalid - outer elements are mixed (int and string)
 bad: [1, "two", 3]
 
-# invalid - null is its own type, cannot mix with others
-also_bad: [1, null, 3]
+# valid - null does not change the non-null element type
+nullable: [1, null, 3]
+
+# invalid - null does not permit incompatible non-null types
+also_bad: [1, null, "three"]
 ```
+
+An empty scalar array has no values; its AST element-type sentinel is `string`.
+An all-null array has element type `null`. Otherwise the element type is that
+of the non-null values. Null entries preserve their positions. Native decoding
+must still use a destination type capable of representing the intended values.
 
 Arrays may span multiple lines:
 
@@ -357,9 +374,9 @@ Block arrays are the way to represent ordered collections of structured items - 
 
 When merging (via imports), a block array replaces the entire previous value - items are not merged individually.
 
-Block arrays are distinct from scalar arrays (`[1, 2, 3]`). Scalar arrays appear as field values after a colon. Block arrays appear after an identifier without a colon, just like blocks.
+Block arrays are distinct from scalar arrays (`[1, 2, 3]`). Scalar arrays appear as field values after a colon. Block arrays appear after a key without a colon, just like blocks.
 
-A colonless identifier followed by `[` where the first element is not `{` is treated as a scalar array field:
+A colonless key followed by `[` where the first element is not `{` is treated as a scalar array field:
 
 ```
 tags ["alpha", "beta"]
@@ -396,18 +413,18 @@ Empty blocks are written `defaults {}`.
 
 ## Fields
 
-A field is a key-value pair. The key is an unquoted identifier. The value is one of the scalar types or an array.
+A field is a key-value pair. The key is a bare identifier or an ordinary double-quoted string. The value is one of the scalar types or an array.
 
 ```
 key: value
 ```
 
-Keys may contain letters, digits, and underscores. Keys may not start with a digit. Keys are never quoted, so a name outside that alphabet has no spelling in the language at all.
+Bare keys use ASCII letters, digits, and underscores and may not start with a digit. Quote other keys using the string escapes described above.
 
 ```
 accent: "green"   # valid
 size_base: 13.0   # valid
-max-crashes: 3    # invalid - hyphens not allowed in keys
+"max-crashes": 3  # valid - punctuation requires quotes
 true: 1           # invalid - reserved literal, never an identifier
 ```
 

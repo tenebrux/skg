@@ -1,0 +1,5 @@
+"service.name" {
+  name: 1
+  "": "kept"
+}
+"import": "base"

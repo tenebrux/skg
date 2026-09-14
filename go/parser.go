@@ -317,8 +317,25 @@ func isAbsoluteImportPath(path string) bool {
 	return false
 }
 
+// Keys use bare identifiers or ordinary double-quoted strings. Quoting a
+// header name makes it data, even at the document root.
+func (p *parser) parseKey() (token, error) {
+	t, err := p.peek()
+	if err != nil {
+		return token{}, err
+	}
+	if t.tag != tokString || strings.HasPrefix(t.text, `"""`) {
+		return p.expect(tokIdent)
+	}
+	if _, err := p.consume(); err != nil {
+		return token{}, err
+	}
+	t.text, err = unescapeString(t.text)
+	return t, err
+}
+
 func (p *parser) parseNode() (Node, error) {
-	nameTok, err := p.expect(tokIdent)
+	nameTok, err := p.parseKey()
 	if err != nil {
 		return Node{}, err
 	}
@@ -481,8 +498,8 @@ func (p *parser) reParseAsFieldArray(nameTok token) (Node, error) {
 		if err != nil {
 			return Node{}, err
 		}
-		if elemType != nil {
-			if *elemType != val.Type {
+		if elemType != nil && *elemType != TypeNull {
+			if val.Type != TypeNull && *elemType != val.Type {
 				return Node{}, &ParseError{Diag: Diagnostic{Code: CodeMixedArrayTypes, Path: p.path, Line: t.line, Col: t.col, Message: "mixed types in array"}}
 			}
 		} else {
@@ -564,8 +581,8 @@ func (p *parser) parseArray() (Value, error) {
 		if err != nil {
 			return Value{}, err
 		}
-		if elemType != nil {
-			if *elemType != val.Type {
+		if elemType != nil && *elemType != TypeNull {
+			if val.Type != TypeNull && *elemType != val.Type {
 				return Value{}, &ParseError{Diag: Diagnostic{Code: CodeMixedArrayTypes, Path: p.path, Line: t.line, Col: t.col, Message: "mixed types in array"}}
 			}
 		} else {

@@ -110,14 +110,14 @@ set against it. A code cannot be used in a fixture until it is registered.
 | `EXPECTED_RBRACE`          | A `}` was required and something else was found.                            |
 | `EXPECTED_RBRACKET`        | A `]` was required and something else was found.                            |
 | `EXPECTED_STRING`          | A quoted string was required (`skg_version`, `schema_version`, import path). |
-| `EXPECTED_IDENT`           | An identifier was required and something else was found.                    |
+| `EXPECTED_IDENT`           | A bare identifier or ordinary quoted key was required.                    |
 | `EXPECTED_VALUE`           | A field value was required and the token cannot start one.                  |
-| `EXPECTED_NODE_BODY`       | An identifier was not followed by `:`, `{` or `[`.                          |
+| `EXPECTED_NODE_BODY`       | A key was not followed by `:`, `{` or `[`.                          |
 | `UNEXPECTED_TOKEN`         | A required token kind has no more specific code.                            |
 | `UNTERMINATED_BLOCK`       | A `{` block, or a block inside a block array, hit end of input.             |
 | `UNTERMINATED_BLOCK_ARRAY` | A block array hit end of input before its `]`.                              |
 | `UNTERMINATED_ARRAY`       | A scalar array hit end of input before its `]`.                             |
-| `MIXED_ARRAY_TYPES`        | Array elements did not all share one type tag, **or** a block array held a scalar / a scalar array held a block. |
+| `MIXED_ARRAY_TYPES`        | Non-null array elements did not all share one type tag, **or** a block array held a scalar / a scalar array held a block. |
 | `INVALID_INT`              | An integer literal does not fit a signed 64-bit integer, or carries a redundant leading zero. |
 | `INVALID_FLOAT`            | A float literal has no digit after its `.`, carries a redundant leading zero, or is too large for a 64-bit float. |
 
@@ -156,7 +156,7 @@ Ordering note: the duplicate check runs **before** the version check, so
 path is known from the bytes alone, so the byte API rejects it too, without
 touching the filesystem. It is reported at the path's string token.
 
-`skg_version`, `schema_version` and `import` are reserved at the top level only.
+`skg_version`, `schema_version` and `import` are reserved as bare identifiers at the top level only. Quoted names are data keys.
 Inside a block they are ordinary identifiers - a block has no header, so there is
 nothing to be ambiguous with.
 
@@ -578,12 +578,14 @@ Work through this in order. Each step is checkable against the suite.
       `INVALID_ESCAPE`. `"""..."""` does **no** escape processing - the content is
       literal, indentation included.
 - [ ] **Parser.** Header directives (`skg_version`, `import`, `schema_version`),
-      fields, blocks, block arrays. A colonless identifier followed by `[` whose
-      first token is not `{` is a scalar array field. Directives are reserved at
+      fields, blocks, block arrays. Accept ordinary double-quoted keys with decoded
+      byte equality; reject triple-quoted keys. A colonless key followed by `[` whose
+      first token is not `{` is a scalar array field. Bare directive names are reserved at
       the top level and must all precede the first block or field.
-- [ ] **Arrays.** All elements share one type tag, checked one level deep. Nested
-      arrays: the outer elements must all be arrays; inner element types may
-      differ. `null` is its own type and cannot mix. A block array and a scalar
+- [ ] **Arrays.** All non-null elements share one type tag, checked one level deep. Nested
+      arrays: the non-null outer elements must all be arrays; inner element types may
+      differ. Null may occupy any scalar-array position; all-null arrays have
+      element type `null`. A block array and a scalar
       array cannot mix either - the kind is chosen from the first element and
       fixed thereafter. A colonless `[]` is an empty **block array**; an empty
       scalar array is `key: []`, element type `string`. Trailing commas are

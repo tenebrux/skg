@@ -118,7 +118,7 @@
           "name": "name",
           "content": {
             "type": "SYMBOL",
-            "name": "identifier"
+            "name": "_key"
           }
         },
         {
@@ -149,7 +149,7 @@
             "name": "name",
             "content": {
               "type": "SYMBOL",
-              "name": "identifier"
+              "name": "_key"
             }
           },
           {
@@ -213,7 +213,7 @@
             "name": "key",
             "content": {
               "type": "SYMBOL",
-              "name": "identifier"
+              "name": "_key"
             }
           },
           {
@@ -235,7 +235,7 @@
           "name": "key",
           "content": {
             "type": "SYMBOL",
-            "name": "identifier"
+            "name": "_key"
           }
         },
         {
@@ -249,6 +249,19 @@
             "type": "SYMBOL",
             "name": "_value"
           }
+        }
+      ]
+    },
+    "_key": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "identifier"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "string"
         }
       ]
     },

@@ -94,12 +94,6 @@ func TestMarshalRejectsUnrepresentableInputs(t *testing.T) {
 		struct {
 			X []any `skg:"x"`
 		}{[]any{1, "two"}},
-		struct {
-			X string `skg:"schema_version"`
-		}{"lost"},
-		struct {
-			X int `skg:"import"`
-		}{1},
 		c,
 		struct {
 			X map[string]any `skg:"x"`

@@ -348,12 +348,22 @@ const Parser = struct {
         try positions.append(self.allocator, .{ .line = tok.line, .col = tok.col });
     }
 
-    /// Parse a single node (field or block). Expects an ident token next.
+    fn parseKey(self: *Parser) ParseError!Token {
+        var t = try self.peek();
+        if (t.tag != .string or std.mem.startsWith(u8, t.text, "\"\"\"")) {
+            return self.expect(.ident);
+        }
+        _ = try self.consume();
+        t.text = try self.unescapeString(t.text);
+        return t;
+    }
+
+    /// Parse a single node (field or block). Expects an identifier or quoted key next.
     /// Leading comments are already buffered by the time we get here -
-    /// drain them before consuming the identifier.
+    /// drain them before consuming the key.
     fn parseNode(self: *Parser) ParseError!ast.Node {
         const leading = try self.drainComments();
-        const name_tok = try self.expect(.ident);
+        const name_tok = try self.parseKey();
         const nt = try self.peek();
 
         if (nt.tag == .colon) {
@@ -511,10 +521,11 @@ const Parser = struct {
             const val = try self.parseValue();
             const vtype = std.meta.activeTag(val);
             if (element_type) |et| {
-                if (et != vtype) {
+                if (et != .null and vtype != .null and et != vtype) {
                     self.setDiagnostic(t.line, t.col, .MIXED_ARRAY_TYPES, "mixed types in array");
                     return error.MixedArrayTypes;
                 }
+                if (et == .null) element_type = vtype;
             } else {
                 element_type = vtype;
             }
@@ -598,10 +609,11 @@ const Parser = struct {
             const val = try self.parseValue();
             const vtype = std.meta.activeTag(val);
             if (element_type) |et| {
-                if (et != vtype) {
+                if (et != .null and vtype != .null and et != vtype) {
                     self.setDiagnostic(t.line, t.col, .MIXED_ARRAY_TYPES, "mixed types in array");
                     return error.MixedArrayTypes;
                 }
+                if (et == .null) element_type = vtype;
             } else {
                 element_type = vtype;
             }

@@ -1,0 +1,5 @@
+import "base.skg"
+"service.name" {
+  "name": 2
+}
+"import": "local"

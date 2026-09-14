@@ -272,10 +272,7 @@ func isIdentChar(c byte) bool {
 
 // isIdentifier reports whether s can be written as a bare SKG key.
 //
-// Keys are never quoted, so a name that is not an identifier - or that is one of
-// the three reserved literals, which the lexer turns into value tokens rather
-// than identifiers - has no spelling in the language. Marshal checks this before
-// emitting a name rather than producing text it cannot read back.
+// Names outside this grammar, including reserved literals, need quotes.
 func isIdentifier(s string) bool {
 	if s == "" || !isIdentStart(s[0]) {
 		return false

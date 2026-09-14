@@ -1,0 +1,109 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [],
+  "children": [
+    {
+      "type": "field",
+      "key": "import",
+      "value": {
+        "type": "int",
+        "data": 1
+      }
+    },
+    {
+      "type": "field",
+      "key": "schema_version",
+      "value": {
+        "type": "string",
+        "data": "data"
+      }
+    },
+    {
+      "type": "field",
+      "key": "skg_version",
+      "value": {
+        "type": "bool",
+        "data": true
+      }
+    },
+    {
+      "type": "field",
+      "key": "",
+      "value": {
+        "type": "string",
+        "data": "empty"
+      }
+    },
+    {
+      "type": "field",
+      "key": "true",
+      "value": {
+        "type": "bool",
+        "data": false
+      }
+    },
+    {
+      "type": "field",
+      "key": "quote\"slash\\line\ntab\t",
+      "value": {
+        "type": "int",
+        "data": 2
+      }
+    },
+    {
+      "type": "block",
+      "name": "example.com",
+      "children": [
+        {
+          "type": "field",
+          "key": "Content-Type",
+          "value": {
+            "type": "string",
+            "data": "application/json"
+          }
+        },
+        {
+          "type": "field",
+          "key": "404",
+          "value": {
+            "type": "string",
+            "data": "missing"
+          }
+        },
+        {
+          "type": "field",
+          "key": "日本語",
+          "value": {
+            "type": "string",
+            "data": "ok"
+          }
+        },
+        {
+          "type": "field",
+          "key": "name",
+          "value": {
+            "type": "int",
+            "data": 2
+          }
+        }
+      ]
+    },
+    {
+      "type": "block_array",
+      "name": "/routes",
+      "items": [
+        [
+          {
+            "type": "field",
+            "key": "@scope/pkg",
+            "value": {
+              "type": "string",
+              "data": "enabled"
+            }
+          }
+        ]
+      ]
+    }
+  ]
+}

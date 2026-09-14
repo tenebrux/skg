@@ -79,7 +79,7 @@ pub const Diagnostic = struct {
     message: []const u8,
 };
 
-/// A typed array. All elements must be the same type (enforced by parser).
+/// A typed array. All non-null elements have the same type (enforced by parser).
 pub const Array = struct {
     element_type: ValueType,
     items: []Value,

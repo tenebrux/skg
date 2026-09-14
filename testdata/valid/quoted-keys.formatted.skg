@@ -1,0 +1,19 @@
+"import": 1
+"schema_version": "data"
+"skg_version": true
+"": "empty"
+"true": false
+"quote\"slash\\line\ntab\t": 2
+
+"example.com" {
+  "Content-Type": "application/json"
+  "404": "missing"
+  "日本語": "ok"
+  name: 2
+}
+
+"/routes" [
+  {
+    "@scope/pkg": "enabled"
+  }
+]

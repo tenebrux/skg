@@ -50,7 +50,7 @@ module.exports = grammar({
 
     // block:  name { ... }
     block: $ => seq(
-      field('name', $.identifier),
+      field('name', $._key),
       '{',
       repeat($._statement),
       '}',
@@ -59,7 +59,7 @@ module.exports = grammar({
     // block_array:  name [ { ... } { ... } ]
     // Distinguished from scalar_array_field by the first token inside [ ].
     block_array: $ => prec(2, seq(
-      field('name', $.identifier),
+      field('name', $._key),
       '[',
       repeat($.block_array_item),
       ']',
@@ -75,16 +75,18 @@ module.exports = grammar({
     // Colonless scalar array shorthand: `tags ["a", "b"]`
     // Semantically equivalent to `tags: ["a", "b"]` per spec.
     scalar_array_field: $ => prec(1, seq(
-      field('key', $.identifier),
+      field('key', $._key),
       field('value', $.array),
     )),
 
     // pair:  key: value
     pair: $ => seq(
-      field('key', $.identifier),
+      field('key', $._key),
       ':',
       field('value', $._value),
     ),
+
+    _key: $ => choice($.identifier, $.string),
 
     _value: $ => choice(
       $.multiline_string,

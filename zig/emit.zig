@@ -66,7 +66,8 @@ fn emitNodes(w: anytype, nodes: []const ast.Node, depth: usize) !void {
             .field => |f| {
                 try emitCommentLines(w, f.leading_comments, depth);
                 try writeIndent(w, depth);
-                try w.print("{s}: ", .{f.key});
+                try writeKey(w, f.key, depth);
+                try w.writeAll(": ");
                 try emitValue(w, f.value, depth);
                 if (f.trailing_comment) |tc| {
                     try w.print(" {s}", .{tc});
@@ -77,7 +78,8 @@ fn emitNodes(w: anytype, nodes: []const ast.Node, depth: usize) !void {
                 if (i > 0 and depth == 0) try w.writeByte('\n');
                 try emitCommentLines(w, b.leading_comments, depth);
                 try writeIndent(w, depth);
-                try w.print("{s} {{\n", .{b.name});
+                try writeKey(w, b.name, depth);
+                try w.writeAll(" {\n");
                 try emitNodes(w, b.children, depth + 1);
                 try emitCommentLines(w, b.trailing_comments, depth + 1);
                 try writeIndent(w, depth);
@@ -87,7 +89,8 @@ fn emitNodes(w: anytype, nodes: []const ast.Node, depth: usize) !void {
                 if (i > 0 and depth == 0) try w.writeByte('\n');
                 try emitCommentLines(w, ba.leading_comments, depth);
                 try writeIndent(w, depth);
-                try w.print("{s} [\n", .{ba.name});
+                try writeKey(w, ba.name, depth);
+                try w.writeAll(" [\n");
                 for (ba.items) |item| {
                     try writeIndent(w, depth + 1);
                     try w.writeAll("{\n");
@@ -195,4 +198,20 @@ fn writeQuoted(w: anytype, value: []const u8) !void {
     try w.writeByte('"');
     try writeEscaped(w, value);
     try w.writeByte('"');
+}
+
+fn writeKey(w: anytype, key: []const u8, depth: usize) !void {
+    var bare = key.len > 0;
+    for (key, 0..) |c, i| {
+        if (!(std.ascii.isAlphabetic(c) or c == '_' or (i > 0 and std.ascii.isDigit(c)))) bare = false;
+    }
+    for ([_][]const u8{ "true", "false", "null" }) |reserved| {
+        if (std.mem.eql(u8, key, reserved)) bare = false;
+    }
+    if (depth == 0 and @import("parser.zig").isDirective(key)) bare = false;
+    if (bare) {
+        try w.writeAll(key);
+    } else {
+        try writeQuoted(w, key);
+    }
 }

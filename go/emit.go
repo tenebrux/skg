@@ -59,7 +59,7 @@ func emitNodes(buf *strings.Builder, nodes []Node, depth int) {
 	for i, n := range nodes {
 		if n.Field != nil {
 			writeIndent(buf, depth)
-			buf.WriteString(n.Field.Key)
+			writeKey(buf, n.Field.Key, depth)
 			buf.WriteString(": ")
 			emitValue(buf, n.Field.Value, depth)
 			buf.WriteByte('\n')
@@ -68,7 +68,7 @@ func emitNodes(buf *strings.Builder, nodes []Node, depth int) {
 				buf.WriteByte('\n')
 			}
 			writeIndent(buf, depth)
-			buf.WriteString(n.Block.Name)
+			writeKey(buf, n.Block.Name, depth)
 			buf.WriteString(" {\n")
 			emitNodes(buf, n.Block.Children, depth+1)
 			writeIndent(buf, depth)
@@ -78,7 +78,7 @@ func emitNodes(buf *strings.Builder, nodes []Node, depth int) {
 				buf.WriteByte('\n')
 			}
 			writeIndent(buf, depth)
-			buf.WriteString(n.BlockArray.Name)
+			writeKey(buf, n.BlockArray.Name, depth)
 			buf.WriteString(" [\n")
 			for _, item := range n.BlockArray.Items {
 				writeIndent(buf, depth+1)
@@ -187,4 +187,13 @@ func writeQuoted(buf *strings.Builder, s string) {
 	buf.WriteByte('"')
 	writeEscaped(buf, s)
 	buf.WriteByte('"')
+}
+
+// writeKey keeps the familiar bare spelling wherever it is unambiguous.
+func writeKey(buf *strings.Builder, key string, depth int) {
+	if isIdentifier(key) && (depth > 0 || !isDirective(key)) {
+		buf.WriteString(key)
+	} else {
+		writeQuoted(buf, key)
+	}
 }

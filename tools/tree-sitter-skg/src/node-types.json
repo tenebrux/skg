@@ -49,6 +49,10 @@
           {
             "type": "identifier",
             "named": true
+          },
+          {
+            "type": "string",
+            "named": true
           }
         ]
       }
@@ -90,6 +94,10 @@
         "types": [
           {
             "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "string",
             "named": true
           }
         ]
@@ -199,6 +207,10 @@
           {
             "type": "identifier",
             "named": true
+          },
+          {
+            "type": "string",
+            "named": true
           }
         ]
       },
@@ -248,6 +260,10 @@
         "types": [
           {
             "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "string",
             "named": true
           }
         ]
