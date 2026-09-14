@@ -13,6 +13,9 @@ reading `go/` or `zig/`.
 - Reference implementations: `go/` (Go), `zig/` (Zig).
 - Native type conversion: [`native-conformance.md`](native-conformance.md),
   with a separate shared corpus that both typed loaders run without skips.
+- File-resolution policies and budgets:
+  [`../testdata/resolution/cases.json`](../testdata/resolution/cases.json), run
+  by every conforming package without skips.
 
 ---
 

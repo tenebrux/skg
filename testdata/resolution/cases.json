@@ -1,0 +1,88 @@
+{
+  "contract_version": 1,
+  "language_version": "1.0",
+  "cases": [
+    {
+      "name": "aggregate-limits-exact-boundary",
+      "entry": "main.skg",
+      "limits": { "bytes": 36, "files": 2, "nodes": 4, "merge_work": 3 },
+      "files": [
+        { "path": "main.skg", "source": "import \"child.skg\"\nroot: 1\n" },
+        { "path": "child.skg", "source": "child: 2\n" }
+      ],
+      "expected_formatted": "child: 2\nroot: 1\n"
+    },
+    {
+      "name": "aggregate-file-limit",
+      "entry": "main.skg",
+      "limits": { "bytes": 1024, "files": 1, "nodes": 100, "merge_work": 100 },
+      "files": [
+        { "path": "main.skg", "source": "import \"child.skg\"\nroot: 1\n" },
+        { "path": "child.skg", "source": "child: 2\n" }
+      ],
+      "expected_code": "RESOLUTION_FILE_LIMIT"
+    },
+    {
+      "name": "aggregate-byte-limit",
+      "entry": "main.skg",
+      "limits": { "bytes": 35, "files": 10, "nodes": 100, "merge_work": 100 },
+      "files": [
+        { "path": "main.skg", "source": "import \"child.skg\"\nroot: 1\n" },
+        { "path": "child.skg", "source": "child: 2\n" }
+      ],
+      "expected_code": "RESOLUTION_BYTE_LIMIT"
+    },
+    {
+      "name": "aggregate-node-and-value-limit",
+      "entry": "main.skg",
+      "limits": { "bytes": 1024, "files": 10, "nodes": 3, "merge_work": 100 },
+      "files": [
+        { "path": "main.skg", "source": "items: [1, 2]\n" }
+      ],
+      "expected_code": "RESOLUTION_NODE_LIMIT"
+    },
+    {
+      "name": "aggregate-merge-work-limit",
+      "entry": "main.skg",
+      "limits": { "bytes": 1024, "files": 10, "nodes": 100, "merge_work": 2 },
+      "files": [
+        { "path": "main.skg", "source": "import \"child.skg\"\nroot: 1\n" },
+        { "path": "child.skg", "source": "child: 2\n" }
+      ],
+      "expected_code": "RESOLUTION_WORK_LIMIT"
+    },
+    {
+      "name": "rooted-contained-parent-path",
+      "entry": "root/cfg/main.skg",
+      "root": "root",
+      "limits": { "bytes": 1024, "files": 10, "nodes": 100, "merge_work": 100 },
+      "files": [
+        { "path": "root/cfg/main.skg", "source": "import \"../shared.skg\"\nroot: 1\n" },
+        { "path": "root/shared.skg", "source": "shared: 2\n" }
+      ],
+      "expected_formatted": "shared: 2\nroot: 1\n"
+    },
+    {
+      "name": "rooted-parent-escape",
+      "entry": "root/cfg/main.skg",
+      "root": "root",
+      "limits": { "bytes": 1024, "files": 10, "nodes": 100, "merge_work": 100 },
+      "files": [
+        { "path": "root/cfg/main.skg", "source": "import \"../../outside/value.skg\"\n" },
+        { "path": "outside/value.skg", "source": "outside: 3\n" }
+      ],
+      "expected_code": "PATH_OUTSIDE_ROOT"
+    },
+    {
+      "name": "rooted-entry-escape",
+      "entry": "outside/value.skg",
+      "root": "root",
+      "limits": { "bytes": 1024, "files": 10, "nodes": 100, "merge_work": 100 },
+      "files": [
+        { "path": "root/placeholder.skg", "source": "inside: true\n" },
+        { "path": "outside/value.skg", "source": "outside: 3\n" }
+      ],
+      "expected_code": "PATH_OUTSIDE_ROOT"
+    }
+  ]
+}

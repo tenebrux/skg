@@ -12,6 +12,7 @@ implementation run it.
 ```
 error-codes.json                 closed registry of stable parse-error codes
 native/cases.json                shared native target profiles and conversion outcomes
+resolution/cases.json            shared file resolution, root policy, and aggregate budgets
 valid/<name>.skg                 flat fixture: parsed from BYTES, no filesystem access
 valid/<name>.expected.json       required
 valid/<name>.formatted.skg       optional: parse -> emit must equal this, byte for byte
@@ -23,6 +24,9 @@ invalid/...                      same two shapes; expected.json declares the err
 
 Native fixtures use the separate [native conversion contract](../docs/native-conformance.md).
 They run through both typed loaders, with no capability-based skips.
+Resolution fixtures build isolated temporary file trees and run through each
+package's option-bearing file API. They pin exact budget boundaries, stable
+limit codes, rooted containment, and resolved merge output.
 
 Flat versus directory is not cosmetic. A flat fixture must go through the byte
 API and the parser must not open a file; a directory fixture goes through the
@@ -80,11 +84,12 @@ implementations word the same failure differently, so fixtures assert the code.
 
 ## Capabilities
 
-An implementation declares what it supports in `<impl>/conformance.json`
-(`parse`, `emit`, `imports`, `comments`). A fixture needing a capability that is
-not declared is skipped and counted in a summary line the runner always prints.
-Which fixtures need what is derived structurally: directory means `imports`, a
-formatted sidecar means `emit`, comment keys mean `comments`.
+An implementation declares what it supports in `<impl>/conformance.json`.
+`parse`, `imports`, and `native` are mandatory V1 core capabilities. `emit` and
+`comments` are optional; a fixture needing an undeclared optional capability is
+skipped and counted in a summary line the runner always prints. Which fixtures
+need what is derived structurally: a formatted sidecar means `emit`, and comment
+keys mean `comments`.
 
 ## Fixture families
 

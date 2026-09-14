@@ -69,8 +69,18 @@ pub fn build(b: *std.Build) void {
     });
     const run_native_tests = b.addRunArtifact(native_tests);
 
+    const resolution_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("zig/resolution_conformance_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const run_resolution_tests = b.addRunArtifact(resolution_tests);
+
     const test_step = b.step("test", "Run SKG parser tests");
     test_step.dependOn(&run_native_tests.step);
+    test_step.dependOn(&run_resolution_tests.step);
     test_step.dependOn(&run_formatter_tests.step);
     test_step.dependOn(&run_tests.step);
     test_step.dependOn(&run_malformed_tests.step);
