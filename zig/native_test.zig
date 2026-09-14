@@ -3,6 +3,10 @@ const testing = std.testing;
 const skg = @import("root.zig");
 const native = skg.native;
 
+test {
+    _ = @import("native_conformance_test.zig");
+}
+
 test "native structs maps lists defaults enums and nullable records" {
     const Record = struct { id: u16, note: ?[]const u8 };
     const Config = struct {
@@ -270,4 +274,12 @@ test "native byte arrays are range checked and no failed value escapes" {
     defer result.deinit();
     try testing.expect(result.value == null);
     try testing.expectEqualStrings("/later", result.diagnostic.?.field_path);
+}
+
+test "native strings preserve invalid UTF-8 bytes" {
+    const Config = struct { text: []const u8 };
+    const source = [_]u8{ 't', 'e', 'x', 't', ':', ' ', '"', 0xff, '"' };
+    var result = skg.decodeSource(Config, testing.allocator, &source, "bytes.skg", .{});
+    defer result.deinit();
+    try testing.expectEqualSlices(u8, &.{0xff}, result.value.?.text);
 }

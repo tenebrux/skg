@@ -58,9 +58,9 @@ type Streams struct {
 }
 
 func main() {
-	// ── Parse and unmarshal in one call ─────────────────────────────────
-	var cfg Config
-	if err := skg.UnmarshalFile("../app.skg", &cfg); err != nil {
+	// Parse, resolve imports and decode native types in one call.
+	cfg, err := skg.DecodeFile[Config]("../app.skg", skg.DecodeOptions{})
+	if err != nil {
 		log.Fatalf("config error: %v", err)
 	}
 

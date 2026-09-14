@@ -35,6 +35,7 @@ func MergeNodes(base, overlay []Node) []Node {
 				merged := MergeNodes(result[pos].Block.Children, ov.Block.Children)
 				result[pos] = Node{Block: &Block{
 					Replace:  result[pos].Block.Replace,
+					Path:     result[pos].Block.Path,
 					Name:     result[pos].Block.Name,
 					Children: merged,
 					Line:     result[pos].Block.Line,

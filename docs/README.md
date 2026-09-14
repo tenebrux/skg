@@ -24,12 +24,13 @@ Reference material for the SKG (Static Key Group) config language.
 
 ## Using the parsers
 
-- [Native types](native-types.md) — Zig typed loading, ownership, hooks and the current Go API boundary.
+- [Native types](native-types.md) — Go and Zig typed loading, defaults, ownership and hooks.
+- [Native conformance](native-conformance.md) — port-facing conversion contract and shared native profiles.
 
 Pick your language and read the README in that directory:
 
 - **[../examples/go/README.md](../examples/go/README.md)** - Go
-  integration via `skg:"name"` struct tags, `UnmarshalFile`, and
+  integration via `skg:"name"` struct tags, `DecodeFile`, and
   `Marshal` for round-trip.
 - **[../examples/zig/README.md](../examples/zig/README.md)** - Zig
   integration via native typed loading, struct defaults, and optional field

@@ -67,12 +67,14 @@ type Config struct {
     DB    Database `skg:"database"` // nested struct = block
 }
 
-var cfg Config
-err := skg.UnmarshalFile("config.skg", &cfg)
+cfg, err := skg.DecodeFile[Config]("config.skg", skg.DecodeOptions{})
 ```
 
-Struct tags work like `encoding/json`. Extra config keys are ignored,
-missing keys keep zero values. Round-trip with `skg.Marshal`.
+Tagged fields define the schema. Extra keys are ignored; missing nonnullable
+fields and inexact numeric conversions are errors. Supply native defaults with
+`DecodeFileInto` and `AllowMissingFields`. Existing `Unmarshal` APIs retain their
+permissive behavior. See [native types](docs/native-types.md) for mappings,
+custom hooks and encoding details.
 
 Full walk-through: **[examples/go/](examples/go/)**.
 

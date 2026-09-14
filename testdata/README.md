@@ -11,6 +11,7 @@ implementation run it.
 
 ```
 error-codes.json                 closed registry of stable parse-error codes
+native/cases.json                shared native target profiles and conversion outcomes
 valid/<name>.skg                 flat fixture: parsed from BYTES, no filesystem access
 valid/<name>.expected.json       required
 valid/<name>.formatted.skg       optional: parse -> emit must equal this, byte for byte
@@ -19,6 +20,9 @@ valid/<name>/expected.json       required
 valid/<name>/formatted.skg       optional
 invalid/...                      same two shapes; expected.json declares the error code
 ```
+
+Native fixtures use the separate [native conversion contract](../docs/native-conformance.md).
+They run through both typed loaders, with no capability-based skips.
 
 Flat versus directory is not cosmetic. A flat fixture must go through the byte
 API and the parser must not open a file; a directory fixture goes through the

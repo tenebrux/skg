@@ -158,7 +158,7 @@ func encodeValue(rv reflect.Value, depth int) (Value, error) {
 		return Value{Type: TypeFloat, Float: f}, nil
 	case reflect.Bool:
 		return Value{Type: TypeBool, Bool: rv.Bool()}, nil
-	case reflect.Slice:
+	case reflect.Slice, reflect.Array:
 		if err := checkEncodeDepth(depth + 1); err != nil {
 			return Value{}, err
 		}

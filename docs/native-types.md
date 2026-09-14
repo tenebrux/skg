@@ -127,17 +127,131 @@ currently points to its containing named value. Missing fields report their
 containing scope, with line/column zero at the document root. Parse failures
 retain the original parser diagnostic in `parse_diagnostic`.
 
-## Go API boundary
+## Go typed loading
 
-The existing Go `Unmarshal` and `UnmarshalFile` APIs use `skg:"name"` tags,
-ignore unknown fields, and preserve existing target values for absent fields.
-`Unmarshal` applies the local overlay without reading imports; `UnmarshalFile`
-resolves imports first. Objects decode to structs or string-keyed maps, and
-arrays decode to slices, including nested objects and nullable pointer entries.
+`DecodeSource[T](bytes, path, options)` parses and applies local overlays without
+reading imports. `DecodeFile[T](path, options)` resolves imports before decoding.
+Both return `(T, error)`; failure returns the zero value of `T`.
 
-These APIs currently differ from the new Zig typed loader: Go permits null to
-zero a non-pointer target, permits representable floating-point rounding, and
-may update earlier target fields before a later decoding error. Zig uses the
-strict rules above and returns an owned result. Applications must not assume
-these policies are interchangeable. The public native integration contract
-must account for these differences before a V1 compatibility freeze.
+```go
+type Config struct {
+    Host    string            `skg:"host"`
+    Port    uint16            `skg:"port"`
+    Token   *string           `skg:"token"`
+    Headers map[string]string `skg:"http.headers"`
+}
+
+cfg, err := skg.DecodeFile[Config]("config.skg", skg.DecodeOptions{})
+```
+
+Every input-visible Go struct field needs an `skg:"key"` tag. Untagged fields,
+unexported fields and `skg:"-"` fields are ignored. Tagged fields on anonymous
+embedded structs are promoted; a shallower field shadows a promoted field.
+Ambiguous tags at the same depth are errors in typed loading. Go's empty tag
+means “ignore”; use a string-keyed map or a custom decoder for an empty wire key.
+
+### Presence and native defaults
+
+Without `AllowMissingFields`, an absent nonnullable tagged field is an error.
+Pointers, maps, slices and `any` are nullable and may be absent. Explicit null
+clears a nullable target; it fails for nonnullable scalars, records and fixed
+arrays. Null does not request a default. Go slices/maps already carry a nil
+state; Zig uses an optional wrapper to model the equivalent nullable collection.
+
+Go does not declare defaults on fields. Supply native defaults through
+`DecodeSourceInto(bytes, path, target, options)` or
+`DecodeFileInto(path, target, options)` and opt into `AllowMissingFields`:
+
+```go
+cfg := Config{Host: "localhost", Port: 8080}
+err := skg.DecodeFileInto("config.skg", &cfg, skg.DecodeOptions{
+    AllowMissingFields: true,
+})
+```
+
+Absent fields retain those defaults, including keys removed by overlays.
+This option applies throughout the target graph. Use a native validation hook
+for application-specific requirements, such as a required nonempty slice.
+Present structs update a copy of their defaults; present maps and arrays replace
+their container contents. An empty object therefore clears a map but leaves
+absent struct fields governed by the struct's presence policy.
+
+The `Into` functions copy defaults before conversion and only replace the target
+on success. Supported pointer, map and slice defaults are copied recursively;
+successful results do not share their mutable storage with the supplied defaults.
+Cycles, excessive default depth, nonzero channels/functions/unsafe pointers,
+non-string map keys, and nonzero mutable unexported state are rejected. These
+are configuration-value APIs, not general-purpose copies of arbitrary objects
+such as live handles, locks or runtime services. Hooks' external side effects
+are application-owned and cannot be rolled back.
+
+### Supported mappings and extensions
+
+| SKG value | Go target |
+| --- | --- |
+| Boolean | `bool` or a named boolean type |
+| Integer | Signed/unsigned integer type, checked for range |
+| Integer or float | `float32`/`float64`, exact conversion by default |
+| String | String type, byte slice, or `encoding.TextUnmarshaler` |
+| Null | Pointer, map, slice or `any` |
+| Object | Tagged struct or string-keyed map |
+| Array | Slice or fixed array; fixed lengths must match |
+| Any supported value | Pointer to the supported target |
+| Any value | `skg.Value`, or `any` using maps/slices and scalar Go values |
+
+Byte slices also accept checked integer arrays; string bytes are preserved,
+including non-ASCII text and invalid UTF-8. `any` represents integers as `int64`
+and floats as `float64`, without converting integers through floating point.
+Nonempty interfaces require an application wrapper/custom decoder.
+
+Unknown keys remain ignored unless `RejectUnknownFields` is true.
+`AllowLossyNumbers` explicitly permits floating-point rounding and underflow;
+overflow to infinity remains an error. Integer-to-`float32` conversion rounds
+directly, without an intermediate rounding to `float64`.
+
+A type may implement `DecodeSKG(*skg.DecodeContext, skg.Value) error` on its
+pointer receiver. Use `ctx.Decode(value, &target)` or
+`ctx.DecodeChild(value, key, location, &target)` for ordinary nested conversions.
+`ctx.Fail(code, message)` creates a diagnostic at the current field. A
+`ValidateSKG(*skg.DecodeContext) error` method runs after successful conversion,
+including a custom decoder. Defaults retained for absent fields are copied as
+supplied, not individually re-decoded or revalidated. A containing validation
+hook can check the complete resulting object.
+
+The SKG-specific decoder takes precedence over `encoding.TextUnmarshaler`.
+Go enum-like types use native validation/custom decoding to restrict their
+allowed names; declaring constants on a named string does not impose a
+constraint. See the shared [native conformance profiles](native-conformance.md)
+for an equivalent Go and Zig enum example contract.
+
+Ordinary hook errors are wrapped as `custom_error` and retain their cause for
+`errors.Is`/`errors.As`. A hook's `DecodeError` retains its classification.
+Recursive hook conversion is bounded at 256 calls. Go pointer indirection has a
+separate 128-step bound. `ctx.Decode` is a low-level hook helper and may modify
+its supplied target on failure; only the top-level loaders provide the result
+and target guarantees above. Application code should not retain a context.
+
+Go values are garbage collected and remain valid independently of the input
+buffer. `DecodeError` exposes `Code`, `FieldPath`, `Source`, `Message` and `Err`.
+Paths and locations follow the Zig diagnostic convention above. A parse error
+has code `parse_error` and preserves its underlying `*ParseError` when available.
+Invalid `Into` target arguments return `*InvalidUnmarshalError`. Allocation
+failure follows Go runtime behavior; it is not a recoverable typed diagnostic.
+
+### Existing Go APIs
+
+`Unmarshal` and `UnmarshalFile` retain their established behavior: absent fields
+keep target values, null can zero a nonnullable target, representable float
+rounding is allowed, unknown fields are ignored, and failure may leave earlier
+target fields changed. Custom native decoding/validation hooks are not invoked.
+These entry points remain useful to existing callers and do not opt into the
+typed loaders' stricter policy implicitly.
+
+`Marshal` encodes structs using the same tags, supports maps, nested slices and
+fixed arrays, and checks integer ranges, finite floats and homogeneous array
+values. It is a value encoder, not an inverse of arbitrary custom decode hooks:
+it does not invoke those hooks or `encoding.TextMarshaler`. Byte slices encode
+as integer arrays; nil slices/maps encode as empty collections, while nil
+pointers/interfaces encode as null. Encoding into a present native struct can
+therefore preserve application data without preserving every null/absence or
+custom-type distinction. Use the AST APIs when those distinctions are required.

@@ -73,6 +73,7 @@ type Array struct {
 
 // Field is a key-value pair: `key: value`
 type Field struct {
+	Path  string // Source provenance; empty for programmatically built values.
 	Key   string
 	Value Value
 	Line  int
@@ -81,7 +82,8 @@ type Field struct {
 
 // Block is a named scope: `name { children... }`
 type Block struct {
-	Replace  bool // @replace: do not inherit children from an earlier value
+	Path     string // Source provenance; empty for programmatically built values.
+	Replace  bool   // @replace: do not inherit children from an earlier value
 	Name     string
 	Children []Node
 	Line     int
@@ -91,6 +93,7 @@ type Block struct {
 // BlockArray is a named list of blocks: `name [ { ... } { ... } ]`
 // Each item is an object or null value.
 type BlockArray struct {
+	Path  string // Source provenance; empty for programmatically built values.
 	Name  string
 	Items []Value
 	Line  int
@@ -99,6 +102,7 @@ type BlockArray struct {
 
 // Delete records @delete key until the overlay is materialized.
 type Delete struct {
+	Path string // Source provenance; empty for programmatically built values.
 	Key  string
 	Line int
 	Col  int
@@ -121,6 +125,7 @@ type Position struct {
 
 // File is the parsed representation of a single .skg file.
 type File struct {
+	Path          string   // Source provenance; empty for programmatically built values.
 	SKGVersion    *string  // skg_version: "1.0" - nil if absent
 	SchemaVersion *string  // schema_version: "1.0.0" - nil if absent
 	ImportPaths   []string // Raw import path strings

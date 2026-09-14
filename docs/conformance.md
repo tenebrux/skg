@@ -11,6 +11,8 @@ reading `go/` or `zig/`.
 - Language grammar and semantics: [`spec.md`](spec.md).
 - Shared fixtures: [`../testdata/`](../testdata/).
 - Reference implementations: `go/` (Go), `zig/` (Zig).
+- Native type conversion: [`native-conformance.md`](native-conformance.md),
+  with a separate shared corpus that both typed loaders run without skips.
 
 ---
 

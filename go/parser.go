@@ -224,7 +224,7 @@ func (p *parser) parseFile() (*File, error) {
 	children = dedup(children)
 
 	return &File{
-		SKGVersion:      skgVersion,
+		Path: p.path, SKGVersion: skgVersion,
 		SchemaVersion:   schemaVersion,
 		ImportPaths:     importPaths,
 		ImportPositions: importPositions,
@@ -335,6 +335,24 @@ func (p *parser) parseKey() (token, error) {
 }
 
 func (p *parser) parseNode() (Node, error) {
+	node, err := p.parseNodeBody()
+	if err != nil {
+		return Node{}, err
+	}
+	switch {
+	case node.Field != nil:
+		node.Field.Path = p.path
+	case node.Block != nil:
+		node.Block.Path = p.path
+	case node.BlockArray != nil:
+		node.BlockArray.Path = p.path
+	case node.Delete != nil:
+		node.Delete.Path = p.path
+	}
+	return node, nil
+}
+
+func (p *parser) parseNodeBody() (Node, error) {
 	start, err := p.peek()
 	if err != nil {
 		return Node{}, err
