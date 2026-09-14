@@ -17,6 +17,7 @@ const (
 	tokLBracket                  // [
 	tokRBracket                  // ]
 	tokComma                     // ,
+	tokAt                        // @
 	tokEOF
 )
 
@@ -92,6 +93,9 @@ func (l *lexer) next() (token, error) {
 	c := l.src[l.pos]
 
 	switch c {
+	case '@':
+		l.advance()
+		return token{tag: tokAt, text: "@", line: line, col: col}, nil
 	case ':':
 		l.advance()
 		return token{tag: tokColon, text: ":", line: line, col: col}, nil

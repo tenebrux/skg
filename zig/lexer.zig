@@ -81,6 +81,11 @@ pub const Lexer = struct {
         const c = self.src[self.pos];
 
         switch (c) {
+            '@' => {
+                const start = self.pos;
+                _ = self.advance();
+                return Token{ .tag = .at, .text = self.src[start..self.pos], .line = tok_line, .col = tok_col };
+            },
             ':' => {
                 const start = self.pos;
                 _ = self.advance();

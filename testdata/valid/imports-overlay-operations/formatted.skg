@@ -1,0 +1,20 @@
+settings {
+  fresh: 3
+  final: 4
+}
+nullable: null
+
+reborn {
+  new: 2
+}
+
+nested {
+  keep: 2
+}
+
+items [
+  {
+    keep: 1
+  }
+  null
+]

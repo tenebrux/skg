@@ -7,7 +7,8 @@ import (
 	"strings"
 )
 
-// Emit serializes an AST File back to canonical SKG text.
+// Emit serializes an AST File back to canonical SKG text. Unresolved overlays
+// retain operations/imports; resolved files emit standalone final data.
 func Emit(f *File) []byte {
 	var buf strings.Builder
 
@@ -21,7 +22,7 @@ func Emit(f *File) []byte {
 		buf.WriteByte('\n')
 	}
 
-	if len(f.ImportPaths) > 0 {
+	if !f.ImportsResolved && len(f.ImportPaths) > 0 {
 		if len(f.ImportPaths) == 1 {
 			buf.WriteString("import ")
 			writeQuoted(&buf, f.ImportPaths[0])
@@ -46,7 +47,7 @@ func Emit(f *File) []byte {
 		buf.WriteByte('\n')
 	}
 
-	hasHeader := f.SKGVersion != nil || f.SchemaVersion != nil || len(f.ImportPaths) > 0
+	hasHeader := f.SKGVersion != nil || f.SchemaVersion != nil || (!f.ImportsResolved && len(f.ImportPaths) > 0)
 	if hasHeader && len(f.Children) > 0 {
 		buf.WriteByte('\n')
 	}
@@ -57,7 +58,12 @@ func Emit(f *File) []byte {
 
 func emitNodes(buf *strings.Builder, nodes []Node, depth int) {
 	for i, n := range nodes {
-		if n.Field != nil {
+		if n.Delete != nil {
+			writeIndent(buf, depth)
+			buf.WriteString("@delete ")
+			writeKey(buf, n.Delete.Key, depth)
+			buf.WriteByte('\n')
+		} else if n.Field != nil {
 			writeIndent(buf, depth)
 			writeKey(buf, n.Field.Key, depth)
 			buf.WriteString(": ")
@@ -68,6 +74,9 @@ func emitNodes(buf *strings.Builder, nodes []Node, depth int) {
 				buf.WriteByte('\n')
 			}
 			writeIndent(buf, depth)
+			if n.Block.Replace {
+				buf.WriteString("@replace ")
+			}
 			writeKey(buf, n.Block.Name, depth)
 			buf.WriteString(" {\n")
 			emitNodes(buf, n.Block.Children, depth+1)

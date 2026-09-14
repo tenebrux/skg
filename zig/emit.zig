@@ -25,7 +25,7 @@ pub fn emitFile(allocator: std.mem.Allocator, file: ast.File) EmitError![]u8 {
         try w.writeByte('\n');
     }
 
-    if (file.import_paths.len > 0) {
+    if (!file.imports_resolved and file.import_paths.len > 0) {
         if (file.import_paths.len == 1) {
             try w.writeAll("import ");
             try writeQuoted(w, file.import_paths[0]);
@@ -48,7 +48,7 @@ pub fn emitFile(allocator: std.mem.Allocator, file: ast.File) EmitError![]u8 {
         try w.writeByte('\n');
     }
 
-    if ((file.skg_version != null or file.schema_version != null or file.import_paths.len > 0) and file.children.len > 0) {
+    if ((file.skg_version != null or file.schema_version != null or (!file.imports_resolved and file.import_paths.len > 0)) and file.children.len > 0) {
         try w.writeByte('\n');
     }
 
@@ -63,6 +63,14 @@ pub fn emitFile(allocator: std.mem.Allocator, file: ast.File) EmitError![]u8 {
 fn emitNodes(w: anytype, nodes: []const ast.Node, depth: usize) EmitError!void {
     for (nodes, 0..) |node, i| {
         switch (node) {
+            .delete => |d| {
+                try emitCommentLines(w, d.leading_comments, depth);
+                try writeIndent(w, depth);
+                try w.writeAll("@delete ");
+                try writeKey(w, d.key, depth);
+                if (d.trailing_comment) |tc| try w.print(" {s}", .{tc});
+                try w.writeByte('\n');
+            },
             .field => |f| {
                 try emitCommentLines(w, f.leading_comments, depth);
                 try writeIndent(w, depth);
@@ -78,6 +86,7 @@ fn emitNodes(w: anytype, nodes: []const ast.Node, depth: usize) EmitError!void {
                 if (i > 0 and depth == 0) try w.writeByte('\n');
                 try emitCommentLines(w, b.leading_comments, depth);
                 try writeIndent(w, depth);
+                if (b.replace) try w.writeAll("@replace ");
                 try writeKey(w, b.name, depth);
                 try w.writeAll(" {\n");
                 try emitNodes(w, b.children, depth + 1);

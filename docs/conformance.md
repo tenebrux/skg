@@ -138,6 +138,17 @@ object elements reports `UNTERMINATED_BLOCK_ARRAY`. Other arrays report
 `UNTERMINATED_ARRAY`. An unterminated object reports `UNTERMINATED_BLOCK`,
 including inside a nested value array.
 
+### Overlay diagnostics
+
+| Code | Raised when |
+| --- | --- |
+| `UNKNOWN_OVERLAY_OPERATION` | An identifier other than `delete` or `replace` follows `@`; reported at that identifier. |
+| `EXPECTED_REPLACEMENT_BLOCK` | The key after `@replace` is not followed by `{`; reported at the unexpected token. |
+
+An operation missing its name or key uses `EXPECTED_IDENT`. Operations in a
+value position use `EXPECTED_VALUE`. Prefixes do not add nesting depth; object
+bodies do. Unknown ordinary identifiers remain data keys.
+
 ### Header directives
 
 | Code                       | Raised when                                                     |
@@ -277,8 +288,9 @@ Node objects:
 
 | `type`        | Required keys | Optional keys                                                    |
 | ------------- | ------------- | ------------------------------------------------------------------ |
+| `delete`      | `key`         | `leading_comments`, `trailing_comment` |
 | `field`       | `key`         | `value`, `leading_comments`, `trailing_comment`                     |
-| `block`       | `name`        | `children`, `leading_comments`, `trailing_comments`                 |
+| `block`       | `name`        | `children`, `replace` (boolean), `leading_comments`, `trailing_comments`                 |
 | `block_array` | `name`        | `items`, `leading_comments`, `trailing_comments`                    |
 
 `items` is an array of node arrays or JSON nulls: an inner array denotes an
@@ -517,10 +529,27 @@ Resolution, merging and cycle detection are file-API behaviour.
 
 ### Merge semantics
 
-One namespace covers fields, blocks and block arrays; the merge key is the field
+Raw byte fixtures assert composed overlays: `delete` nodes and a block's
+optional `replace` boolean. Directory fixtures assert final values after all
+imports; deletion markers are absent and replacement flags are false.
+A runner must compare these markers when asserted. Final emission omits
+active import statements for resolved files even though expected `imports`
+still asserts their metadata.
+
+Overlay operations must survive transitive and cached imports. Preserve
+replacement barriers when a scalar, null or deletion precedes a block; simply
+keeping the last block can resurrect earlier children. Compose all imports
+and local instructions, then finalize once. Shared fixtures cover operation-only
+imports, repeated imports, null versus absence, rebuilding deleted objects,
+nested deletion and empty replacement. See the spec's explicit overlay section.
+
+One namespace covers fields, blocks, block arrays and deletion operations; the merge key is the field
 key or the block/block-array name.
 
 - Overlaying a **block** onto a **block** merges their children recursively.
+- A block marked `replace: true` replaces the base object without inheriting
+  children. A later ordinary block may extend it while preserving the marker.
+- A deletion overrides any prior value with a retained tombstone until finalization.
 - Any other collision replaces the base node wholesale. In particular a block
   array replaces the previous value entirely - entries are never merged
   element-wise.
@@ -577,7 +606,7 @@ Work through this in order. Each step is checkable against the suite.
 ### Required
 
 - [ ] **Lexer.** Tokens: identifier, int, float, string (`"..."` and `"""..."""`),
-      `:` `{` `}` `[` `]` `,`, comment, EOF. Identifiers are `[A-Za-z_][A-Za-z0-9_]*`;
+      `:` `{` `}` `[` `]` `,` `@`, comment, EOF. Identifiers are `[A-Za-z_][A-Za-z0-9_]*`;
       `true`, `false` and `null` lex as value literals, never identifiers.
       A number is a float only when it has a `.`; `13` is an int, `13.0` is a float.
       `-` starts a number only when a digit follows. Reject `13.` and a redundant

@@ -604,3 +604,21 @@ test "structured values retain object and array closing comments" {
     defer testing.allocator.free(text2);
     try testing.expectEqualStrings(text, text2);
 }
+
+test "overlay materialization preserves source instructions and clears nested markers" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const base = try parser.parseSource(a, "x { inherited: 1 }", "base.skg", null);
+    const ops = try parser.parseSource(a, "@delete x x { @delete gone fresh: 2 } @delete absent", "ops.skg", null);
+    const before = try emit_mod.emitFile(a, ops);
+    const composed = try merge.mergeNodes(a, base.children, ops.children);
+    const final = try merge.materializeNodes(a, composed);
+    try testing.expectEqual(@as(usize, 1), final.len);
+    try testing.expect(!final[0].block.replace);
+    try testing.expectEqual(@as(usize, 1), final[0].block.children.len);
+    try testing.expectEqualStrings("fresh", final[0].block.children[0].field.key);
+    try testing.expectEqualStrings(before, try emit_mod.emitFile(a, ops));
+    try testing.expect(composed[0].block.replace);
+    try testing.expectEqual(@as(usize, 2), composed[0].block.children.len);
+}

@@ -124,6 +124,14 @@
     {
       "code": "UNKNOWN",
       "summary": "Fallback for a diagnostic that reached the caller without a code. Never valid in a fixture - its appearance is a parser bug."
+    },
+    {
+      "code": "UNKNOWN_OVERLAY_OPERATION",
+      "summary": "An unknown operation name follows @."
+    },
+    {
+      "code": "EXPECTED_REPLACEMENT_BLOCK",
+      "summary": "@replace requires a key followed by an object body in braces."
     }
   ]
 }

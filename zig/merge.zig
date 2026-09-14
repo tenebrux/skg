@@ -9,7 +9,8 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ast = @import("ast.zig");
 
-/// Merge `overlay` nodes on top of `base`, returning a new owned slice.
+/// Compose overlays, retaining deletion/replacement markers through imports.
+/// Call materializeNodes once after the final merge to obtain final data.
 ///
 /// - Fields with the same key: overlay wins.
 /// - Blocks with the same name: children merged recursively, overlay children win.
@@ -20,6 +21,7 @@ const ast = @import("ast.zig");
 pub fn mergeNodes(allocator: Allocator, base: []const ast.Node, overlay: []const ast.Node) ![]ast.Node {
     var result: std.ArrayListUnmanaged(ast.Node) = .empty;
     var index = std.StringHashMapUnmanaged(usize){};
+    defer index.deinit(allocator);
 
     for (base) |node| {
         const key = nodeKey(node);
@@ -32,16 +34,17 @@ pub fn mergeNodes(allocator: Allocator, base: []const ast.Node, overlay: []const
         const key = nodeKey(ov_node);
         if (index.get(key)) |pos| {
             switch (ov_node) {
-                .field => result.items[pos] = ov_node,
+                .delete, .field => result.items[pos] = ov_node,
                 .block => |ov_block| {
                     // Only recursively merge if existing is also a block
-                    if (result.items[pos] == .block) {
+                    if (!ov_block.replace and result.items[pos] == .block) {
                         const existing = result.items[pos].block;
                         // Carry both sides' trivia. Dropping it here meant every
                         // duplicate block lost its comments, and `skg fmt`
                         // rewrites files in place - so the loss was permanent.
                         result.items[pos] = ast.Node{ .block = .{
                             .name = existing.name,
+                            .replace = existing.replace,
                             .children = try mergeNodes(allocator, existing.children, ov_block.children),
                             .line = existing.line,
                             .col = existing.col,
@@ -49,7 +52,9 @@ pub fn mergeNodes(allocator: Allocator, base: []const ast.Node, overlay: []const
                             .trailing_comments = try concatComments(allocator, existing.trailing_comments, ov_block.trailing_comments),
                         } };
                     } else {
-                        result.items[pos] = ov_node;
+                        var replacement = ov_block;
+                        replacement.replace = true;
+                        result.items[pos] = .{ .block = replacement };
                     }
                 },
                 .block_array => result.items[pos] = ov_node,
@@ -90,8 +95,60 @@ fn concatComments(
 
 fn nodeKey(node: ast.Node) []const u8 {
     return switch (node) {
+        .delete => |d| d.key,
         .field => |f| f.key,
         .block => |b| b.name,
         .block_array => |ba| ba.name,
+    };
+}
+
+/// Finish a composed overlay against an empty base without mutating its inputs.
+/// Allocate in an arena, like parse/merge: the result shares string/trivia slices.
+pub fn materializeNodes(allocator: Allocator, nodes: []const ast.Node) Allocator.Error![]ast.Node {
+    var out: std.ArrayListUnmanaged(ast.Node) = .empty;
+    for (nodes) |node| {
+        const value: ast.Node = switch (node) {
+            .delete => continue,
+            .field => |f| blk: {
+                var copy = f;
+                copy.value = try materializeValue(allocator, f.value);
+                break :blk .{ .field = copy };
+            },
+            .block => |b| blk: {
+                var copy = b;
+                copy.replace = false;
+                copy.children = try materializeNodes(allocator, b.children);
+                break :blk .{ .block = copy };
+            },
+            .block_array => |b| blk: {
+                var copy = b;
+                copy.items = try materializeItems(allocator, b.items);
+                break :blk .{ .block_array = copy };
+            },
+        };
+        try out.append(allocator, value);
+    }
+    return out.toOwnedSlice(allocator);
+}
+
+fn materializeItems(allocator: Allocator, items: []const ast.Value) Allocator.Error![]ast.Value {
+    const out = try allocator.alloc(ast.Value, items.len);
+    for (items, 0..) |v, i| out[i] = try materializeValue(allocator, v);
+    return out;
+}
+
+fn materializeValue(allocator: Allocator, value: ast.Value) Allocator.Error!ast.Value {
+    return switch (value) {
+        .object => |o| blk: {
+            var copy = o;
+            copy.children = try materializeNodes(allocator, o.children);
+            break :blk .{ .object = copy };
+        },
+        .array => |a| blk: {
+            var copy = a;
+            copy.items = try materializeItems(allocator, a.items);
+            break :blk .{ .array = copy };
+        },
+        else => value,
     };
 }

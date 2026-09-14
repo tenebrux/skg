@@ -26,12 +26,18 @@ module.exports = grammar({
     document: $ => repeat($._statement),
 
     _statement: $ => choice(
+      $.overlay_operation,
       $.import,
       $.block_array,
       $.scalar_array_field,
       $.block,
       $.pair,
     ),
+
+    overlay_operation: $ => seq('@', choice(
+      seq('delete', field('key', $._key)),
+      seq('replace', field('key', $._key), field('value', $.object)),
+    )),
 
     // import "./foo.skg"   |   import [ "./a.skg", "./b.skg" ]
     import: $ => seq(

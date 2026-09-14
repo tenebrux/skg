@@ -72,7 +72,14 @@ type importResolver struct {
 // imported.
 func resolveImports(path string) (*File, error) {
 	r := &importResolver{visited: make(map[string]bool), done: make(map[string]resolvedImport)}
-	return r.load(path, nil)
+	file, err := r.load(path, nil)
+	if err != nil {
+		return nil, err
+	}
+	result := *file
+	result.Children = MaterializeNodes(file.Children)
+	result.ImportsResolved = true
+	return &result, nil
 }
 
 // load reads, parses and resolves one file. from is nil for the file the caller

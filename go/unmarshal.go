@@ -5,7 +5,7 @@ import (
 	"reflect"
 )
 
-// Unmarshal parses SKG source bytes and decodes into a Go struct.
+// Unmarshal parses and materializes SKG source bytes, then decodes native values.
 // The target must be a pointer to a struct. Fields are matched via `skg:"name"` tags.
 //
 // Like Parse, Unmarshal never touches the filesystem: `import` statements are
@@ -19,7 +19,7 @@ func Unmarshal(data []byte, v interface{}) error {
 	if err != nil {
 		return err
 	}
-	return decodeNodes(file.Children, reflect.ValueOf(v))
+	return decodeNodes(MaterializeNodes(file.Children), reflect.ValueOf(v))
 }
 
 // UnmarshalFile reads an SKG file from disk and decodes into a Go struct,

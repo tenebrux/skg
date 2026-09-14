@@ -1,0 +1,46 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [
+    "base.skg",
+    "parent.skg"
+  ],
+  "children": [
+    {
+      "type": "block",
+      "name": "section",
+      "replace": false,
+      "children": [
+        {
+          "type": "field",
+          "key": "fresh",
+          "value": {
+            "type": "int",
+            "data": 9
+          }
+        }
+      ]
+    },
+    {
+      "type": "block",
+      "name": "type_reset",
+      "replace": false,
+      "children": [
+        {
+          "type": "field",
+          "key": "fresh",
+          "value": {
+            "type": "int",
+            "data": 2
+          }
+        }
+      ]
+    },
+    {
+      "type": "block",
+      "name": "empty",
+      "replace": false,
+      "children": []
+    }
+  ]
+}

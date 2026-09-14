@@ -37,6 +37,8 @@ pub const ErrorCode = enum {
     MIXED_ARRAY_TYPES,
     INVALID_INT,
     INVALID_FLOAT,
+    UNKNOWN_OVERLAY_OPERATION,
+    EXPECTED_REPLACEMENT_BLOCK,
 
     // Header directives.
     DUPLICATE_SKG_VERSION,
@@ -116,6 +118,7 @@ pub const Field = struct {
 
 /// A named scope: `name { children... }`
 pub const Block = struct {
+    replace: bool = false,
     name: []const u8, // slice into source
     children: []Node,
     line: u32,
@@ -135,7 +138,16 @@ pub const BlockArray = struct {
     trailing_comments: []const []const u8 = &.{},
 };
 
+pub const Delete = struct {
+    key: []const u8,
+    line: u32,
+    col: u32,
+    leading_comments: []const []const u8 = &.{},
+    trailing_comment: ?[]const u8 = null,
+};
+
 pub const Node = union(enum) {
+    delete: Delete,
     field: Field,
     block: Block,
     block_array: BlockArray,
@@ -144,6 +156,8 @@ pub const Node = union(enum) {
 /// The parsed representation of a single .skg file.
 /// Does not include resolved imports - see root.zig for that.
 pub const File = struct {
+    /// Imports are metadata only after finalization; emit produces standalone data.
+    imports_resolved: bool = false,
     /// `skg_version: "1.0"` - unescaped, null if absent. Allocated from parse arena.
     skg_version: ?[]const u8,
     /// `schema_version: "1.0.0"` - unescaped, null if absent. Allocated from parse arena.

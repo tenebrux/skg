@@ -335,6 +335,13 @@ func (p *parser) parseKey() (token, error) {
 }
 
 func (p *parser) parseNode() (Node, error) {
+	start, err := p.peek()
+	if err != nil {
+		return Node{}, err
+	}
+	if start.tag == tokAt {
+		return p.parseOperation()
+	}
 	nameTok, err := p.parseKey()
 	if err != nil {
 		return Node{}, err
@@ -375,6 +382,39 @@ func (p *parser) parseNode() (Node, error) {
 		return valueNode(nameTok, value), nil
 	}
 	return Node{}, &ParseError{Diag: Diagnostic{Code: CodeExpectedNodeBody, Path: p.path, Line: nt.line, Col: nt.col, Message: "expected ':', '{', or '[' after key"}}
+}
+
+func (p *parser) parseOperation() (Node, error) {
+	p.consume() // @
+	op, err := p.expect(tokIdent)
+	if err != nil {
+		return Node{}, err
+	}
+	if op.text != "delete" && op.text != "replace" {
+		return Node{}, &ParseError{Diag: Diagnostic{Code: CodeUnknownOverlayOperation, Path: p.path, Line: op.line, Col: op.col, Message: "unknown overlay operation"}}
+	}
+	key, err := p.parseKey()
+	if err != nil {
+		return Node{}, err
+	}
+	if op.text == "delete" {
+		return Node{Delete: &Delete{Key: key.text, Line: key.line, Col: key.col}}, nil
+	}
+	open, err := p.peek()
+	if err != nil {
+		return Node{}, err
+	}
+	if open.tag != tokLBrace {
+		return Node{}, &ParseError{Diag: Diagnostic{Code: CodeExpectedReplacementBlock, Path: p.path, Line: open.line, Col: open.col, Message: "@replace requires an object body in braces"}}
+	}
+	p.consume()
+	value, err := p.parseObject(open)
+	if err != nil {
+		return Node{}, err
+	}
+	node := valueNode(key, value)
+	node.Block.Replace = true
+	return node, nil
 }
 
 // Normalize named structured values to SKG's block syntax.
@@ -551,7 +591,8 @@ func dedup(nodes []Node) []Node {
 	return MergeNodes(nil, nodes)
 }
 
-// Parse parses SKG source bytes into an AST File.
+// Parse parses SKG source bytes into a composed overlay AST File.
+// Deletion/replacement markers remain until MaterializeNodes or file loading.
 //
 // Parse does not touch the filesystem. Any `import` statement is recorded in
 // File.ImportPaths and nothing is loaded - see ParseSource for why, and use

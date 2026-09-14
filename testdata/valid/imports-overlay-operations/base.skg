@@ -1,0 +1,5 @@
+settings { old: 1 stale: 2 }
+removed: "secret"
+nullable: "before"
+reborn { old: 1 }
+nested { drop: 1 keep: 2 }

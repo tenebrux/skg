@@ -177,6 +177,66 @@ cannot see - a symlink loop, say - exhausting the stack.
 
 ---
 
+## Explicit overlay operations
+
+`@delete key` removes a key, and `@replace key { ... }` replaces an entire
+object. The `@` prefix keeps ordinary `delete` and `replace` keys available.
+
+```
+import "defaults.skg"
+
+@delete legacy_mode
+@replace routes {}
+server {
+  @delete old_port
+  @replace headers { "Content-Type": "application/json" }
+}
+```
+
+Keys use the same bare or quoted spelling as ordinary fields. They address one
+literal key in the current object: `@delete "a.b"` deletes the key `a.b`, not
+a nested path. Use nested blocks to target nested keys. A nested block still creates its
+object when absent, even if its only child operation deletes an absent key.
+Operations are body
+statements; header directives must still precede them.
+
+- Deleting an absent key is valid. Deletion is distinct from assigning null:
+  null remains a present value, whereas a deleted key is absent.
+- Replacement requires an object body in braces, without a colon. It discards
+  all inherited children whether the prior value is an object, another type,
+  or absent. An empty body clears the object.
+- Ordinary blocks continue to merge recursively. Later blocks can add to an
+  earlier replacement. Scalars and arrays already replace wholesale and do
+  not need a separate replacement operation.
+- Operations apply in source order within a scope, after imports in declared
+  order. Arrays contain independent values; their objects can contain local
+  operations, but no operation addresses an array index or another entry.
+- A deletion or scalar followed by an object is also a replacement boundary.
+  For example, `x: null x { fresh: 1 }` must not resurrect old children of
+  `x` from an earlier import.
+
+Parsing and loading are separate contracts. Byte parsing composes the local
+body as an **unresolved overlay**, retaining delete markers and replacement
+flags. Formatting that overlay preserves its effect when imported elsewhere.
+A composed overlay keeps the first occurrence's key position, including delete
+markers. Finalization removes deleted positions and clears replacement flags.
+
+`MergeNodes` (Go) and `merge.mergeNodes` (Zig) compose overlays without
+finalizing. Compose all layers first, then call `MaterializeNodes` /
+`merge.materializeNodes` to obtain ordinary data. These functions do not
+mutate their inputs. A finalized tree is data, not reusable operation history.
+The file-loading APIs finalize once after all imports; Go `Unmarshal`
+finalizes its local body without loading imports.
+
+A resolved file retains import paths as diagnostic metadata and sets
+`ImportsResolved` (Go) / `imports_resolved` (Zig). Emitting that file writes
+**standalone final data without import statements**. Keeping imports active
+after removing delete markers could recreate deleted values on the next load.
+To format an original source while preserving its imports and operations, use
+the byte-parsing API, as `skg fmt` does.
+
+---
+
 ## Value Types
 
 There are five scalar value types and two collection types (arrays and objects). The type is determined by syntax - no type annotations.
@@ -504,8 +564,9 @@ The parser produces a tree of nodes. Each node is one of:
 | Node         | Contents                                                 |
 | ------------ | -------------------------------------------------------- |
 | `File`       | skg_version, imports, schema_version, children, comments |
-| `Block`      | name, children, comments                                 |
+| `Block`      | name, children, replace flag, comments                                 |
 | `BlockArray` | name, items (each item is an object or null value), comments  |
+| `Delete`     | key, comments; retained until finalization                |
 | `Field`      | key, value, comments                                     |
 | `Value`      | type (Int/Float/Bool/String/Null/Array/Object), data            |
 

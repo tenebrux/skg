@@ -10,7 +10,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const parser = @import("parser.zig");
-const merge = @import("merge.zig");
+pub const merge = @import("merge.zig");
 
 pub const ast = @import("ast.zig");
 pub const emit = @import("emit.zig");
@@ -18,6 +18,7 @@ pub const File = ast.File;
 pub const Node = ast.Node;
 pub const Block = ast.Block;
 pub const Field = ast.Field;
+pub const Delete = ast.Delete;
 pub const Value = ast.Value;
 pub const ValueType = ast.ValueType;
 pub const Array = ast.Array;
@@ -74,10 +75,14 @@ pub fn parse(backing: Allocator, path: []const u8) ParseResult {
     const file = resolver.load(canonical, null) catch {
         return ParseResult{ .arena = arena, .diagnostic = diag };
     };
-    return ParseResult{ .arena = arena, .file = file.file };
+    var result = file.file;
+    result.children = merge.materializeNodes(alloc, result.children) catch return .{ .arena = arena };
+    result.imports_resolved = true;
+    return ParseResult{ .arena = arena, .file = result };
 }
 
-/// Parse SKG source from a string. No import resolution.
+/// Parse SKG source into a composed overlay. No import resolution.
+/// Operations remain until merge.materializeNodes or file loading.
 /// Copies the source and path into the result arena; callers may release them.
 /// On parse failure, returns a ParseResult with `file = null` and a diagnostic.
 pub fn parseSource(backing: Allocator, src: []const u8, path: []const u8) ParseResult {

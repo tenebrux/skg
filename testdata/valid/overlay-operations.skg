@@ -1,0 +1,10 @@
+keep: null
+@delete absent
+obj { a: 1 b: 2 }
+@replace obj { c: 3 @delete absentChild }
+obj { d: 4 }
+@delete restore
+restore { ok: true }
+@delete "import"
+delete: 1
+replace: 2

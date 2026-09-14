@@ -1,0 +1,3 @@
+import "ops.skg"
+section { fresh: 9 }
+type_reset { fresh: 2 }

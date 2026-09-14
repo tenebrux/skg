@@ -30,6 +30,8 @@ pub const ParseError = LexError || error{
     DirectiveAfterBody,
     OutOfMemory,
     FileTooLarge,
+    UnknownOverlayOperation,
+    ExpectedReplacementBlock,
 };
 
 /// The highest skg_version this parser supports.
@@ -363,6 +365,7 @@ const Parser = struct {
     /// drain them before consuming the key.
     fn parseNode(self: *Parser) ParseError!ast.Node {
         const leading = try self.drainComments();
+        if ((try self.peek()).tag == .at) return self.parseOperation(leading);
         const name_tok = try self.parseKey();
         const nt = try self.peek();
 
@@ -407,6 +410,29 @@ const Parser = struct {
             .leading_comments = leading,
             .trailing_comment = trailing,
         } };
+    }
+
+    fn parseOperation(self: *Parser, leading: []const []const u8) ParseError!ast.Node {
+        _ = try self.consume(); // @
+        const op = try self.expect(.ident);
+        const deleting = std.mem.eql(u8, op.text, "delete");
+        if (!deleting and !std.mem.eql(u8, op.text, "replace")) {
+            self.setDiagnostic(op.line, op.col, .UNKNOWN_OVERLAY_OPERATION, "unknown overlay operation");
+            return error.UnknownOverlayOperation;
+        }
+        const key = try self.parseKey();
+        if (deleting) {
+            const trailing = try self.tryTrailingComment(self.lexer.line);
+            return .{ .delete = .{ .key = key.text, .line = key.line, .col = key.col, .leading_comments = leading, .trailing_comment = trailing } };
+        }
+        const open = try self.peek();
+        if (open.tag != .lbrace) {
+            self.setDiagnostic(open.line, open.col, .EXPECTED_REPLACEMENT_BLOCK, "@replace requires an object body in braces");
+            return error.ExpectedReplacementBlock;
+        }
+        _ = try self.consume();
+        const value = try self.parseObject(open);
+        return .{ .block = .{ .name = key.text, .children = value.object.children, .replace = true, .line = key.line, .col = key.col, .leading_comments = leading, .trailing_comments = value.object.trailing_comments } };
     }
 
     fn parseObject(self: *Parser, open: Token) ParseError!ast.Value {

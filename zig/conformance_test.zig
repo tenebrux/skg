@@ -329,8 +329,9 @@ const SchemaReport = struct {
 
 const root_valid_keys = [_][]const u8{ "skg_version", "schema_version", "imports", "children", "leading_comments", "trailing_comments" };
 const root_invalid_keys = [_][]const u8{ "error", "code", "line", "col" };
+const delete_node_keys = [_][]const u8{ "type", "key", "leading_comments", "trailing_comment" };
 const field_node_keys = [_][]const u8{ "type", "key", "value", "leading_comments", "trailing_comment" };
-const block_node_keys = [_][]const u8{ "type", "name", "children", "leading_comments", "trailing_comments" };
+const block_node_keys = [_][]const u8{ "type", "name", "children", "replace", "leading_comments", "trailing_comments" };
 const block_array_node_keys = [_][]const u8{ "type", "name", "items", "leading_comments", "trailing_comments" };
 const scalar_value_keys = [_][]const u8{ "type", "data" };
 const array_value_keys = [_][]const u8{ "type", "data", "element_type" };
@@ -431,8 +432,8 @@ fn validateNodes(ctx: []const u8, json: std.json.Value, rep: *SchemaReport) anye
             return error.BadExpectedJson;
         };
 
-        if (std.mem.eql(u8, node_type, "field")) {
-            try checkKeys(ctx, obj, &field_node_keys);
+        if (std.mem.eql(u8, node_type, "field") or std.mem.eql(u8, node_type, "delete")) {
+            try checkKeys(ctx, obj, if (std.mem.eql(u8, node_type, "delete")) &delete_node_keys else &field_node_keys);
             const key_json = obj.get("key") orelse {
                 std.debug.print("{s}: a field node requires a string \"key\"\n", .{ctx});
                 return error.BadExpectedJson;
@@ -465,6 +466,9 @@ fn validateNodes(ctx: []const u8, json: std.json.Value, rep: *SchemaReport) anye
                 return error.BadExpectedJson;
             }
             if (is_block) {
+                if (obj.get("replace")) |v| {
+                    if (expectJsonBool(v) == null) return error.BadExpectedJson;
+                }
                 if (obj.get("children")) |v| {
                     try validateNodes(ctx, v, rep);
                 }
@@ -487,7 +491,7 @@ fn validateNodes(ctx: []const u8, json: std.json.Value, rep: *SchemaReport) anye
                 try checkStringArray(ctx, v);
             }
         } else {
-            std.debug.print("{s}: \"{s}\" is not one of field, block, block_array\n", .{ ctx, node_type });
+            std.debug.print("{s}: \"{s}\" is not one of field, block, block_array, delete\n", .{ ctx, node_type });
             return error.BadExpectedJson;
         }
     }
@@ -671,7 +675,13 @@ fn compareNodes(expected_children: []std.json.Value, actual_children: []const as
         const child_obj = expectJsonObject(child_json) orelse return error.BadChild;
         const node_type = expectJsonString(child_obj.get("type") orelse return error.MissingNodeType) orelse return error.BadNodeType;
 
-        if (std.mem.eql(u8, node_type, "field")) {
+        if (std.mem.eql(u8, node_type, "delete")) {
+            const actual = actual_children[i];
+            try testing.expect(actual == .delete);
+            try testing.expectEqualStrings(expectJsonString(child_obj.get("key") orelse return error.MissingKey) orelse return error.BadKey, actual.delete.key);
+            if (child_obj.get("leading_comments")) |v| try compareComments(v, actual.delete.leading_comments);
+            if (child_obj.get("trailing_comment")) |v| try compareTrailingComment(v, actual.delete.trailing_comment);
+        } else if (std.mem.eql(u8, node_type, "field")) {
             const actual = actual_children[i];
             try testing.expect(actual == .field);
             const expected_key = expectJsonString(child_obj.get("key") orelse return error.MissingKey) orelse return error.BadKey;
@@ -692,6 +702,7 @@ fn compareNodes(expected_children: []std.json.Value, actual_children: []const as
             try testing.expect(actual == .block);
             const expected_name = expectJsonString(child_obj.get("name") orelse return error.MissingName) orelse return error.BadName;
             try testing.expectEqualStrings(expected_name, actual.block.name);
+            if (child_obj.get("replace")) |v| try testing.expectEqual(expectJsonBool(v) orelse return error.BadExpectedJson, actual.block.replace);
 
             if (child_obj.get("children")) |children_json| {
                 const nested = expectJsonArray(children_json) orelse return error.BadChildren;

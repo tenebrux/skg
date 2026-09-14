@@ -259,8 +259,9 @@ type schemaReport struct {
 var (
 	rootValidKeys      = []string{"skg_version", "schema_version", "imports", "children", "leading_comments", "trailing_comments"}
 	rootInvalidKeys    = []string{"error", "code", "line", "col"}
+	deleteNodeKeys     = []string{"type", "key", "leading_comments", "trailing_comment"}
 	fieldNodeKeys      = []string{"type", "key", "value", "leading_comments", "trailing_comment"}
-	blockNodeKeys      = []string{"type", "name", "children", "leading_comments", "trailing_comments"}
+	blockNodeKeys      = []string{"type", "name", "children", "replace", "leading_comments", "trailing_comments"}
 	blockArrayNodeKeys = []string{"type", "name", "items", "leading_comments", "trailing_comments"}
 	scalarValueKeys    = []string{"type", "data"}
 	arrayValueKeys     = []string{"type", "data", "element_type"}
@@ -375,11 +376,15 @@ func validateNodes(path string, v any, rep *schemaReport) error {
 		}
 		typ, ok := obj["type"].(string)
 		if !ok {
-			return failAt(p, "\"type\" is required and must be one of field, block, block_array")
+			return failAt(p, "\"type\" is required and must be one of field, block, block_array, delete")
 		}
 		switch typ {
-		case "field":
-			if err := checkKeys(p, obj, fieldNodeKeys); err != nil {
+		case "field", "delete":
+			allowed := fieldNodeKeys
+			if typ == "delete" {
+				allowed = deleteNodeKeys
+			}
+			if err := checkKeys(p, obj, allowed); err != nil {
 				return err
 			}
 			if _, ok := obj["key"].(string); !ok {
@@ -414,6 +419,11 @@ func validateNodes(path string, v any, rep *schemaReport) error {
 				return failAt(p, "a %s node requires a string \"name\"", typ)
 			}
 			if typ == "block" {
+				if v, ok := obj["replace"]; ok {
+					if _, ok := v.(bool); !ok {
+						return failAt(p+".replace", "must be a boolean")
+					}
+				}
 				if v, ok := obj["children"]; ok {
 					if err := validateNodes(p+".children", v, rep); err != nil {
 						return err
@@ -442,7 +452,7 @@ func validateNodes(path string, v any, rep *schemaReport) error {
 				}
 			}
 		default:
-			return failAt(p+".type", "%q is not one of field, block, block_array", typ)
+			return failAt(p+".type", "%q is not one of field, block, block_array, delete", typ)
 		}
 	}
 	return nil
@@ -568,6 +578,7 @@ type expectedFile struct {
 }
 
 type expectedNode struct {
+	Replace  *bool            `json:"replace"`
 	Type     string           `json:"type"`
 	Key      string           `json:"key"`
 	Name     string           `json:"name"`
@@ -822,6 +833,14 @@ func compareNodes(t *testing.T, path string, expected []expectedNode, actual []N
 		prefix := fmt.Sprintf("%s[%d].", path, i)
 
 		switch en.Type {
+		case "delete":
+			if an.Delete == nil {
+				t.Errorf("%sexpected delete", prefix)
+				continue
+			}
+			if an.Delete.Key != en.Key {
+				t.Errorf("%sdelete key: expected %q, got %q", prefix, en.Key, an.Delete.Key)
+			}
 		case "field":
 			if an.Field == nil {
 				t.Errorf("%sexpected field, got block", prefix)
@@ -838,6 +857,9 @@ func compareNodes(t *testing.T, path string, expected []expectedNode, actual []N
 			if an.Block == nil {
 				t.Errorf("%sexpected block, got non-block", prefix)
 				continue
+			}
+			if en.Replace != nil && an.Block.Replace != *en.Replace {
+				t.Errorf("%sreplace: expected %v, got %v", prefix, *en.Replace, an.Block.Replace)
 			}
 			if an.Block.Name != en.Name {
 				t.Errorf("%sname: expected %q, got %q", prefix, en.Name, an.Block.Name)

@@ -81,6 +81,7 @@ type Field struct {
 
 // Block is a named scope: `name { children... }`
 type Block struct {
+	Replace  bool // @replace: do not inherit children from an earlier value
 	Name     string
 	Children []Node
 	Line     int
@@ -96,9 +97,17 @@ type BlockArray struct {
 	Col   int
 }
 
-// Node is either a field, a block, or a block array.
+// Delete records @delete key until the overlay is materialized.
+type Delete struct {
+	Key  string
+	Line int
+	Col  int
+}
+
+// Node is a field, block, block array, or deletion operation.
 type Node struct {
 	// Exactly one is non-nil.
+	Delete     *Delete
 	Field      *Field
 	Block      *Block
 	BlockArray *BlockArray
@@ -123,6 +132,9 @@ type File struct {
 	ImportPositions []Position
 
 	Children []Node
+	// File-loading APIs set this after applying all imports and operations.
+	// Emit omits active imports for a resolved file.
+	ImportsResolved bool
 }
 
 // ErrorCode is a stable, implementation-independent identifier for a parse
@@ -145,20 +157,22 @@ const (
 	CodeInvalidEscape      ErrorCode = "INVALID_ESCAPE"
 
 	// Syntax.
-	CodeExpectedColon          ErrorCode = "EXPECTED_COLON"
-	CodeExpectedRbrace         ErrorCode = "EXPECTED_RBRACE"
-	CodeExpectedRbracket       ErrorCode = "EXPECTED_RBRACKET"
-	CodeExpectedString         ErrorCode = "EXPECTED_STRING"
-	CodeExpectedIdent          ErrorCode = "EXPECTED_IDENT"
-	CodeExpectedValue          ErrorCode = "EXPECTED_VALUE"
-	CodeExpectedNodeBody       ErrorCode = "EXPECTED_NODE_BODY"
-	CodeUnexpectedToken        ErrorCode = "UNEXPECTED_TOKEN"
-	CodeUnterminatedBlock      ErrorCode = "UNTERMINATED_BLOCK"
-	CodeUnterminatedBlockArray ErrorCode = "UNTERMINATED_BLOCK_ARRAY"
-	CodeUnterminatedArray      ErrorCode = "UNTERMINATED_ARRAY"
-	CodeMixedArrayTypes        ErrorCode = "MIXED_ARRAY_TYPES"
-	CodeInvalidInt             ErrorCode = "INVALID_INT"
-	CodeInvalidFloat           ErrorCode = "INVALID_FLOAT"
+	CodeExpectedColon            ErrorCode = "EXPECTED_COLON"
+	CodeExpectedRbrace           ErrorCode = "EXPECTED_RBRACE"
+	CodeExpectedRbracket         ErrorCode = "EXPECTED_RBRACKET"
+	CodeExpectedString           ErrorCode = "EXPECTED_STRING"
+	CodeExpectedIdent            ErrorCode = "EXPECTED_IDENT"
+	CodeExpectedValue            ErrorCode = "EXPECTED_VALUE"
+	CodeExpectedNodeBody         ErrorCode = "EXPECTED_NODE_BODY"
+	CodeUnexpectedToken          ErrorCode = "UNEXPECTED_TOKEN"
+	CodeUnterminatedBlock        ErrorCode = "UNTERMINATED_BLOCK"
+	CodeUnterminatedBlockArray   ErrorCode = "UNTERMINATED_BLOCK_ARRAY"
+	CodeUnterminatedArray        ErrorCode = "UNTERMINATED_ARRAY"
+	CodeMixedArrayTypes          ErrorCode = "MIXED_ARRAY_TYPES"
+	CodeInvalidInt               ErrorCode = "INVALID_INT"
+	CodeInvalidFloat             ErrorCode = "INVALID_FLOAT"
+	CodeUnknownOverlayOperation  ErrorCode = "UNKNOWN_OVERLAY_OPERATION"
+	CodeExpectedReplacementBlock ErrorCode = "EXPECTED_REPLACEMENT_BLOCK"
 
 	// Header directives.
 	CodeDuplicateSKGVersion    ErrorCode = "DUPLICATE_SKG_VERSION"

@@ -1,0 +1,7 @@
+# remove legacy
+@delete legacy # deliberately absent
+@replace "a.b" {
+  @delete old # remove child
+  keep: 1
+  # replacement end
+}
