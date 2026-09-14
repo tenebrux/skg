@@ -375,6 +375,12 @@ Review and add that output as `testdata/contracts/v1.1.json`. Changes to an
 existing V1.0 fixture represent a compatibility-contract change and fail the
 gate visibly.
 
+The shared corpus is supplemented by deterministic generated coverage. Run
+`mise run v1:differential` to require Go and Zig to canonicalize 1,000 sources
+from the same fixed seed byte-for-byte. The scheduled Go fuzz workflow searches
+parser round trips, overlay associativity/materialization, and constrained
+resource resolution independently.
+
 ## 6. Capability manifest
 
 Each implementation declares what it supports in a manifest beside its source:

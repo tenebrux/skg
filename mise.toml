@@ -42,6 +42,10 @@ description = "Run Zig parser tests"
 run = "cd go && go test -race -v ./..."
 description = "Run Go parser tests"
 
+[tasks."v1:differential"]
+run = "zig build && cd go && go run ../tools/differential.go"
+description = "Require Go and Zig to canonicalize 1,000 generated V1 sources identically"
+
 # Mirrors the tree-sitter job in .github/workflows/ci.yml, including the drift
 # check: check:fixtures regenerates src/ before parsing, so a committed
 # parser.c built from an older grammar.js shows up as a dirty tree. Neovim and

@@ -1,10 +1,8 @@
 name: Fuzz
 
-# go/fuzz_test.go's FuzzParse asserts that Parse is total: any input yields a
-# *File or an error, never a panic and never a stack overflow (which recover()
-# cannot catch, which is why MaxNestingDepth exists). Without -fuzz, `go test`
-# runs only the seed corpus, so CI on every push proves nothing about inputs
-# nobody thought of.
+# The targets cover parser totality and canonical output, overlay composition,
+# and bounded import-graph resolution. Without -fuzz, `go test` runs only their
+# seed corpora, so ordinary CI proves nothing about inputs nobody thought of.
 #
 # This runs the fuzzer proper on a schedule instead of on every push: it is a
 # time-boxed search, not a pass/fail gate a contributor can act on in a PR.
@@ -24,8 +22,12 @@ on:
 
 jobs:
   fuzz:
-    name: FuzzParse
+    name: ${{ matrix.target }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [FuzzParse, FuzzMergeComposition, FuzzResolveBudgets]
     defaults:
       run:
         working-directory: go
@@ -38,11 +40,11 @@ jobs:
       - name: Fuzz
         env:
           FUZZ_DURATION: ${{ inputs.duration || '20m' }}
-        run: go test -run '^$' -fuzz=FuzzParse -fuzztime="$FUZZ_DURATION" ./...
+        run: go test -run '^$' -fuzz="^${{ matrix.target }}$" -fuzztime="$FUZZ_DURATION" ./...
       - name: Upload crashers
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: fuzz-crashers
+          name: fuzz-crashers-${{ matrix.target }}
           path: go/testdata/fuzz/
           if-no-files-found: ignore
