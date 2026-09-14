@@ -3,7 +3,7 @@
 /// All string slices in the AST are allocated from the arena passed to the parser.
 /// Free everything by deiniting that arena - do not free individual slices.
 /// The type tag of a Value.
-pub const ValueType = enum { int, float, bool, string, array, null };
+pub const ValueType = enum { int, float, bool, string, array, null, object };
 
 /// Stable, implementation-independent classification of a parse failure.
 ///
@@ -83,9 +83,16 @@ pub const Diagnostic = struct {
 pub const Array = struct {
     element_type: ValueType,
     items: []Value,
+    trailing_comments: []const []const u8 = &.{},
 };
 
-/// A scalar or array value from a field assignment.
+/// An anonymous block used wherever a value is expected.
+pub const Object = struct {
+    children: []Node,
+    trailing_comments: []const []const u8 = &.{},
+};
+
+/// A scalar, array, or object value from a field assignment.
 pub const Value = union(ValueType) {
     int: i64,
     float: f64,
@@ -94,11 +101,12 @@ pub const Value = union(ValueType) {
     string: []const u8,
     array: Array,
     null: void,
+    object: Object,
 };
 
 /// A key-value pair: `key: value`
 pub const Field = struct {
-    key: []const u8, // slice into source (idents are never escaped)
+    key: []const u8, // decoded key, owned by the parse arena
     value: Value,
     line: u32,
     col: u32,
@@ -117,10 +125,10 @@ pub const Block = struct {
 };
 
 /// A named list of blocks: `name [ { ... } { ... } ]`
-/// Each item is a slice of child nodes representing one block entry.
+/// Each item is an object or null value.
 pub const BlockArray = struct {
     name: []const u8, // slice into source
-    items: [][]Node,
+    items: []Value,
     line: u32,
     col: u32,
     leading_comments: []const []const u8 = &.{},

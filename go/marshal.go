@@ -90,57 +90,29 @@ func encodeMap(rv reflect.Value, depth int) ([]Node, error) {
 }
 
 func encodeNode(key string, rv reflect.Value, depth int) (Node, error) {
-	rv, err := unwrapValue(rv)
-	if err != nil {
-		return Node{}, err
-	}
-	switch rv.Kind() {
-	case reflect.Struct, reflect.Map:
-		children, err := encodeChildren(rv, depth+1)
-		if err != nil {
-			return Node{}, err
-		}
-		return Node{Block: &Block{Name: key, Children: children}}, nil
-	case reflect.Slice:
-		// Empty typed collections still retain their block-array shape.
-		elem := rv.Type().Elem()
-		for indirection := 0; elem.Kind() == reflect.Ptr; indirection++ {
-			if indirection >= MaxNestingDepth {
-				return Node{}, fmt.Errorf("skg: excessive element pointer indirection")
-			}
-			elem = elem.Elem()
-		}
-		blocks := elem.Kind() == reflect.Struct || elem.Kind() == reflect.Map
-		if !blocks && rv.Len() > 0 {
-			first, err := unwrapValue(rv.Index(0))
-			if err != nil {
-				return Node{}, err
-			}
-			blocks = first.Kind() == reflect.Struct || first.Kind() == reflect.Map
-		}
-		if blocks {
-			if err := checkEncodeDepth(depth + 1); err != nil {
-				return Node{}, err
-			}
-			items := make([][]Node, rv.Len())
-			for i := 0; i < rv.Len(); i++ {
-				item, err := unwrapValue(rv.Index(i))
-				if err != nil {
-					return Node{}, err
-				}
-				items[i], err = encodeChildren(item, depth+2)
-				if err != nil {
-					return Node{}, fmt.Errorf("index %d: %w", i, err)
-				}
-			}
-			return Node{BlockArray: &BlockArray{Name: key, Items: items}}, nil
-		}
-	}
 	value, err := encodeValue(rv, depth)
 	if err != nil {
 		return Node{}, err
 	}
-	return Node{Field: &Field{Key: key, Value: value}}, nil
+	node := valueNode(token{text: key}, value)
+	// Preserve the established empty typed object-list spelling.
+	if value.Type == TypeArray && value.Array != nil && len(value.Array.Items) == 0 {
+		rv, err = unwrapValue(rv)
+		if err != nil {
+			return Node{}, err
+		}
+		elem := rv.Type().Elem()
+		for i := 0; elem.Kind() == reflect.Ptr; i++ {
+			if i >= MaxNestingDepth {
+				return Node{}, fmt.Errorf("skg: excessive element pointer indirection")
+			}
+			elem = elem.Elem()
+		}
+		if elem.Kind() == reflect.Struct || elem.Kind() == reflect.Map {
+			node = Node{BlockArray: &BlockArray{Name: key, Items: value.Array.Items}}
+		}
+	}
+	return node, nil
 }
 
 func encodeChildren(rv reflect.Value, depth int) ([]Node, error) {
@@ -160,6 +132,12 @@ func encodeValue(rv reflect.Value, depth int) (Value, error) {
 		return Value{}, err
 	}
 	switch rv.Kind() {
+	case reflect.Struct, reflect.Map:
+		children, err := encodeChildren(rv, depth+1)
+		if err != nil {
+			return Value{}, err
+		}
+		return Value{Type: TypeObject, Object: children}, nil
 	case reflect.Invalid:
 		return Value{Type: TypeNull}, nil
 	case reflect.String:

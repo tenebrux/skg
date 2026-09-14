@@ -265,7 +265,7 @@ var (
 	scalarValueKeys    = []string{"type", "data"}
 	arrayValueKeys     = []string{"type", "data", "element_type"}
 
-	valueTypes = []string{"string", "int", "float", "bool", "null", "array"}
+	valueTypes = []string{"string", "int", "float", "bool", "null", "array", "object"}
 )
 
 type schemaError struct {
@@ -386,7 +386,7 @@ func validateNodes(path string, v any, rep *schemaReport) error {
 				return failAt(p, "a field node requires a string \"key\"")
 			}
 			if v, ok := obj["value"]; ok {
-				if err := validateValue(p+".value", v); err != nil {
+				if err := validateValue(p+".value", v, rep); err != nil {
 					return err
 				}
 			}
@@ -422,9 +422,12 @@ func validateNodes(path string, v any, rep *schemaReport) error {
 			} else if v, ok := obj["items"]; ok {
 				items, ok := v.([]any)
 				if !ok {
-					return failAt(p+".items", "must be an array of node arrays")
+					return failAt(p+".items", "must be an array of node arrays or null entries")
 				}
 				for j, it := range items {
+					if it == nil {
+						continue
+					}
 					if err := validateNodes(fmt.Sprintf("%s.items[%d]", p, j), it, rep); err != nil {
 						return err
 					}
@@ -445,7 +448,7 @@ func validateNodes(path string, v any, rep *schemaReport) error {
 	return nil
 }
 
-func validateValue(path string, v any) error {
+func validateValue(path string, v any, rep *schemaReport) error {
 	obj, ok := v.(map[string]any)
 	if !ok {
 		return failAt(path, "must be an object")
@@ -487,6 +490,8 @@ func validateValue(path string, v any) error {
 		if _, ok := data.(bool); !ok {
 			return failAt(path+".data", "must be a boolean")
 		}
+	case "object":
+		return validateNodes(path+".data", data, rep)
 	case "array":
 		et, ok := obj["element_type"]
 		if !ok {
@@ -501,7 +506,7 @@ func validateValue(path string, v any) error {
 			return failAt(path+".data", "must be an array of value objects")
 		}
 		for i, item := range items {
-			if err := validateValue(fmt.Sprintf("%s.data[%d]", path, i), item); err != nil {
+			if err := validateValue(fmt.Sprintf("%s.data[%d]", path, i), item, rep); err != nil {
 				return err
 			}
 		}
@@ -853,7 +858,16 @@ func compareNodes(t *testing.T, path string, expected []expectedNode, actual []N
 			}
 			for j, item := range en.Items {
 				itemPrefix := fmt.Sprintf("%sitems[%d].", prefix, j)
-				compareNodes(t, itemPrefix, item, an.BlockArray.Items[j])
+				actual := an.BlockArray.Items[j]
+				if item == nil {
+					if actual.Type != TypeNull {
+						t.Errorf("%sexpected null", itemPrefix)
+					}
+				} else if actual.Type != TypeObject {
+					t.Errorf("%sexpected object, got %s", itemPrefix, actual.Type)
+				} else {
+					compareNodes(t, itemPrefix, item, actual.Object)
+				}
 			}
 		}
 	}
@@ -874,6 +888,8 @@ func compareValue(t *testing.T, path string, expected expectedValue, actual Valu
 		expectedType = TypeBool
 	case "null":
 		expectedType = TypeNull
+	case "object":
+		expectedType = TypeObject
 	case "array":
 		expectedType = TypeArray
 	default:
@@ -935,6 +951,12 @@ func compareValue(t *testing.T, path string, expected expectedValue, actual Valu
 	case "null":
 		// Nothing to compare.
 
+	case "object":
+		var nodes []expectedNode
+		if err := json.Unmarshal(expected.Data, &nodes); err != nil {
+			t.Fatal(err)
+		}
+		compareNodes(t, path, nodes, actual.Object)
 	case "array":
 		if actual.Array == nil {
 			t.Errorf("%sexpected array data, got nil", path)
@@ -950,6 +972,8 @@ func compareValue(t *testing.T, path string, expected expectedValue, actual Valu
 			expectedElemType = TypeFloat
 		case "bool":
 			expectedElemType = TypeBool
+		case "object":
+			expectedElemType = TypeObject
 		case "array":
 			expectedElemType = TypeArray
 		case "null":
@@ -997,6 +1021,9 @@ func TestExpectedSchemaRejectsUnknownKeys(t *testing.T) {
 		{"bad node type", kindValid, `{"children": [{"type": "feild", "key": "a"}]}`},
 		{"value without data", kindValid, `{"children": [{"type": "field", "key": "a", "value": {"type": "int"}}]}`},
 		{"array without element_type", kindValid, `{"children": [{"type": "field", "key": "a", "value": {"type": "array", "data": []}}]}`},
+		{"object with invalid child", kindValid, `{"children":[{"type":"field","key":"a","value":{"type":"object","data":[{"type":"field","key":"b","misspelled":1}]}}]}`},
+		{"object with non-list data", kindValid, `{"children":[{"type":"field","key":"a","value":{"type":"object","data":null}}]}`},
+		{"invalid block-array item", kindValid, `{"children":[{"type":"block_array","name":"a","items":[42]}]}`},
 		{"null with data", kindValid, `{"children": [{"type": "field", "key": "a", "value": {"type": "null", "data": 1}}]}`},
 	}
 	for _, tc := range cases {
@@ -1011,6 +1038,8 @@ func TestExpectedSchemaRejectsUnknownKeys(t *testing.T) {
 func TestExpectedSchemaDetectsCommentAssertions(t *testing.T) {
 	codes := loadErrorCodes(t)
 	withComments := []string{
+		`{"children":[{"type":"field","key":"a","value":{"type":"array","element_type":"object","data":[{"type":"object","data":[{"type":"field","key":"b","leading_comments":["# nested"]}]}]}}]}`,
+
 		`{"leading_comments": ["# hi"]}`,
 		`{"children": [{"type": "field", "key": "a", "trailing_comment": "# hi"}]}`,
 		`{"children": [{"type": "block", "name": "b", "trailing_comments": ["# hi"]}]}`,

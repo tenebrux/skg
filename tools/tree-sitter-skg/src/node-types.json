@@ -32,6 +32,10 @@
           "named": true
         },
         {
+          "type": "object",
+          "named": true
+        },
+        {
           "type": "string",
           "named": true
         }
@@ -109,6 +113,10 @@
       "types": [
         {
           "type": "block_array_item",
+          "named": true
+        },
+        {
+          "type": "null",
           "named": true
         }
       ]
@@ -197,6 +205,37 @@
     }
   },
   {
+    "type": "object",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "block",
+          "named": true
+        },
+        {
+          "type": "block_array",
+          "named": true
+        },
+        {
+          "type": "import",
+          "named": true
+        },
+        {
+          "type": "pair",
+          "named": true
+        },
+        {
+          "type": "scalar_array_field",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "pair",
     "named": true,
     "fields": {
@@ -240,6 +279,10 @@
           },
           {
             "type": "null",
+            "named": true
+          },
+          {
+            "type": "object",
             "named": true
           },
           {

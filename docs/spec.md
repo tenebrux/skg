@@ -179,7 +179,7 @@ cannot see - a symlink loop, say - exhausting the stack.
 
 ## Value Types
 
-There are five scalar value types and one collection type. The type is determined by syntax - no type annotations.
+There are five scalar value types and two collection types (arrays and objects). The type is determined by syntax - no type annotations.
 
 ### Int
 
@@ -234,7 +234,7 @@ The literal `null` represents an absent value. No quotes.
 background: null
 ```
 
-Null replaces an inherited value with an explicit null; it does not delete the key. Null may also appear in scalar arrays alongside one non-null element type.
+Null replaces an inherited value with an explicit null; it does not delete the key. Null may also appear in arrays alongside one non-null element type, including objects.
 
 ### String
 
@@ -288,7 +288,7 @@ bindings: ["super+1", "super+2", "super+3"]
 sizes: [8.0, 12.0, 16.0]
 ```
 
-Type uniformity is checked one level deep: every non-null element in an array must have the same type tag. For nested arrays, the outer array requires all elements to be arrays, but inner arrays may have different element types:
+Type uniformity is checked one level deep: every non-null element in an array must have the same type tag. For nested arrays, the outer array requires all non-null elements to be arrays, but inner arrays may have different element types:
 
 ```
 # valid - outer elements are both arrays
@@ -347,11 +347,32 @@ Blocks may be empty:
 defaults {}
 ```
 
+### Object values
+
+An object is an anonymous block: `{ key: value nested { ... } }`. Its fields
+use the same key, duplicate and recursive-merge rules as named blocks. It may
+appear anywhere a value is expected, including inside nested arrays:
+
+```
+matrix: [
+  [{ name: "primary" }, null],
+  [{ name: "secondary" }, {}]
+]
+```
+
+Objects use SKG field separators, not JSON object commas. A named object
+`service: { port: 8080 }` is equivalent to `service { port: 8080 }` and
+normalizes to a block. The canonical formatter favors the existing block
+spelling. Duplicate named objects therefore merge recursively regardless of
+whether the colon was written. Arrays replace wholesale; objects in separate
+array positions do not merge with each other. Empty `{}` and `null` are
+distinct values.
+
 ---
 
 ## Block Arrays
 
-A block array is an ordered list of anonymous blocks. The syntax is `name [ { ... } { ... } ]`.
+A block array is an ordered list of anonymous objects, optionally containing null entries. The syntax is `name [ { ... } { ... } ]`.
 
 ```
 users [
@@ -374,9 +395,12 @@ Block arrays are the way to represent ordered collections of structured items - 
 
 When merging (via imports), a block array replaces the entire previous value - items are not merged individually.
 
-Block arrays are distinct from scalar arrays (`[1, 2, 3]`). Scalar arrays appear as field values after a colon. Block arrays appear after a key without a colon, just like blocks.
+Block arrays are the named spelling of arrays whose non-null elements are
+objects. Both `users [ { name: "admin" } null ]` and
+`users: [{ name: "admin" }, null]` parse to the same block-array node.
+The formatter uses the colonless block-array spelling.
 
-A colonless key followed by `[` where the first element is not `{` is treated as a scalar array field:
+A colonless key followed by `[` also supports ordinary value arrays:
 
 ```
 tags ["alpha", "beta"]
@@ -384,17 +408,20 @@ tags ["alpha", "beta"]
 tags: ["alpha", "beta"]
 ```
 
-That choice is made **once, from the first element**. After the first element
-the collection has committed to one kind, and mixing the other kind into it is
-`MIXED_ARRAY_TYPES` - the same rule that forbids `[1, "two"]`:
+The **first non-null element** determines the outer element type. Every later
+non-null element must match it. Null entries preserve their positions and do
+not permit incompatible non-null types:
 
 ```
-# invalid - a block array cannot hold a scalar
-users [ { name: "admin" } 99 ]
+users [null { name: "admin" } null]  # valid
 
-# invalid - a scalar array cannot hold a block
-tags [ "alpha" { name: "beta" } ]
+users [ { name: "admin" } 99 ]      # invalid: object and int
+tags [ "alpha" { name: "beta" } ]   # invalid: string and object
 ```
+
+An all-null list is a value array with element type `null`; it has no inferred
+object type. The destination native schema may still decode it into a list of
+optional records.
 
 ### The empty case
 
@@ -413,7 +440,7 @@ Empty blocks are written `defaults {}`.
 
 ## Fields
 
-A field is a key-value pair. The key is a bare identifier or an ordinary double-quoted string. The value is one of the scalar types or an array.
+A field is a key-value pair. The key is a bare identifier or an ordinary double-quoted string. The value is a scalar, array, or object. Named structured values normalize to blocks or block arrays as described above.
 
 ```
 key: value
@@ -478,9 +505,15 @@ The parser produces a tree of nodes. Each node is one of:
 | ------------ | -------------------------------------------------------- |
 | `File`       | skg_version, imports, schema_version, children, comments |
 | `Block`      | name, children, comments                                 |
-| `BlockArray` | name, items (each item is a list of children), comments  |
+| `BlockArray` | name, items (each item is an object or null value), comments  |
 | `Field`      | key, value, comments                                     |
-| `Value`      | type (Int/Float/Bool/String/Null/Array), data            |
+| `Value`      | type (Int/Float/Bool/String/Null/Array/Object), data            |
+
+The Go and Zig ASTs represent block-array entries as object/null values,
+rather than child lists with a separate null marker. This is a pre-V1 API
+change: Go callers read object children through `item.Object`; Zig callers use
+`item.object.children` after checking the tag. Nested objects use the same
+value representation.
 
 Comment trivia is attached to nodes, not stored as standalone AST nodes:
 

@@ -345,175 +345,75 @@ func (p *parser) parseNode() (Node, error) {
 	}
 
 	if nt.tag == tokColon {
-		if _, err := p.consume(); err != nil {
-			return Node{}, err
-		}
+		p.consume()
 		value, err := p.parseValue()
 		if err != nil {
 			return Node{}, err
 		}
-		return Node{Field: &Field{Key: nameTok.text, Value: value, Line: nameTok.line, Col: nameTok.col}}, nil
+		return valueNode(nameTok, value), nil
 	}
 	if nt.tag == tokLBrace {
-		if _, err := p.consume(); err != nil {
+		value, err := p.parseValue()
+		if err != nil {
 			return Node{}, err
 		}
-		if err := p.enter(nt); err != nil {
-			return Node{}, err
-		}
-		defer p.leave()
-		var children []Node
-		for {
-			ct, err := p.peek()
-			if err != nil {
-				return Node{}, err
-			}
-			if ct.tag == tokRBrace {
-				p.consume()
-				break
-			}
-			if ct.tag == tokEOF {
-				return Node{}, &ParseError{Diag: Diagnostic{Code: CodeUnterminatedBlock, Path: p.path, Line: ct.line, Col: ct.col, Message: "unterminated block, expected '}'"}}
-			}
-			child, err := p.parseNode()
-			if err != nil {
-				return Node{}, err
-			}
-			children = append(children, child)
-		}
-		children = dedup(children)
-		return Node{Block: &Block{Name: nameTok.text, Children: children, Line: nameTok.line, Col: nameTok.col}}, nil
+		return valueNode(nameTok, value), nil
 	}
 	if nt.tag == tokLBracket {
-		if _, err := p.consume(); err != nil {
-			return Node{}, err
-		}
+		p.consume()
 		if err := p.enter(nt); err != nil {
 			return Node{}, err
 		}
 		defer p.leave()
-		return p.parseBlockArray(nameTok)
+		value, err := p.parseArray(true)
+		if err != nil {
+			return Node{}, err
+		}
+		if len(value.Array.Items) == 0 {
+			return Node{BlockArray: &BlockArray{Name: nameTok.text, Items: value.Array.Items, Line: nameTok.line, Col: nameTok.col}}, nil
+		}
+		return valueNode(nameTok, value), nil
 	}
-
-	return Node{}, &ParseError{Diag: Diagnostic{Code: CodeExpectedNodeBody, Path: p.path, Line: nt.line, Col: nt.col, Message: "expected ':', '{', or '[' after identifier"}}
+	return Node{}, &ParseError{Diag: Diagnostic{Code: CodeExpectedNodeBody, Path: p.path, Line: nt.line, Col: nt.col, Message: "expected ':', '{', or '[' after key"}}
 }
 
-func (p *parser) parseBlockArray(nameTok token) (Node, error) {
-	// '[' already consumed. Expect a sequence of { children } blocks until ']'.
-	// Commas between entries are optional.
-	var items [][]Node
+// Normalize named structured values to SKG's block syntax.
+func valueNode(key token, v Value) Node {
+	if v.Type == TypeObject {
+		return Node{Block: &Block{Name: key.text, Children: v.Object, Line: key.line, Col: key.col}}
+	}
+	if v.Type == TypeArray && v.Array != nil && v.Array.ElementType == TypeObject {
+		return Node{BlockArray: &BlockArray{Name: key.text, Items: v.Array.Items, Line: key.line, Col: key.col}}
+	}
+	return Node{Field: &Field{Key: key.text, Value: v, Line: key.line, Col: key.col}}
+}
 
+// The opening brace has already been consumed.
+func (p *parser) parseObject(open token) (Value, error) {
+	if err := p.enter(open); err != nil {
+		return Value{}, err
+	}
+	defer p.leave()
+	var children []Node
 	for {
 		t, err := p.peek()
 		if err != nil {
-			return Node{}, err
+			return Value{}, err
 		}
-		if t.tag == tokRBracket {
+		if t.tag == tokRBrace {
 			p.consume()
 			break
 		}
-		if t.tag == tokComma {
-			p.consume()
-			continue
-		}
 		if t.tag == tokEOF {
-			return Node{}, &ParseError{Diag: Diagnostic{Code: CodeUnterminatedBlockArray, Path: p.path, Line: t.line, Col: t.col, Message: "unterminated block array, expected ']'"}}
+			return Value{}, &ParseError{Diag: Diagnostic{Code: CodeUnterminatedBlock, Path: p.path, Line: t.line, Col: t.col, Message: "unterminated block, expected '}'"}}
 		}
-		if t.tag != tokLBrace {
-			// `name [` whose first element is not `{` is the colonless
-			// scalar-array shorthand (docs/spec.md, "Block Arrays"), so hand
-			// the rest of the elements to the scalar-array parser.
-			//
-			// Once an entry has been parsed this is no longer a choice between
-			// two readings: the collection has already committed to being a
-			// block array, and a scalar here mixes element kinds. Falling back
-			// at that point silently discarded every entry parsed so far,
-			// turning `users [ {name: "a"} 99 ]` into `users: [99]` with no
-			// diagnostic.
-			if len(items) > 0 {
-				return Node{}, &ParseError{Diag: Diagnostic{Code: CodeMixedArrayTypes, Path: p.path, Line: t.line, Col: t.col, Message: "mixed block and scalar elements in an array"}}
-			}
-			return p.reParseAsFieldArray(nameTok)
-		}
-		p.consume() // consume '{'
-		if err := p.enter(t); err != nil {
-			return Node{}, err
-		}
-		var children []Node
-		for {
-			ct, err := p.peek()
-			if err != nil {
-				return Node{}, err
-			}
-			if ct.tag == tokRBrace {
-				p.consume()
-				break
-			}
-			if ct.tag == tokEOF {
-				return Node{}, &ParseError{Diag: Diagnostic{Code: CodeUnterminatedBlock, Path: p.path, Line: ct.line, Col: ct.col, Message: "unterminated block in block array, expected '}'"}}
-			}
-			child, err := p.parseNode()
-			if err != nil {
-				return Node{}, err
-			}
-			children = append(children, child)
-		}
-		p.leave()
-		children = dedup(children)
-		items = append(items, children)
-	}
-	return Node{BlockArray: &BlockArray{Name: nameTok.text, Items: items, Line: nameTok.line, Col: nameTok.col}}, nil
-}
-
-// reParseAsFieldArray parses the colonless scalar-array shorthand: `name [`
-// followed by something other than `{` means `name: [values...]` written
-// without the colon (docs/spec.md, "Block Arrays"). The `[` is already
-// consumed, so only the elements remain.
-func (p *parser) reParseAsFieldArray(nameTok token) (Node, error) {
-	var items []Value
-	var elemType *ValueType
-
-	for {
-		t, err := p.peek()
+		child, err := p.parseNode()
 		if err != nil {
-			return Node{}, err
+			return Value{}, err
 		}
-		if t.tag == tokRBracket {
-			p.consume()
-			break
-		}
-		if t.tag == tokComma {
-			p.consume()
-			continue
-		}
-		if t.tag == tokEOF {
-			return Node{}, &ParseError{Diag: Diagnostic{Code: CodeUnterminatedArray, Path: p.path, Line: t.line, Col: t.col, Message: "unterminated array, expected ']'"}}
-		}
-		if t.tag == tokLBrace {
-			// The mirror of the check in parseBlockArray: this collection has
-			// committed to holding scalars, so a block entry mixes kinds.
-			return Node{}, &ParseError{Diag: Diagnostic{Code: CodeMixedArrayTypes, Path: p.path, Line: t.line, Col: t.col, Message: "mixed block and scalar elements in an array"}}
-		}
-		val, err := p.parseValue()
-		if err != nil {
-			return Node{}, err
-		}
-		if elemType != nil && *elemType != TypeNull {
-			if val.Type != TypeNull && *elemType != val.Type {
-				return Node{}, &ParseError{Diag: Diagnostic{Code: CodeMixedArrayTypes, Path: p.path, Line: t.line, Col: t.col, Message: "mixed types in array"}}
-			}
-		} else {
-			et := val.Type
-			elemType = &et
-		}
-		items = append(items, val)
+		children = append(children, child)
 	}
-
-	et := TypeString
-	if elemType != nil {
-		et = *elemType
-	}
-	return Node{Field: &Field{Key: nameTok.text, Value: Value{Type: TypeArray, Array: &Array{ElementType: et, Items: items}}, Line: nameTok.line, Col: nameTok.col}}, nil
+	return Value{Type: TypeObject, Object: dedup(children)}, nil
 }
 
 func (p *parser) parseValue() (Value, error) {
@@ -546,18 +446,20 @@ func (p *parser) parseValue() (Value, error) {
 			return Value{}, err
 		}
 		return Value{Type: TypeString, Str: s}, nil
+	case tokLBrace:
+		return p.parseObject(t)
 	case tokLBracket:
 		if err := p.enter(t); err != nil {
 			return Value{}, err
 		}
 		defer p.leave()
-		return p.parseArray()
+		return p.parseArray(false)
 	default:
 		return Value{}, &ParseError{Diag: Diagnostic{Code: CodeExpectedValue, Path: p.path, Line: t.line, Col: t.col, Message: "expected a value (string, number, bool, or array)"}}
 	}
 }
 
-func (p *parser) parseArray() (Value, error) {
+func (p *parser) parseArray(colonless bool) (Value, error) {
 	var items []Value
 	var elemType *ValueType
 
@@ -575,7 +477,11 @@ func (p *parser) parseArray() (Value, error) {
 			continue
 		}
 		if t.tag == tokEOF {
-			return Value{}, &ParseError{Diag: Diagnostic{Code: CodeUnterminatedArray, Path: p.path, Line: t.line, Col: t.col, Message: "unterminated array, expected ']'"}}
+			code := CodeUnterminatedArray
+			if colonless && (elemType == nil || *elemType == TypeObject) {
+				code = CodeUnterminatedBlockArray
+			}
+			return Value{}, &ParseError{Diag: Diagnostic{Code: code, Path: p.path, Line: t.line, Col: t.col, Message: "unterminated array, expected ']'"}}
 		}
 		val, err := p.parseValue()
 		if err != nil {

@@ -1,0 +1,71 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [
+    "base.skg"
+  ],
+  "children": [
+    {
+      "type": "block",
+      "name": "settings",
+      "children": [
+        {
+          "type": "field",
+          "key": "keep",
+          "value": {
+            "type": "bool",
+            "data": true
+          }
+        },
+        {
+          "type": "field",
+          "key": "change",
+          "value": {
+            "type": "int",
+            "data": 2
+          }
+        }
+      ]
+    },
+    {
+      "type": "block_array",
+      "name": "records",
+      "items": [
+        null,
+        [
+          {
+            "type": "field",
+            "key": "id",
+            "value": {
+              "type": "int",
+              "data": 3
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "type": "field",
+      "key": "matrix",
+      "value": {
+        "type": "array",
+        "element_type": "array",
+        "data": [
+          {
+            "type": "array",
+            "element_type": "object",
+            "data": [
+              {
+                "type": "object",
+                "data": []
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

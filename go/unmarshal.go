@@ -202,11 +202,7 @@ func decodeMap(nodes []Node, target reflect.Value) error {
 			if isAny {
 				items := make([]interface{}, len(node.BlockArray.Items))
 				for i, item := range node.BlockArray.Items {
-					inner := reflect.MakeMap(reflect.TypeOf(map[string]interface{}{}))
-					if err := decodeMap(item, inner); err != nil {
-						return fmt.Errorf("skg: map key %q: index %d: %w", node.BlockArray.Name, i, err)
-					}
-					items[i] = inner.Interface()
+					items[i] = valueToAny(item)
 				}
 				target.SetMapIndex(mapKey(node.BlockArray.Name), reflect.ValueOf(items))
 			} else {
@@ -222,29 +218,7 @@ func decodeMap(nodes []Node, target reflect.Value) error {
 }
 
 func decodeBlockArray(ba *BlockArray, target reflect.Value) error {
-	for indirection := 0; target.Kind() == reflect.Ptr; indirection++ {
-		if indirection >= MaxNestingDepth {
-			return fmt.Errorf("skg: excessive pointer indirection")
-		}
-		if target.IsNil() {
-			target.Set(reflect.New(target.Type().Elem()))
-		}
-		target = target.Elem()
-	}
-	if target.Kind() != reflect.Slice {
-		return fmt.Errorf("target must be a slice, got %s", target.Kind())
-	}
-	elemType := target.Type().Elem()
-	slice := reflect.MakeSlice(target.Type(), len(ba.Items), len(ba.Items))
-	for i, item := range ba.Items {
-		elem := reflect.New(elemType)
-		if err := decodeNodes(item, elem); err != nil {
-			return fmt.Errorf("index %d: %w", i, err)
-		}
-		slice.Index(i).Set(elem.Elem())
-	}
-	target.Set(slice)
-	return nil
+	return decodeValue(Value{Type: TypeArray, Array: &Array{ElementType: TypeObject, Items: ba.Items}}, target)
 }
 
 func decodeValue(val Value, target reflect.Value) error {
@@ -316,6 +290,8 @@ func decodeValue(val Value, target reflect.Value) error {
 	case TypeNull:
 		target.Set(reflect.Zero(target.Type()))
 
+	case TypeObject:
+		return decodeNodes(val.Object, target)
 	case TypeArray:
 		if target.Kind() != reflect.Slice {
 			return fmt.Errorf("cannot assign array to %s", target.Kind())
@@ -362,6 +338,19 @@ func valueToAny(val Value) interface{} {
 		return val.Bool
 	case TypeNull:
 		return nil
+	case TypeObject:
+		out := make(map[string]any, len(val.Object))
+		for _, node := range val.Object {
+			switch {
+			case node.Field != nil:
+				out[node.Field.Key] = valueToAny(node.Field.Value)
+			case node.Block != nil:
+				out[node.Block.Name] = valueToAny(Value{Type: TypeObject, Object: node.Block.Children})
+			case node.BlockArray != nil:
+				out[node.BlockArray.Name] = valueToAny(Value{Type: TypeArray, Array: &Array{Items: node.BlockArray.Items}})
+			}
+		}
+		return out
 	case TypeArray:
 		if val.Array == nil {
 			return []interface{}{}

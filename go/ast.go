@@ -27,6 +27,7 @@ const (
 	TypeBool
 	TypeNull
 	TypeArray
+	TypeObject
 )
 
 func (t ValueType) String() string {
@@ -43,21 +44,24 @@ func (t ValueType) String() string {
 		return "null"
 	case TypeArray:
 		return "array"
+	case TypeObject:
+		return "object"
 	default:
 		return "unknown"
 	}
 }
 
-// Value represents a scalar or array value from a field assignment.
+// Value represents a scalar, array, or object value from a field assignment.
 type Value struct {
 	Type ValueType
 
 	// Exactly one of these is populated based on Type.
-	Str   string  // TypeString
-	Int   int64   // TypeInt
-	Float float64 // TypeFloat
-	Bool  bool    // TypeBool
-	Array *Array  // TypeArray
+	Str    string  // TypeString
+	Int    int64   // TypeInt
+	Float  float64 // TypeFloat
+	Bool   bool    // TypeBool
+	Array  *Array  // TypeArray
+	Object []Node  // TypeObject; nil denotes an empty object, not null
 	// TypeNull uses no fields.
 }
 
@@ -84,10 +88,10 @@ type Block struct {
 }
 
 // BlockArray is a named list of blocks: `name [ { ... } { ... } ]`
-// Each item is a list of child nodes representing one block entry.
+// Each item is an object or null value.
 type BlockArray struct {
 	Name  string
-	Items [][]Node
+	Items []Value
 	Line  int
 	Col   int
 }

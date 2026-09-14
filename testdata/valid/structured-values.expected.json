@@ -1,0 +1,178 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [],
+  "children": [
+    {
+      "type": "field",
+      "key": "matrix",
+      "value": {
+        "type": "array",
+        "element_type": "array",
+        "data": [
+          {
+            "type": "array",
+            "element_type": "object",
+            "data": [
+              {
+                "type": "object",
+                "data": [
+                  {
+                    "type": "field",
+                    "key": "id",
+                    "value": {
+                      "type": "int",
+                      "data": 1
+                    }
+                  },
+                  {
+                    "type": "block",
+                    "name": "labels",
+                    "children": [
+                      {
+                        "type": "field",
+                        "key": "x.y",
+                        "value": {
+                          "type": "string",
+                          "data": "a"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          {
+            "type": "array",
+            "element_type": "object",
+            "data": [
+              {
+                "type": "object",
+                "data": []
+              },
+              {
+                "type": "object",
+                "data": [
+                  {
+                    "type": "field",
+                    "key": "id",
+                    "value": {
+                      "type": "int",
+                      "data": 2
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "block_array",
+      "name": "records",
+      "items": [
+        null,
+        [
+          {
+            "type": "field",
+            "key": "id",
+            "value": {
+              "type": "int",
+              "data": 1
+            }
+          },
+          {
+            "type": "block",
+            "name": "labels",
+            "children": [
+              {
+                "type": "field",
+                "key": "x.y",
+                "value": {
+                  "type": "string",
+                  "data": "a"
+                }
+              }
+            ]
+          }
+        ],
+        null,
+        []
+      ]
+    },
+    {
+      "type": "block_array",
+      "name": "colon_records",
+      "items": [
+        [
+          {
+            "type": "field",
+            "key": "id",
+            "value": {
+              "type": "int",
+              "data": 2
+            }
+          }
+        ],
+        null
+      ]
+    },
+    {
+      "type": "block",
+      "name": "settings",
+      "children": [
+        {
+          "type": "field",
+          "key": "retained",
+          "value": {
+            "type": "bool",
+            "data": true
+          }
+        },
+        {
+          "type": "field",
+          "key": "changed",
+          "value": {
+            "type": "int",
+            "data": 2
+          }
+        }
+      ]
+    },
+    {
+      "type": "field",
+      "key": "all_null",
+      "value": {
+        "type": "array",
+        "element_type": "null",
+        "data": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    {
+      "type": "block_array",
+      "name": "empty_blocks",
+      "items": []
+    },
+    {
+      "type": "field",
+      "key": "empty_values",
+      "value": {
+        "type": "array",
+        "element_type": "string",
+        "data": []
+      }
+    }
+  ]
+}

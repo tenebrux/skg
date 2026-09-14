@@ -334,7 +334,7 @@ const block_node_keys = [_][]const u8{ "type", "name", "children", "leading_comm
 const block_array_node_keys = [_][]const u8{ "type", "name", "items", "leading_comments", "trailing_comments" };
 const scalar_value_keys = [_][]const u8{ "type", "data" };
 const array_value_keys = [_][]const u8{ "type", "data", "element_type" };
-const value_type_names = [_][]const u8{ "string", "int", "float", "bool", "null", "array" };
+const value_type_names = [_][]const u8{ "string", "int", "float", "bool", "null", "array", "object" };
 
 fn containsString(haystack: []const []const u8, needle: []const u8) bool {
     for (haystack) |s| {
@@ -412,7 +412,7 @@ fn validateValidExpected(ctx: []const u8, root_obj: std.json.ObjectMap, rep: *Sc
     }
 }
 
-fn validateNodes(ctx: []const u8, json: std.json.Value, rep: *SchemaReport) !void {
+fn validateNodes(ctx: []const u8, json: std.json.Value, rep: *SchemaReport) anyerror!void {
     const arr = expectJsonArray(json) orelse {
         std.debug.print("{s}: children/items must be an array of nodes\n", .{ctx});
         return error.BadExpectedJson;
@@ -442,7 +442,7 @@ fn validateNodes(ctx: []const u8, json: std.json.Value, rep: *SchemaReport) !voi
                 return error.BadExpectedJson;
             }
             if (obj.get("value")) |v| {
-                try validateValue(ctx, v);
+                try validateValue(ctx, v, rep);
             }
             if (obj.get("leading_comments")) |v| {
                 rep.asserts_comments = true;
@@ -470,10 +470,11 @@ fn validateNodes(ctx: []const u8, json: std.json.Value, rep: *SchemaReport) !voi
                 }
             } else if (obj.get("items")) |v| {
                 const items = expectJsonArray(v) orelse {
-                    std.debug.print("{s}: block_array \"items\" must be an array of node arrays\n", .{ctx});
+                    std.debug.print("{s}: block_array \"items\" must be an array of node arrays or null entries\n", .{ctx});
                     return error.BadExpectedJson;
                 };
                 for (items) |entry| {
+                    if (entry == .null) continue;
                     try validateNodes(ctx, entry, rep);
                 }
             }
@@ -492,7 +493,7 @@ fn validateNodes(ctx: []const u8, json: std.json.Value, rep: *SchemaReport) !voi
     }
 }
 
-fn validateValue(ctx: []const u8, json: std.json.Value) !void {
+fn validateValue(ctx: []const u8, json: std.json.Value, rep: *SchemaReport) !void {
     const obj = expectJsonObject(json) orelse {
         std.debug.print("{s}: a value must be an object\n", .{ctx});
         return error.BadExpectedJson;
@@ -542,6 +543,8 @@ fn validateValue(ctx: []const u8, json: std.json.Value) !void {
             std.debug.print("{s}: bool \"data\" must be a boolean\n", .{ctx});
             return error.BadExpectedJson;
         }
+    } else if (std.mem.eql(u8, value_type, "object")) {
+        try validateNodes(ctx, data, rep);
     } else if (is_array) {
         const et_json = obj.get("element_type") orelse {
             std.debug.print("{s}: \"element_type\" is required for an array value\n", .{ctx});
@@ -560,7 +563,7 @@ fn validateValue(ctx: []const u8, json: std.json.Value) !void {
             return error.BadExpectedJson;
         };
         for (items) |item| {
-            try validateValue(ctx, item);
+            try validateValue(ctx, item, rep);
         }
     }
 }
@@ -622,8 +625,13 @@ fn compareValue(expected_obj: std.json.ObjectMap, actual: ast.Value) !void {
         try testing.expectEqual(expected_data, actual.bool);
     } else if (std.mem.eql(u8, type_str, "null")) {
         try testing.expectEqual(ast.ValueType.null, std.meta.activeTag(actual));
+    } else if (std.mem.eql(u8, type_str, "object")) {
+        try testing.expect(actual == .object);
+        try compareNodes(expectJsonArray(expected_obj.get("data") orelse return error.MissingData) orelse return error.BadData, actual.object.children);
     } else if (std.mem.eql(u8, type_str, "array")) {
         try testing.expectEqual(ast.ValueType.array, std.meta.activeTag(actual));
+        const element_type = expectJsonString(expected_obj.get("element_type") orelse return error.MissingType) orelse return error.BadType;
+        try testing.expectEqualStrings(element_type, @tagName(actual.array.element_type));
         const expected_items = expectJsonArray(expected_obj.get("data") orelse return error.MissingData) orelse return error.BadData;
         try testing.expectEqual(expected_items.len, actual.array.items.len);
         for (expected_items, 0..) |item_json, i| {
@@ -656,7 +664,7 @@ fn compareTrailingComment(expected_json: std.json.Value, actual: ?[]const u8) !v
     }
 }
 
-fn compareNodes(expected_children: []std.json.Value, actual_children: []const ast.Node) !void {
+fn compareNodes(expected_children: []std.json.Value, actual_children: []const ast.Node) anyerror!void {
     try testing.expectEqual(expected_children.len, actual_children.len);
 
     for (expected_children, 0..) |child_json, i| {
@@ -705,8 +713,14 @@ fn compareNodes(expected_children: []std.json.Value, actual_children: []const as
                 const expected_items = expectJsonArray(items_json) orelse return error.BadData;
                 try testing.expectEqual(expected_items.len, actual.block_array.items.len);
                 for (expected_items, 0..) |item_json, j| {
-                    const item_children = expectJsonArray(item_json) orelse return error.BadChildren;
-                    try compareNodes(item_children, actual.block_array.items[j]);
+                    const item = actual.block_array.items[j];
+                    if (item_json == .null) {
+                        try testing.expect(item == .null);
+                    } else {
+                        try testing.expect(item == .object);
+                        const item_children = expectJsonArray(item_json) orelse return error.BadChildren;
+                        try compareNodes(item_children, item.object.children);
+                    }
                 }
             }
             if (child_obj.get("leading_comments")) |v| {

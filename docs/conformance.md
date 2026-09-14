@@ -127,13 +127,16 @@ structured parser can legitimately reach them. `UNEXPECTED_TOKEN` is reachable
 but has no fixture of its own - every input that would produce it has a more
 specific code available first.
 
-`MIXED_ARRAY_TYPES` covers two failures that read as one rule. `name [` chooses
-between a block array and the colonless scalar-array shorthand **from the first
-element only**; after that the collection has committed, and an element of the
-other kind is an error. Silently re-reading `users [ {name: "a"} 99 ]` as
-`users: [99]` discards config with no diagnostic, which is the worst outcome
-available. `testdata/invalid/mixed-block-array` and
-`testdata/invalid/mixed-array-block` pin both directions.
+`MIXED_ARRAY_TYPES` rejects incompatible non-null outer value tags. The first
+non-null element determines the array type; null never masks an object/scalar
+mismatch. `testdata/invalid/mixed-block-array` and
+`testdata/invalid/mixed-array-block` pin both directions. Colon-form arrays and
+colonless arrays use the same type rule.
+
+For EOF diagnostics, a colonless array with no values yet or with inferred
+object elements reports `UNTERMINATED_BLOCK_ARRAY`. Other arrays report
+`UNTERMINATED_ARRAY`. An unterminated object reports `UNTERMINATED_BLOCK`,
+including inside a nested value array.
 
 ### Header directives
 
@@ -278,7 +281,9 @@ Node objects:
 | `block`       | `name`        | `children`, `leading_comments`, `trailing_comments`                 |
 | `block_array` | `name`        | `items`, `leading_comments`, `trailing_comments`                    |
 
-`items` is an array of node arrays - one inner array per `{ ... }` entry.
+`items` is an array of node arrays or JSON nulls: an inner array denotes an
+object entry, including `[]` for an empty object; null denotes a null entry.
+This fixture representation maps to object/null Value entries in native ASTs.
 `trailing_comment` (singular, `string | null`) exists only on fields; blocks and
 block arrays use `trailing_comments` (plural, array).
 
@@ -291,10 +296,13 @@ Value objects:
 | `float`  | JSON number             | Compared with 1e-9 absolute tolerance. |
 | `bool`   | JSON boolean            |                                    |
 | `null`   | **must be absent**      |                                    |
-| `array`  | array of value objects  | `element_type` **required**.       |
+| `array`  | array of value objects  | `element_type` **required**, compared with the parsed tag. |
+| `object` | array of node objects   | Same node schema as block children. |
 
 An empty array's `element_type` is `"string"` - that is the parser's default
-when there is no element to infer from.
+when there is no element to infer from. All-null arrays have element type
+`"null"`; otherwise it is the non-null element tag, including `"object"`.
+A runner must assert this tag, not merely validate its spelling.
 
 #### Invalid fixtures
 
@@ -400,7 +408,7 @@ the implementation declares `emit`, two things must hold:
 - One blank line between the header and the body, if both are non-empty.
 - A field is `key: value`.
 - A block is `name {`, children at depth + 1, `}`.
-- A block array is `name [`, then per entry `{` at depth + 1, its children at
+- A block array is `name [`, then per object entry `{` at depth + 1, its children at
   depth + 2, and `}`; closed by `]`.
 - A blank line precedes a top-level block or block array that is not the first
   node. Nested blocks get no blank line.
@@ -580,14 +588,15 @@ Work through this in order. Each step is checkable against the suite.
 - [ ] **Parser.** Header directives (`skg_version`, `import`, `schema_version`),
       fields, blocks, block arrays. Accept ordinary double-quoted keys with decoded
       byte equality; reject triple-quoted keys. A colonless key followed by `[` whose
-      first token is not `{` is a scalar array field. Bare directive names are reserved at
+      first non-null value is not an object is a value array field.
+      Objects are allowed at every value position; named objects normalize to
+      blocks, and named object arrays to block arrays. Bare directive names are reserved at
       the top level and must all precede the first block or field.
 - [ ] **Arrays.** All non-null elements share one type tag, checked one level deep. Nested
       arrays: the non-null outer elements must all be arrays; inner element types may
-      differ. Null may occupy any scalar-array position; all-null arrays have
-      element type `null`. A block array and a scalar
-      array cannot mix either - the kind is chosen from the first element and
-      fixed thereafter. A colonless `[]` is an empty **block array**; an empty
+      differ. Null may occupy any array position; all-null arrays have
+      element type `null`. Object and scalar entries cannot mix - the kind is
+      chosen from the first non-null element and fixed thereafter. A colonless `[]` is an empty **block array**; an empty
       scalar array is `key: []`, element type `string`. Trailing commas are
       allowed; commas between block array entries are optional.
 - [ ] **Duplicates.** Within a file, a repeated key merges under the rules in

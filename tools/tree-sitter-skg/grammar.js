@@ -19,6 +19,8 @@ module.exports = grammar({
 
   word: $ => $.identifier,
 
+  conflicts: $ => [[$.block_array, $._value], [$.object, $.block_array_item]],
+
   rules: {
     // A document is zero or more top-level statements.
     document: $ => repeat($._statement),
@@ -61,7 +63,7 @@ module.exports = grammar({
     block_array: $ => prec(2, seq(
       field('name', $._key),
       '[',
-      repeat($.block_array_item),
+      repeat(choice($.block_array_item, seq($.null, optional(',')))),
       ']',
     )),
 
@@ -96,7 +98,10 @@ module.exports = grammar({
       $.boolean,
       $.null,
       $.array,
+      $.object,
     ),
+
+    object: $ => seq('{', repeat($._statement), '}'),
 
     // array:  [ value, value, ... ]
     array: $ => seq(

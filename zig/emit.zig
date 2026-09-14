@@ -60,7 +60,7 @@ pub fn emitFile(allocator: std.mem.Allocator, file: ast.File) EmitError![]u8 {
     return buf.toOwnedSlice(allocator);
 }
 
-fn emitNodes(w: anytype, nodes: []const ast.Node, depth: usize) !void {
+fn emitNodes(w: anytype, nodes: []const ast.Node, depth: usize) EmitError!void {
     for (nodes, 0..) |node, i| {
         switch (node) {
             .field => |f| {
@@ -93,10 +93,8 @@ fn emitNodes(w: anytype, nodes: []const ast.Node, depth: usize) !void {
                 try w.writeAll(" [\n");
                 for (ba.items) |item| {
                     try writeIndent(w, depth + 1);
-                    try w.writeAll("{\n");
-                    try emitNodes(w, item, depth + 2);
-                    try writeIndent(w, depth + 1);
-                    try w.writeAll("}\n");
+                    try emitValue(w, item, depth + 1);
+                    try w.writeByte('\n');
                 }
                 try emitCommentLines(w, ba.trailing_comments, depth + 1);
                 try writeIndent(w, depth);
@@ -143,11 +141,23 @@ fn emitValue(w: anytype, value: ast.Value, depth: usize) !void {
             }
         },
         .null => try w.writeAll("null"),
+        .object => |obj| {
+            try w.writeAll("{\n");
+            try emitNodes(w, obj.children, depth + 1);
+            try emitCommentLines(w, obj.trailing_comments, depth + 1);
+            try writeIndent(w, depth);
+            try w.writeByte('}');
+        },
         .array => |arr| {
             try w.writeByte('[');
             for (arr.items, 0..) |item, i| {
                 if (i > 0) try w.writeAll(", ");
                 try emitValue(w, item, depth);
+            }
+            if (arr.trailing_comments.len > 0) {
+                try w.writeByte('\n');
+                try emitCommentLines(w, arr.trailing_comments, depth + 1);
+                try writeIndent(w, depth);
             }
             try w.writeByte(']');
         },

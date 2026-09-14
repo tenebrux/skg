@@ -176,7 +176,8 @@
         { "include": "#boolean" },
         { "include": "#null" },
         { "include": "#number" },
-        { "include": "#array" }
+        { "include": "#array" },
+        { "include": "#block_array_item" }
       ]
     }
   }

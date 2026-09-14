@@ -44,7 +44,7 @@ test "reject missing colon" {
     var failure = try expectParseFailure("key \"value\"");
     defer failure.deinit();
     const diag = failure.diagnostic.?;
-    try testing.expectEqualStrings("expected ':', '{', or '[' after identifier", diag.message);
+    try testing.expectEqualStrings("expected ':', '{', or '[' after key", diag.message);
 }
 
 test "reject unclosed block" {

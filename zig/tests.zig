@@ -579,3 +579,28 @@ test "cached suffix depth is checked independent of import order" {
         }
     }
 }
+
+test "structured values retain object and array closing comments" {
+    const src =
+        \\matrix: [[{
+        \\  id: 1
+        \\  # object end
+        \\}, null
+        \\# array end
+        \\]]
+    ;
+    var result = root.parseSource(testing.allocator, src, "objects.skg");
+    defer result.deinit();
+    const file = result.file orelse return error.UnexpectedParseFailure;
+    const inner = file.children[0].field.value.array.items[0].array;
+    try testing.expectEqual(ast.ValueType.object, inner.element_type);
+    try testing.expectEqualStrings("# object end", inner.items[0].object.trailing_comments[0]);
+    try testing.expectEqualStrings("# array end", inner.trailing_comments[0]);
+    const text = try emit_mod.emitFile(testing.allocator, file);
+    defer testing.allocator.free(text);
+    var again = root.parseSource(testing.allocator, text, "objects.skg");
+    defer again.deinit();
+    const text2 = try emit_mod.emitFile(testing.allocator, again.file orelse return error.UnexpectedParseFailure);
+    defer testing.allocator.free(text2);
+    try testing.expectEqualStrings(text, text2);
+}

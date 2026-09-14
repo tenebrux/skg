@@ -21,6 +21,7 @@ pub const Field = ast.Field;
 pub const Value = ast.Value;
 pub const ValueType = ast.ValueType;
 pub const Array = ast.Array;
+pub const Object = ast.Object;
 pub const BlockArray = ast.BlockArray;
 
 pub const ParseError = parser.ParseError;
