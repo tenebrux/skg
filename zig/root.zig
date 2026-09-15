@@ -95,8 +95,9 @@ pub fn parseWithOptions(backing: Allocator, path: []const u8, options: ResolveOp
         return .{ .arena = arena, .diagnostic = diag };
     } else null;
     if (canonical_root) |root_path| {
-        const stat = std.fs.cwd().statFile(root_path) catch {
-            diag = .{ .code = .IMPORT_NOT_FOUND, .path = root_path, .line = 0, .col = 0, .message = "resolution root not found" };
+        const stat = statCanonicalPath(root_path) catch |err| {
+            const message = std.fmt.allocPrint(alloc, "resolution root not found: {s}", .{@errorName(err)}) catch "resolution root not found";
+            diag = .{ .code = .IMPORT_NOT_FOUND, .path = root_path, .line = 0, .col = 0, .message = message };
             return .{ .arena = arena, .diagnostic = diag };
         };
         if (stat.kind != .directory) {
@@ -313,6 +314,17 @@ fn canonicalPath(allocator: Allocator, path: []const u8) ![]const u8 {
             var parent = try std.fs.cwd().openDir(std.fs.path.dirname(path) orelse ".", .{});
             defer parent.close();
             return parent.realpathAlloc(allocator, std.fs.path.basename(path));
+        }
+        return err;
+    };
+}
+
+fn statCanonicalPath(path: []const u8) !std.fs.File.Stat {
+    return std.fs.cwd().statFile(path) catch |err| {
+        if (builtin.os.tag == .windows and std.fs.path.basename(path).len > 0) {
+            var parent = try std.fs.cwd().openDir(std.fs.path.dirname(path) orelse ".", .{});
+            defer parent.close();
+            return parent.statFile(std.fs.path.basename(path));
         }
         return err;
     };
