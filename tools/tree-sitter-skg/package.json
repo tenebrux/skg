@@ -9,7 +9,7 @@
     "nan": "^2.28.0"
   },
   "devDependencies": {
-    "tree-sitter-cli": "^0.20.8"
+    "tree-sitter-cli": "^0.27.0"
   },
   "scripts": {
     "build": "tree-sitter generate && node-gyp rebuild",
