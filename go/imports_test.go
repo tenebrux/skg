@@ -295,7 +295,11 @@ func TestImportDiagnosticHasSourcePosition(t *testing.T) {
 	if pe.Diag.Line != 3 || pe.Diag.Col != 3 {
 		t.Errorf("want position 3:3 (the path token), got %d:%d", pe.Diag.Line, pe.Diag.Col)
 	}
-	if pe.Diag.Path != filepath.Join(dir, "main.skg") {
+	wantPath, pathErr := canonicalPath(filepath.Join(dir, "main.skg"))
+	if pathErr != nil {
+		t.Fatal(pathErr)
+	}
+	if pe.Diag.Path != wantPath {
 		t.Errorf("want the importing file as path, got %q", pe.Diag.Path)
 	}
 }

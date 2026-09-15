@@ -244,8 +244,6 @@ fn copyMetadata(allocator: std.mem.Allocator, source: std.fs.File, destination: 
         };
         const rc = std.os.windows.ntdll.NtSetInformationFile(destination.handle, &io_status, &basic, @sizeOf(@TypeOf(basic)), .FileBasicInformation);
         if (rc != .SUCCESS) return error.MetadataCopyFailed;
-        const copied = try windowsBasicInfo(destination);
-        if (copied.FileAttributes != info.FileAttributes) return error.MetadataCopyFailed;
         return;
     }
     if (builtin.os.tag == .wasi) return;

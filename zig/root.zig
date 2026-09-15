@@ -89,8 +89,9 @@ pub fn parseWithOptions(backing: Allocator, path: []const u8, options: ResolveOp
     const alloc = arena.allocator();
 
     var diag: ?Diagnostic = null;
-    const canonical_root: ?[]const u8 = if (options.root) |root_path| canonicalPath(alloc, root_path) catch {
-        diag = .{ .code = .IMPORT_NOT_FOUND, .path = alloc.dupe(u8, root_path) catch root_path, .line = 0, .col = 0, .message = "resolution root not found" };
+    const canonical_root: ?[]const u8 = if (options.root) |root_path| canonicalPath(alloc, root_path) catch |err| {
+        const message = std.fmt.allocPrint(alloc, "resolution root not found: {s}", .{@errorName(err)}) catch "resolution root not found";
+        diag = .{ .code = .IMPORT_NOT_FOUND, .path = alloc.dupe(u8, root_path) catch root_path, .line = 0, .col = 0, .message = message };
         return .{ .arena = arena, .diagnostic = diag };
     } else null;
     if (canonical_root) |root_path| {
