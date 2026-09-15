@@ -13,6 +13,9 @@ jobs:
   v1:
     name: V1 release gate
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      artifact-metadata: write
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
@@ -22,7 +25,7 @@ jobs:
         env:
           SKG_VSIX_OUT: ${{ github.workspace }}/dist/skg-vscode-dev.vsix
         run: mise run v1:check
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: vscode-extension
           path: dist/*.vsix
