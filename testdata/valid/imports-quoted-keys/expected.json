@@ -1,0 +1,39 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [
+    "base.skg"
+  ],
+  "children": [
+    {
+      "type": "block",
+      "name": "service.name",
+      "children": [
+        {
+          "type": "field",
+          "key": "name",
+          "value": {
+            "type": "int",
+            "data": 2
+          }
+        },
+        {
+          "type": "field",
+          "key": "",
+          "value": {
+            "type": "string",
+            "data": "kept"
+          }
+        }
+      ]
+    },
+    {
+      "type": "field",
+      "key": "import",
+      "value": {
+        "type": "string",
+        "data": "local"
+      }
+    }
+  ]
+}

@@ -474,12 +474,12 @@ test "imports: a deep diamond does not blow up exponentially" {
 
     try tmp.dir.writeFile(.{
         .sub_path = try std.fmt.bufPrint(&name_buf, "f{d:0>2}.skg", .{depth}),
-        .data = "leaf: \"bottom\"\n",
+        .data = "leaf: \"bottom\"\nblock {\n# same text, different source\n}\n",
     });
     var i: usize = 0;
     while (i < depth) : (i += 1) {
         const name = try std.fmt.bufPrint(&name_buf, "f{d:0>2}.skg", .{i});
-        const body = try std.fmt.bufPrint(&body_buf, "import [\"./f{d:0>2}.skg\", \"./f{d:0>2}.skg\"]\n\nlevel{d:0>2}: {d}\n", .{ i + 1, i + 1, i, i });
+        const body = try std.fmt.bufPrint(&body_buf, "import [\"./f{d:0>2}.skg\", \"./f{d:0>2}.skg\"]\n\nlevel{d:0>2}: {d}\nblock {{\n# same text, different source\n}}\n", .{ i + 1, i + 1, i, i });
         try tmp.dir.writeFile(.{ .sub_path = name, .data = body });
     }
 
@@ -489,7 +489,8 @@ test "imports: a deep diamond does not blow up exponentially" {
     var result = root.parse(testing.allocator, entry);
     defer result.deinit();
     try testing.expect(result.file != null);
-    try testing.expectEqual(@as(usize, depth + 1), result.file.?.children.len);
+    try testing.expectEqual(@as(usize, depth + 2), result.file.?.children.len);
+    try testing.expectEqual(@as(usize, depth + 1), result.file.?.children[1].block.trailing_comments.len);
 }
 
 // The cycle guard compares canonical paths, so a cycle spelled `./b.skg` - the
@@ -512,4 +513,256 @@ test "imports: a ./-spelled cycle is detected immediately" {
     // Reported where the import was written, not at 0:0.
     try testing.expectEqual(@as(u32, 1), result.diagnostic.?.line);
     try testing.expectEqual(@as(u32, 8), result.diagnostic.?.col);
+}
+
+test "imports: aggregate resolution limits have stable diagnostics" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const main = "import \"child.skg\"\nroot: 1\n";
+    const child = "child: 2\n";
+    try tmp.dir.writeFile(.{ .sub_path = "main.skg", .data = main });
+    try tmp.dir.writeFile(.{ .sub_path = "child.skg", .data = child });
+    const entry = try tmp.dir.realpathAlloc(testing.allocator, "main.skg");
+    defer testing.allocator.free(entry);
+
+    const Case = struct { options: root.ResolveOptions, code: ast.ErrorCode };
+    for ([_]Case{
+        .{ .options = .{ .max_files = 1 }, .code = .RESOLUTION_FILE_LIMIT },
+        .{ .options = .{ .max_bytes = main.len + child.len - 1 }, .code = .RESOLUTION_BYTE_LIMIT },
+        .{ .options = .{ .max_merge_work = 2 }, .code = .RESOLUTION_WORK_LIMIT },
+    }) |case| {
+        var result = root.parseWithOptions(testing.allocator, entry, case.options);
+        defer result.deinit();
+        try testing.expect(result.file == null);
+        try testing.expectEqual(case.code, result.diagnostic.?.code);
+    }
+
+    try tmp.dir.writeFile(.{ .sub_path = "nodes.skg", .data = "items: [1, 2]\n" });
+    const nodes = try tmp.dir.realpathAlloc(testing.allocator, "nodes.skg");
+    defer testing.allocator.free(nodes);
+    var result = root.parseWithOptions(testing.allocator, nodes, .{ .max_nodes = 3 });
+    defer result.deinit();
+    try testing.expect(result.file == null);
+    try testing.expectEqual(ast.ErrorCode.RESOLUTION_NODE_LIMIT, result.diagnostic.?.code);
+}
+
+test "imports: rooted policy accepts contained parent paths and rejects escapes" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.makePath("root/cfg");
+    try tmp.dir.makePath("outside");
+    try tmp.dir.writeFile(.{ .sub_path = "root/shared.skg", .data = "shared: 2\n" });
+    try tmp.dir.writeFile(.{ .sub_path = "root/cfg/main.skg", .data = "import \"../shared.skg\"\nroot: 1\n" });
+    try tmp.dir.writeFile(.{ .sub_path = "outside/value.skg", .data = "outside: 3\n" });
+    try tmp.dir.writeFile(.{ .sub_path = "root/cfg/escape.skg", .data = "import \"../../outside/value.skg\"\n" });
+    const root_path = try tmp.dir.realpathAlloc(testing.allocator, "root");
+    defer testing.allocator.free(root_path);
+    const entry = try tmp.dir.realpathAlloc(testing.allocator, "root/cfg/main.skg");
+    defer testing.allocator.free(entry);
+    var accepted = root.parseWithOptions(testing.allocator, entry, .{ .root = root_path });
+    defer accepted.deinit();
+    try testing.expect(accepted.file != null);
+
+    const escape = try tmp.dir.realpathAlloc(testing.allocator, "root/cfg/escape.skg");
+    defer testing.allocator.free(escape);
+    var rejected = root.parseWithOptions(testing.allocator, escape, .{ .root = root_path });
+    defer rejected.deinit();
+    try testing.expect(rejected.file == null);
+    try testing.expectEqual(ast.ErrorCode.PATH_OUTSIDE_ROOT, rejected.diagnostic.?.code);
+
+    const outside = try tmp.dir.realpathAlloc(testing.allocator, "outside/value.skg");
+    defer testing.allocator.free(outside);
+    var outside_entry = root.parseWithOptions(testing.allocator, outside, .{ .root = root_path });
+    defer outside_entry.deinit();
+    try testing.expect(outside_entry.file == null);
+    try testing.expectEqual(ast.ErrorCode.PATH_OUTSIDE_ROOT, outside_entry.diagnostic.?.code);
+}
+
+test "imports: canonical symlink identity is cached and rooted" {
+    if (@import("builtin").os.tag == .windows) return error.SkipZigTest;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.makePath("root");
+    try tmp.dir.makePath("outside");
+    try tmp.dir.writeFile(.{ .sub_path = "root/main.skg", .data = "import [\"alias-a.skg\", \"alias-b.skg\"]\n" });
+    try tmp.dir.writeFile(.{ .sub_path = "root/target.skg", .data = "value: 1\n" });
+    try tmp.dir.symLink("target.skg", "root/alias-a.skg", .{});
+    try tmp.dir.symLink("target.skg", "root/alias-b.skg", .{});
+    const root_path = try tmp.dir.realpathAlloc(testing.allocator, "root");
+    defer testing.allocator.free(root_path);
+    const entry = try tmp.dir.realpathAlloc(testing.allocator, "root/main.skg");
+    defer testing.allocator.free(entry);
+    var cached = root.parseWithOptions(testing.allocator, entry, .{ .root = root_path, .max_files = 2 });
+    defer cached.deinit();
+    try testing.expect(cached.file != null);
+
+    try tmp.dir.writeFile(.{ .sub_path = "outside/target.skg", .data = "outside: 1\n" });
+    try tmp.dir.symLink("../outside/target.skg", "root/outside-link.skg", .{});
+    try tmp.dir.writeFile(.{ .sub_path = "root/escape.skg", .data = "import \"outside-link.skg\"\n" });
+    const escape = try tmp.dir.realpathAlloc(testing.allocator, "root/escape.skg");
+    defer testing.allocator.free(escape);
+    var rejected = root.parseWithOptions(testing.allocator, escape, .{ .root = root_path });
+    defer rejected.deinit();
+    try testing.expect(rejected.file == null);
+    try testing.expectEqual(ast.ErrorCode.PATH_OUTSIDE_ROOT, rejected.diagnostic.?.code);
+}
+
+test "source API owns input and path and enforces the file size limit" {
+    var src = "value: \"hello\"\n".*;
+    var path = "config.skg".*;
+    var result = root.parseSource(testing.allocator, &src, &path);
+    defer result.deinit();
+    @memset(&src, 'x');
+    @memset(&path, 'y');
+    try testing.expectEqualStrings("value", result.file.?.children[0].field.key);
+    try testing.expectEqualStrings("hello", result.file.?.children[0].field.value.string);
+    try testing.expectEqualStrings("config.skg", result.file.?.path);
+    const large = try testing.allocator.alloc(u8, 10 * 1024 * 1024 + 1);
+    defer testing.allocator.free(large);
+    @memset(large, ' ');
+    var rejected = root.parseSource(testing.allocator, large, "large.skg");
+    defer rejected.deinit();
+    try testing.expect(rejected.file == null);
+    try testing.expectEqual(ast.ErrorCode.FILE_TOO_LARGE, rejected.diagnostic.?.code);
+}
+
+test "header strings round-trip using SKG escapes" {
+    for ([_][]const u8{ "a\"b", "a\\b", "a\nb", "a\rb", "\x00", "é" }) |value| {
+        var arena = std.heap.ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const a = arena.allocator();
+        var imports = [_][]const u8{value};
+        const file = ast.File{ .skg_version = null, .schema_version = value, .import_paths = &imports, .children = &.{}, .path = "test" };
+        const output = try emit_mod.emitFile(a, file);
+        var result = root.parseSource(testing.allocator, output, "test");
+        defer result.deinit();
+        try testing.expect(result.file != null);
+        try testing.expectEqualStrings(value, result.file.?.schema_version.?);
+        try testing.expectEqualStrings(value, result.file.?.import_paths[0]);
+    }
+}
+
+test "cached suffix depth is checked independent of import order" {
+    for ([_]usize{ 31, 32 }) |length| {
+        for ([_][]const u8{ "import \"f1.skg\"", "import [\"f2.skg\", \"f1.skg\"]", "import [\"f1.skg\", \"f2.skg\"]" }) |imports| {
+            var tmp = testing.tmpDir(.{});
+            defer tmp.cleanup();
+            try tmp.dir.writeFile(.{ .sub_path = "main.skg", .data = imports });
+            try tmp.dir.writeFile(.{ .sub_path = "leaf.skg", .data = "value: 1" });
+            var name_buf: [32]u8 = undefined;
+            var body_buf: [64]u8 = undefined;
+            for (1..length + 1) |i| {
+                const name = try std.fmt.bufPrint(&name_buf, "f{d}.skg", .{i});
+                const body = if (i == length) "import \"leaf.skg\"" else try std.fmt.bufPrint(&body_buf, "import \"f{d}.skg\"", .{i + 1});
+                try tmp.dir.writeFile(.{ .sub_path = name, .data = body });
+            }
+            const entry = try tmp.dir.realpathAlloc(testing.allocator, "main.skg");
+            defer testing.allocator.free(entry);
+            var result = root.parse(testing.allocator, entry);
+            defer result.deinit();
+            if (length == 31) {
+                try testing.expect(result.file != null);
+            } else {
+                try testing.expect(result.file == null);
+                try testing.expectEqual(ast.ErrorCode.IMPORT_CHAIN_TOO_DEEP, result.diagnostic.?.code);
+                try testing.expect(result.diagnostic.?.line > 0);
+                try testing.expect(result.diagnostic.?.col > 0);
+            }
+        }
+    }
+}
+
+test "structured values retain object and array closing comments" {
+    const src =
+        \\matrix: [[{
+        \\  id: 1
+        \\  # object end
+        \\}, null
+        \\# array end
+        \\]]
+    ;
+    var result = root.parseSource(testing.allocator, src, "objects.skg");
+    defer result.deinit();
+    const file = result.file orelse return error.UnexpectedParseFailure;
+    const inner = file.children[0].field.value.array.items[0].array;
+    try testing.expectEqual(ast.ValueType.object, inner.element_type);
+    try testing.expectEqualStrings("# object end", inner.items[0].object.trailing_comments[0]);
+    try testing.expectEqualStrings("# array end", inner.trailing_comments[0]);
+    const text = try emit_mod.emitFile(testing.allocator, file);
+    defer testing.allocator.free(text);
+    var again = root.parseSource(testing.allocator, text, "objects.skg");
+    defer again.deinit();
+    const text2 = try emit_mod.emitFile(testing.allocator, again.file orelse return error.UnexpectedParseFailure);
+    defer testing.allocator.free(text2);
+    try testing.expectEqualStrings(text, text2);
+}
+
+test "emit preserves every comment exactly once across relocatable trivia" {
+    const src =
+        \\# file top
+        \\skg_version: "1.0"
+        \\# before import
+        \\import "base.skg"
+        \\# before schema
+        \\schema_version: "4"
+        \\
+        \\# field leading
+        \\values: [1, # after first item
+        \\# before second item
+        \\2,
+        \\# array end
+        \\]
+        \\
+        \\block {
+        \\  value: true # inline field
+        \\  # block end
+        \\}
+        \\# file end
+    ;
+    var parsed = root.parseSource(testing.allocator, src, "comments.skg");
+    defer parsed.deinit();
+    const output = try emit_mod.emitFile(testing.allocator, parsed.file orelse return error.UnexpectedParseFailure);
+    defer testing.allocator.free(output);
+
+    var before = try commentCounts(testing.allocator, src);
+    defer before.deinit();
+    var after = try commentCounts(testing.allocator, output);
+    defer after.deinit();
+    try testing.expectEqual(before.count(), after.count());
+    var iterator = before.iterator();
+    while (iterator.next()) |entry| {
+        try testing.expectEqual(entry.value_ptr.*, after.get(entry.key_ptr.*) orelse 0);
+    }
+}
+
+fn commentCounts(allocator: std.mem.Allocator, source: []const u8) !std.StringHashMap(usize) {
+    var counts = std.StringHashMap(usize).init(allocator);
+    var lexer = Lexer.init(source);
+    while (true) {
+        const token = try lexer.next();
+        if (token.tag == .eof) break;
+        if (token.tag != .comment) continue;
+        const entry = try counts.getOrPut(token.text);
+        if (!entry.found_existing) entry.value_ptr.* = 0;
+        entry.value_ptr.* += 1;
+    }
+    return counts;
+}
+
+test "overlay materialization preserves source instructions and clears nested markers" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const base = try parser.parseSource(a, "x { inherited: 1 }", "base.skg", null);
+    const ops = try parser.parseSource(a, "@delete x x { @delete gone fresh: 2 } @delete absent", "ops.skg", null);
+    const before = try emit_mod.emitFile(a, ops);
+    const composed = try merge.mergeNodes(a, base.children, ops.children);
+    const final = try merge.materializeNodes(a, composed);
+    try testing.expectEqual(@as(usize, 1), final.len);
+    try testing.expect(!final[0].block.replace);
+    try testing.expectEqual(@as(usize, 1), final[0].block.children.len);
+    try testing.expectEqualStrings("fresh", final[0].block.children[0].field.key);
+    try testing.expectEqualStrings(before, try emit_mod.emitFile(a, ops));
+    try testing.expect(composed[0].block.replace);
+    try testing.expectEqual(@as(usize, 2), composed[0].block.children.len);
 }

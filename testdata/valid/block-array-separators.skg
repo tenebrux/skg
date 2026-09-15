@@ -1,0 +1,4 @@
+objects [null null { id: 1 }, null { id: 2 },]
+colon_objects: [null { id: 3 } null]
+values: [null, null,]
+imports_are_not_here: ["a", "b",]

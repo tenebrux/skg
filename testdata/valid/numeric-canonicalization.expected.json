@@ -1,0 +1,10 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [],
+  "children": [
+    {"type":"field","key":"int_zero","value":{"type":"int","data":0}},
+    {"type":"field","key":"float_zero","value":{"type":"float","data":-0.0}},
+    {"type":"field","key":"trailing_zeros","value":{"type":"float","data":1.0}}
+  ]
+}

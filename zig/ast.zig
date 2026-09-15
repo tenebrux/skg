@@ -3,7 +3,7 @@
 /// All string slices in the AST are allocated from the arena passed to the parser.
 /// Free everything by deiniting that arena - do not free individual slices.
 /// The type tag of a Value.
-pub const ValueType = enum { int, float, bool, string, array, null };
+pub const ValueType = enum { int, float, bool, string, array, null, object };
 
 /// Stable, implementation-independent classification of a parse failure.
 ///
@@ -21,6 +21,7 @@ pub const ErrorCode = enum {
     UNEXPECTED_CHAR,
     UNTERMINATED_STRING,
     INVALID_ESCAPE,
+    INVALID_UTF8,
 
     // Syntax.
     EXPECTED_COLON,
@@ -29,6 +30,7 @@ pub const ErrorCode = enum {
     EXPECTED_STRING,
     EXPECTED_IDENT,
     EXPECTED_VALUE,
+    EXPECTED_COMMA,
     EXPECTED_NODE_BODY,
     UNEXPECTED_TOKEN,
     UNTERMINATED_BLOCK,
@@ -37,6 +39,8 @@ pub const ErrorCode = enum {
     MIXED_ARRAY_TYPES,
     INVALID_INT,
     INVALID_FLOAT,
+    UNKNOWN_OVERLAY_OPERATION,
+    EXPECTED_REPLACEMENT_BLOCK,
 
     // Header directives.
     DUPLICATE_SKG_VERSION,
@@ -56,6 +60,11 @@ pub const ErrorCode = enum {
     CIRCULAR_IMPORT,
     IMPORT_NOT_FOUND,
     IMPORT_CHAIN_TOO_DEEP,
+    PATH_OUTSIDE_ROOT,
+    RESOLUTION_BYTE_LIMIT,
+    RESOLUTION_FILE_LIMIT,
+    RESOLUTION_NODE_LIMIT,
+    RESOLUTION_WORK_LIMIT,
 
     // Fallback. Never expected in a fixture - seeing it means a diagnostic
     // site is missing its code.
@@ -79,13 +88,20 @@ pub const Diagnostic = struct {
     message: []const u8,
 };
 
-/// A typed array. All elements must be the same type (enforced by parser).
+/// A typed array. All non-null elements have the same type (enforced by parser).
 pub const Array = struct {
     element_type: ValueType,
     items: []Value,
+    trailing_comments: []const []const u8 = &.{},
 };
 
-/// A scalar or array value from a field assignment.
+/// An anonymous block used wherever a value is expected.
+pub const Object = struct {
+    children: []Node,
+    trailing_comments: []const []const u8 = &.{},
+};
+
+/// A scalar, array, or object value from a field assignment.
 pub const Value = union(ValueType) {
     int: i64,
     float: f64,
@@ -94,11 +110,13 @@ pub const Value = union(ValueType) {
     string: []const u8,
     array: Array,
     null: void,
+    object: Object,
 };
 
 /// A key-value pair: `key: value`
 pub const Field = struct {
-    key: []const u8, // slice into source (idents are never escaped)
+    path: []const u8 = "",
+    key: []const u8, // decoded key, owned by the parse arena
     value: Value,
     line: u32,
     col: u32,
@@ -108,6 +126,8 @@ pub const Field = struct {
 
 /// A named scope: `name { children... }`
 pub const Block = struct {
+    path: []const u8 = "",
+    replace: bool = false,
     name: []const u8, // slice into source
     children: []Node,
     line: u32,
@@ -117,17 +137,28 @@ pub const Block = struct {
 };
 
 /// A named list of blocks: `name [ { ... } { ... } ]`
-/// Each item is a slice of child nodes representing one block entry.
+/// Each item is an object or null value.
 pub const BlockArray = struct {
+    path: []const u8 = "",
     name: []const u8, // slice into source
-    items: [][]Node,
+    items: []Value,
     line: u32,
     col: u32,
     leading_comments: []const []const u8 = &.{},
     trailing_comments: []const []const u8 = &.{},
 };
 
+pub const Delete = struct {
+    path: []const u8 = "",
+    key: []const u8,
+    line: u32,
+    col: u32,
+    leading_comments: []const []const u8 = &.{},
+    trailing_comment: ?[]const u8 = null,
+};
+
 pub const Node = union(enum) {
+    delete: Delete,
     field: Field,
     block: Block,
     block_array: BlockArray,
@@ -136,6 +167,8 @@ pub const Node = union(enum) {
 /// The parsed representation of a single .skg file.
 /// Does not include resolved imports - see root.zig for that.
 pub const File = struct {
+    /// Imports are metadata only after finalization; emit produces standalone data.
+    imports_resolved: bool = false,
     /// `skg_version: "1.0"` - unescaped, null if absent. Allocated from parse arena.
     skg_version: ?[]const u8,
     /// `schema_version: "1.0.0"` - unescaped, null if absent. Allocated from parse arena.

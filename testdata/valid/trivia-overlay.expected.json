@@ -1,0 +1,40 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [],
+  "leading_comments": [
+    "# remove legacy"
+  ],
+  "children": [
+    {
+      "type": "delete",
+      "key": "legacy",
+      "leading_comments": [],
+      "trailing_comment": "# deliberately absent"
+    },
+    {
+      "type": "block",
+      "name": "a.b",
+      "replace": true,
+      "children": [
+        {
+          "type": "delete",
+          "key": "old",
+          "leading_comments": [],
+          "trailing_comment": "# remove child"
+        },
+        {
+          "type": "field",
+          "key": "keep",
+          "value": {
+            "type": "int",
+            "data": 1
+          }
+        }
+      ],
+      "trailing_comments": [
+        "# replacement end"
+      ]
+    }
+  ]
+}

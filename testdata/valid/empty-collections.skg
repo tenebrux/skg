@@ -2,3 +2,7 @@ list: []
 tags []
 panels []
 defaults {}
+colon_object: {}
+object_items: [{}]
+nested: [[], [{}]]
+nulls: [null]

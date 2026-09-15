@@ -5,13 +5,15 @@
 Version: 1.0
 Extension: `.skg`
 Encoding: UTF-8 (no BOM)
-Status: Draft
+Status: V1 release candidate; language contract frozen
 
 ---
 
 ## Overview
 
-SKG (Static Key Group) is a simple, hierarchical configuration language. It is designed to be human-readable, easy to extend, and unambiguous. There is one way to write each construct - no alternatives, no shortcuts, no implicit behavior.
+SKG (Static Key Group) is a small, hierarchical configuration language. It is
+designed to be human-readable, easy to extend, and unambiguous. Its few accepted
+surface conveniences normalize to one canonical representation.
 
 SKG is not a general-purpose language. It has no variables, no templates, no expressions, no computation. It is structured data. The application consuming the config defines and validates the schema.
 
@@ -32,11 +34,20 @@ block or field**; one that follows the body is an error
 themselves, but the formatter always writes them in the order above, so
 canonical text matches the order shown here.
 
-`skg_version`, `schema_version` and `import` are reserved at the top level of a
-file: they always introduce a directive and can never name a block or a field
-there. Inside a block they are ordinary identifiers, because a block has no
-header. `true`, `false` and `null` are reserved everywhere - they are value
-literals, never identifiers, so they can never be used as a key.
+`skg_version`, `schema_version` and `import` are reserved as **bare** names at
+the top level: they introduce directives. Inside a block they are ordinary
+identifiers. Bare `true`, `false` and `null` are value literals everywhere.
+
+Field keys, block names and block-array names may be bare identifiers
+(`[A-Za-z_][A-Za-z0-9_]*`) or ordinary double-quoted strings. Quoted keys use
+the same escapes as string values; triple-quoted keys are not supported.
+Empty keys, Unicode, punctuation and escaped newlines are allowed. Keys are
+compared by their decoded bytes without normalization: `name` and `"name"`
+identify the same key. A quoted name is always data, so `"import": 1` is a
+field, including at the top level. Quoting also permits `"true"` and `"null"`.
+
+The formatter uses a bare key wherever that spelling preserves its meaning,
+and an escaped double-quoted key otherwise.
 
 ```
 skg_version: "1.0"
@@ -53,19 +64,25 @@ theme {
 }
 ```
 
-Files must be UTF-8. No byte-order mark: a leading `EF BB BF` is rejected as
-`UNEXPECTED_CHAR` at 1:1, because no token can start with those bytes. Beyond
-that the parser is byte-transparent - it does not validate that string contents
-are well-formed UTF-8, and passes the bytes through unchanged. Columns in
+Files must be well-formed UTF-8, including strings, quoted keys, comments and
+import paths. Invalid encoding is `INVALID_UTF8` at the first invalid byte. No
+byte-order mark: a leading `EF BB BF` is valid UTF-8 but rejected separately as
+`UNEXPECTED_CHAR` at 1:1, because no token can start with it. Keys are still
+compared by their encoded UTF-8 bytes without Unicode normalization. Columns in
 diagnostics count bytes, not code points.
 
-Line endings are LF (`\n`). The parser treats `\r` as whitespace - CRLF files will parse correctly, but `\r` is stripped on round-trip through the formatter.
+Line endings are LF (`\n`). The parser treats `\r` as whitespace - CRLF files will parse correctly, and line separators are normalized by the formatter. Carriage returns inside
+string values remain part of those values.
 
 ---
 
 ## Comments
 
-Comments begin with `#` and run to the end of the line. Comments are preserved through parse-emit round-trips.
+Comments begin with `#` and run to the end of the line. A formatter with the
+`comments` capability preserves every comment's text through parse-emit
+round-trips. Canonical placement follows the AST attachment rules and can move
+comments from header or array-value positions; see the
+[formatter contract](formatter.md#source-and-trivia).
 
 ```
 # This is a comment
@@ -118,7 +135,12 @@ theme {
 }
 ```
 
-If a block or field appears twice in the same file, the second occurrence overwrites the first. This is not an error - it is the user's responsibility.
+Repeated keys are not an error. One namespace covers fields, blocks, block
+arrays and operations, and the first occurrence determines the key's position.
+Two objects merge their children recursively; every other collision takes the
+later value wholesale. A scalar/null/deletion followed by an object starts a
+fresh object and does not resurrect older children. Bare and quoted spellings
+of the same decoded key collide. These are the same rules used across imports.
 
 ---
 
@@ -132,7 +154,8 @@ Single import:
 import "./theme.skg"
 ```
 
-Multiple imports (ordered, top to bottom):
+Multiple imports (ordered, top to bottom) use exactly one comma between paths
+and may have one trailing comma. Leading, repeated and omitted commas are invalid:
 
 ```
 import [
@@ -141,17 +164,24 @@ import [
 ]
 ```
 
-Import paths are relative to the file containing the import statement - not to
-the entry file, and not to the process working directory.
+Import paths are relative to the canonical file containing the import statement
+- not to the entry file, and not to the process working directory. Canonical
+identity follows symlinks, so imports in a symlinked file resolve beside its
+referent. Reaching the same canonical file through multiple aliases is one file
+for parsing, caching and aggregate budgets. Hard-link aliases are distinct.
 
 **Absolute import paths are rejected** (`ABSOLUTE_IMPORT_PATH`). A path is
 absolute when it begins with `/` or `\`, or when it begins with a drive letter
 followed by `:` (`C:\theme.skg`, `c:theme.skg`). All of those spellings are
 rejected on every platform, so a file cannot mean one thing on Linux and
-another on Windows. Absolute paths are not portable between machines, and an
-import that escapes the config tree is a supply-chain hazard for a parser
-running as root. The check happens at parse time, so the byte API rejects an
-absolute import without touching the filesystem.
+another on Windows. The check happens at parse time, so the byte API rejects an absolute import
+without touching the filesystem. This portability rule alone provides no
+containment: `..` components and symlinks can still lead outside the config
+tree. The options file API can set a canonical root; then the entry and every
+import target must remain within it or resolution fails with
+`PATH_OUTSIDE_ROOT`. Real-path checking followed by ordinary file opening is not
+an operating-system sandbox against an attacker concurrently changing the
+filesystem. Use an OS sandbox or trusted file store for that threat model.
 
 Circular imports are an error (`CIRCULAR_IMPORT`). The parser detects and
 rejects them, comparing paths in canonical form so `./theme.skg` and
@@ -161,14 +191,81 @@ A file reached twice by different routes through the graph (a diamond) is not a
 cycle.
 
 Import chains are followed to **32 levels** below the entry file; deeper is
-`IMPORT_CHAIN_TOO_DEEP`. This is a backstop against a loop that cycle detection
-cannot see - a symlink loop, say - exhausting the stack.
+`IMPORT_CHAIN_TOO_DEEP`, including paths through already cached imports. This
+is a recursion backstop independent of canonical cycle detection.
+
+One file-resolution call also has V1 defaults of **64 MiB aggregate source**,
+**1,024 unique canonical files**, **8,000,000 nodes and recursively nested
+values**, and **64,000,000 merge work units**. A merge work unit is one node
+slot scanned at one overlay level; recursive block merges charge each level.
+The options API may set positive lower or higher limits. Lowering these defaults
+in V1.x would be a breaking change.
+
+---
+
+## Explicit overlay operations
+
+`@delete key` removes a key, and `@replace key { ... }` replaces an entire
+object. The `@` prefix keeps ordinary `delete` and `replace` keys available.
+
+```
+import "defaults.skg"
+
+@delete legacy_mode
+@replace routes {}
+server {
+  @delete old_port
+  @replace headers { "Content-Type": "application/json" }
+}
+```
+
+Keys use the same bare or quoted spelling as ordinary fields. They address one
+literal key in the current object: `@delete "a.b"` deletes the key `a.b`, not
+a nested path. Use nested blocks to target nested keys. A nested block still creates its
+object when absent, even if its only child operation deletes an absent key.
+Operations are body
+statements; header directives must still precede them.
+
+- Deleting an absent key is valid. Deletion is distinct from assigning null:
+  null remains a present value, whereas a deleted key is absent.
+- Replacement requires an object body in braces, without a colon. It discards
+  all inherited children whether the prior value is an object, another type,
+  or absent. An empty body clears the object.
+- Ordinary blocks continue to merge recursively. Later blocks can add to an
+  earlier replacement. Scalars and arrays already replace wholesale and do
+  not need a separate replacement operation.
+- Operations apply in source order within a scope, after imports in declared
+  order. Arrays contain independent values; their objects can contain local
+  operations, but no operation addresses an array index or another entry.
+- A deletion or scalar followed by an object is also a replacement boundary.
+  For example, `x: null x { fresh: 1 }` must not resurrect old children of
+  `x` from an earlier import.
+
+Parsing and loading are separate contracts. Byte parsing composes the local
+body as an **unresolved overlay**, retaining delete markers and replacement
+flags. Formatting that overlay preserves its effect when imported elsewhere.
+A composed overlay keeps the first occurrence's key position, including delete
+markers. Finalization removes deleted positions and clears replacement flags.
+
+`MergeNodes` (Go) and `merge.mergeNodes` (Zig) compose overlays without
+finalizing. Compose all layers first, then call `MaterializeNodes` /
+`merge.materializeNodes` to obtain ordinary data. These functions do not
+mutate their inputs. A finalized tree is data, not reusable operation history.
+The file-loading APIs finalize once after all imports; Go `Unmarshal`
+finalizes its local body without loading imports.
+
+A resolved file retains import paths as diagnostic metadata and sets
+`ImportsResolved` (Go) / `imports_resolved` (Zig). Emitting that file writes
+**standalone final data without import statements**. Keeping imports active
+after removing delete markers could recreate deleted values on the next load.
+To format an original source while preserving its imports and operations, use
+the byte-parsing API, as `skg fmt` does.
 
 ---
 
 ## Value Types
 
-There are five scalar value types and one collection type. The type is determined by syntax - no type annotations.
+There are five scalar value types and two collection types (arrays and objects). The type is determined by syntax - no type annotations.
 
 ### Int
 
@@ -193,8 +290,14 @@ adjustment: -0.5
 ```
 
 A trailing zero after the decimal is required. `13` is an int. `13.0` is a
-float. `13.` is neither - it is `INVALID_FLOAT`, because there is one way to
-write each value and `13.0` is it.
+float. `13.` is neither - it is `INVALID_FLOAT`, because at least one digit is
+required on each side of the decimal point; write `13.0`.
+
+Scientific notation, a leading `+`, leading-dot decimals, hexadecimal/binary
+integers, numeric separators and unit suffixes are not part of V1. Write a
+decimal integer or a decimal-point float directly: `1000`, `0.5`, and `1.0`.
+`-0` is accepted as integer zero and canonicalizes to `0`; `-0.0` preserves its
+IEEE-754 sign. Extra fractional zeroes are accepted and canonicalized away.
 
 Neither ints nor floats may carry a redundant leading zero: the integer part is
 `0` or begins with a non-zero digit. `007` is `INVALID_INT` and `00.5` is
@@ -217,17 +320,23 @@ vsync: false
 
 ### Null
 
-The literal `null` represents an absent value. No quotes.
+The literal `null` represents an explicit present null value. No quotes.
 
 ```
 background: null
 ```
 
-Null is useful for explicitly unsetting an inherited value from an import. Null is not a valid array element - it is its own type and arrays require uniform types.
+Null replaces an inherited value with an explicit null; it does not delete the key. Null may also appear in arrays alongside one non-null element type, including objects.
 
 ### String
 
 Any value that is not an int, float, bool, or null must be quoted with double quotes `"`.
+
+Ordinary quoted strings use `\"`, `\\`, `\n`, and `\t` escapes. A raw newline
+ends an ordinary string. Other valid UTF-8 bytes, including control bytes such
+as carriage return and NUL, are preserved byte-for-byte; the canonical emitter
+does not invent escape forms that the parser cannot read. Triple-quoted strings
+preserve their contents verbatim.
 
 ```
 accent: "green"
@@ -269,7 +378,10 @@ In this example, "line two" is preceded by two spaces. There is no automatic ind
 
 ### Array
 
-An ordered list of values enclosed in `[ ]`, comma-separated. All elements must be the same type. Trailing comma is allowed.
+An ordered list of values enclosed in `[ ]`. Scalar, nested-array and all-null
+lists use exactly one comma between adjacent values and may have one trailing
+comma. Leading, repeated and omitted commas are invalid. All non-null elements
+must be the same type. Null elements are allowed at any position.
 
 ```
 bindings: ["super+1", "super+2", "super+3"]
@@ -277,7 +389,7 @@ bindings: ["super+1", "super+2", "super+3"]
 sizes: [8.0, 12.0, 16.0]
 ```
 
-Type uniformity is checked one level deep: every element in an array must have the same type tag. For nested arrays, the outer array requires all elements to be arrays, but inner arrays may have different element types:
+Type uniformity is checked one level deep: every non-null element in an array must have the same type tag. For nested arrays, the outer array requires all non-null elements to be arrays, but inner arrays may have different element types:
 
 ```
 # valid - outer elements are both arrays
@@ -289,9 +401,17 @@ mixed: [[1, 2], ["a", "b"]]
 # invalid - outer elements are mixed (int and string)
 bad: [1, "two", 3]
 
-# invalid - null is its own type, cannot mix with others
-also_bad: [1, null, 3]
+# valid - null does not change the non-null element type
+nullable: [1, null, 3]
+
+# invalid - null does not permit incompatible non-null types
+also_bad: [1, null, "three"]
 ```
+
+An empty scalar array has no values; its AST element-type sentinel is `string`.
+An all-null array has element type `null`. Otherwise the element type is that
+of the non-null values. Null entries preserve their positions. Native decoding
+must still use a destination type capable of representing the intended values.
 
 Arrays may span multiple lines:
 
@@ -320,7 +440,8 @@ theme {
 }
 ```
 
-Block names are unique within their parent scope. If the same block name appears twice, the contents are merged with last-wins semantics.
+Repeated block names within a parent scope merge their contents with last-wins
+semantics, under the same duplicate-key rules as every other node shape.
 
 Blocks may be empty:
 
@@ -328,11 +449,32 @@ Blocks may be empty:
 defaults {}
 ```
 
+### Object values
+
+An object is an anonymous block: `{ key: value nested { ... } }`. Its fields
+use the same key, duplicate and recursive-merge rules as named blocks. It may
+appear anywhere a value is expected, including inside nested arrays:
+
+```
+matrix: [
+  [{ name: "primary" }, null],
+  [{ name: "secondary" }, {}]
+]
+```
+
+Objects use SKG field separators, not JSON object commas. A named object
+`service: { port: 8080 }` is equivalent to `service { port: 8080 }` and
+normalizes to a block. The canonical formatter favors the existing block
+spelling. Duplicate named objects therefore merge recursively regardless of
+whether the colon was written. Arrays replace wholesale; objects in separate
+array positions do not merge with each other. Empty `{}` and `null` are
+distinct values.
+
 ---
 
 ## Block Arrays
 
-A block array is an ordered list of anonymous blocks. The syntax is `name [ { ... } { ... } ]`.
+A block array is an ordered list of anonymous objects, optionally containing null entries. The syntax is `name [ { ... } { ... } ]`.
 
 ```
 users [
@@ -349,15 +491,23 @@ users [
 ]
 ```
 
-Each `{ }` entry in the array is an independent block with its own fields and nested blocks. Entries are ordered - position is significant. Commas between entries are optional.
+Each `{ }` entry in the array is an independent block with its own fields and
+nested blocks. Entries are ordered - position is significant. Object arrays are
+the one collection whose commas are optional between entries, including null
+entries. When a comma is written, only one is allowed. A single trailing comma
+is allowed; leading and repeated commas are invalid. This permits the normal SKG
+block layout while keeping scalar arrays unambiguous.
 
 Block arrays are the way to represent ordered collections of structured items - panels, zones, users, rules, etc.
 
 When merging (via imports), a block array replaces the entire previous value - items are not merged individually.
 
-Block arrays are distinct from scalar arrays (`[1, 2, 3]`). Scalar arrays appear as field values after a colon. Block arrays appear after an identifier without a colon, just like blocks.
+Block arrays are the named spelling of arrays whose non-null elements are
+objects. Both `users [ { name: "admin" } null ]` and
+`users: [{ name: "admin" }, null]` parse to the same block-array node.
+The formatter uses the colonless block-array spelling.
 
-A colonless identifier followed by `[` where the first element is not `{` is treated as a scalar array field:
+A colonless key followed by `[` also supports ordinary value arrays:
 
 ```
 tags ["alpha", "beta"]
@@ -365,17 +515,20 @@ tags ["alpha", "beta"]
 tags: ["alpha", "beta"]
 ```
 
-That choice is made **once, from the first element**. After the first element
-the collection has committed to one kind, and mixing the other kind into it is
-`MIXED_ARRAY_TYPES` - the same rule that forbids `[1, "two"]`:
+The **first non-null element** determines the outer element type. Every later
+non-null element must match it. Null entries preserve their positions and do
+not permit incompatible non-null types:
 
 ```
-# invalid - a block array cannot hold a scalar
-users [ { name: "admin" } 99 ]
+users [null { name: "admin" } null]  # valid
 
-# invalid - a scalar array cannot hold a block
-tags [ "alpha" { name: "beta" } ]
+users [ { name: "admin" } 99 ]      # invalid: object and int
+tags [ "alpha" { name: "beta" } ]   # invalid: string and object
 ```
+
+An all-null list is a value array with element type `null`; it has no inferred
+object type. The destination native schema may still decode it into a list of
+optional records.
 
 ### The empty case
 
@@ -394,18 +547,18 @@ Empty blocks are written `defaults {}`.
 
 ## Fields
 
-A field is a key-value pair. The key is an unquoted identifier. The value is one of the scalar types or an array.
+A field is a key-value pair. The key is a bare identifier or an ordinary double-quoted string. The value is a scalar, array, or object. Named structured values normalize to blocks or block arrays as described above.
 
 ```
 key: value
 ```
 
-Keys may contain letters, digits, and underscores. Keys may not start with a digit. Keys are never quoted, so a name outside that alphabet has no spelling in the language at all.
+Bare keys use ASCII letters, digits, and underscores and may not start with a digit. Quote other keys using the string escapes described above.
 
 ```
 accent: "green"   # valid
 size_base: 13.0   # valid
-max-crashes: 3    # invalid - hyphens not allowed in keys
+"max-crashes": 3  # valid - punctuation requires quotes
 true: 1           # invalid - reserved literal, never an identifier
 ```
 
@@ -419,9 +572,26 @@ true: 1           # invalid - reserved literal, never an identifier
 skg_version: "1.0"
 ```
 
-Parsers must reject files declaring an `skg_version` newer than the parser supports. A file declaring `skg_version: "1.1"` will fail to parse on a parser that only supports `1.0`. This ensures files don't silently lose meaning when parsed by an older tool.
+Parsers accept only versions they implement. A V1 parser supporting through
+`1.N` accepts declared `1.0` through `1.N`; another major and a later minor are
+`UNSUPPORTED_SKG_VERSION`. This V1.0 parser therefore rejects `0.9`, `1.1` and
+`2.0`. A well-formed declaration is not proof that a corresponding spec exists.
 
-If omitted, the parser accepts the file without a version check.
+If omitted, the document uses V1.0 language semantics. This default is permanent
+within V1: new V1.x syntax must require the minor version that introduced it,
+so a future parser cannot reinterpret an unversioned or `1.0` document using a
+later grammar. The AST keeps an omitted declaration as null; tools do not invent
+a header merely because they apply V1.0 semantics.
+
+Each imported file declares (or omits) its own language version. Mixed explicit
+`1.0` and unversioned V1.0 files are valid, and an import graph is rejected if
+any file declares a version the parser does not support. An imported header does
+not replace or propagate into the entry file's AST. An importer does not lower
+or raise a dependency's declared version.
+
+The language version, native package/tool release, and application-owned
+`schema_version` are independent. Adding another native language package for
+the same SKG grammar does not change `skg_version`.
 
 ---
 
@@ -447,7 +617,10 @@ The parser enforces:
 - Header directives before the body, and no duplicate `skg_version` or
   `schema_version` declarations
 
-**Semantic validation** - unknown fields, wrong types for a schema, missing required fields - is the responsibility of the consuming application. The application maps the parsed AST onto its own types and produces schema errors.
+**Semantic validation** uses the consuming application's native types and
+validation hooks. The first-party native loaders map the materialized value
+tree into those types, enforce conversion and presence rules, and report
+structured errors; the application owns its field set and cross-field rules.
 
 ---
 
@@ -458,10 +631,17 @@ The parser produces a tree of nodes. Each node is one of:
 | Node         | Contents                                                 |
 | ------------ | -------------------------------------------------------- |
 | `File`       | skg_version, imports, schema_version, children, comments |
-| `Block`      | name, children, comments                                 |
-| `BlockArray` | name, items (each item is a list of children), comments  |
+| `Block`      | name, children, replace flag, comments                                 |
+| `BlockArray` | name, items (each item is an object or null value), comments  |
+| `Delete`     | key, comments; retained until finalization                |
 | `Field`      | key, value, comments                                     |
-| `Value`      | type (Int/Float/Bool/String/Null/Array), data            |
+| `Value`      | type (Int/Float/Bool/String/Null/Array/Object), data            |
+
+The Go and Zig ASTs represent block-array entries as object/null values,
+rather than child lists with a separate null marker. This is a pre-V1 API
+change: Go callers read object children through `item.Object`; Zig callers use
+`item.object.children` after checking the tag. Nested objects use the same
+value representation.
 
 Comment trivia is attached to nodes, not stored as standalone AST nodes:
 
@@ -469,7 +649,9 @@ Comment trivia is attached to nodes, not stored as standalone AST nodes:
 - **Blocks/BlockArrays**: `leading_comments` (before the block) and `trailing_comments` (before closing delimiter)
 - **File**: `leading_comments` (before first declaration) and `trailing_comments` (after last node)
 
-The consuming application walks this tree against its own type definitions to populate its config struct.
+The native loaders consume this tree directly to populate application structs,
+maps and lists. Tooling can use the AST APIs when it needs source structure
+rather than a native configuration value.
 
 ---
 

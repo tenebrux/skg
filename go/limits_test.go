@@ -2,6 +2,7 @@ package skg
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -106,10 +107,10 @@ func TestSKGVersionValidation(t *testing.T) {
 		wantMsg string // empty means the version must be accepted
 	}{
 		{"1.0", ""},
-		{"0.9", ""},
-		{"9.9", "newer than this parser supports"},
-		{"1.1", "newer than this parser supports"},
-		{"2.0", "newer than this parser supports"},
+		{"0.9", "not supported"},
+		{"9.9", "not supported"},
+		{"1.1", "not supported"},
+		{"2.0", "not supported"},
 		{"abc", "malformed skg_version"},
 		{"1", "malformed skg_version"},
 		{"1.0.0", "malformed skg_version"},
@@ -150,5 +151,17 @@ func TestSchemaVersionNotValidated(t *testing.T) {
 	}
 	if f.SchemaVersion == nil || *f.SchemaVersion != "9.9.9-not-a-version" {
 		t.Fatalf("unexpected schema_version: %v", f.SchemaVersion)
+	}
+}
+
+func TestInvalidUTF8Location(t *testing.T) {
+	src := append([]byte("name: \"ok\"\n# "), 0xff)
+	_, err := ParseSource(src, "encoding.skg")
+	var parse *ParseError
+	if !errors.As(err, &parse) {
+		t.Fatalf("expected *ParseError, got %T: %v", err, err)
+	}
+	if parse.Diag.Code != CodeInvalidUTF8 || parse.Diag.Path != "encoding.skg" || parse.Diag.Line != 2 || parse.Diag.Col != 3 {
+		t.Fatalf("unexpected diagnostic: %#v", parse.Diag)
 	}
 }

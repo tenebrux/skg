@@ -2,14 +2,13 @@
 #
 # Shows off:
 #   - block array for an ordered list of backends
-#   - colonless scalar array shorthand (`labels ["a", "b"]`)
+#   - colon-based array values (`labels: ["a", "b"]`)
 #   - nested blocks (health_check)
 #   - mixed value types within a single block
 #   - null to explicitly mark an optional field absent
 #
 # This kind of config appears in load balancers, service meshes,
 # reverse proxies, and rack-manifest tooling.
-
 pool {
   name: "api-backends"
   algorithm: "round_robin"
@@ -22,8 +21,7 @@ servers [
     host: "10.0.1.10"
     port: 8080
     weight: 100
-    labels ["primary", "us-west"]
-
+    labels: ["primary", "us-west"]
     health_check {
       path: "/healthz"
       interval_s: 5
@@ -36,8 +34,7 @@ servers [
     host: "10.0.1.11"
     port: 8080
     weight: 100
-    labels ["primary", "us-west"]
-
+    labels: ["primary", "us-west"]
     health_check {
       path: "/healthz"
       interval_s: 5
@@ -50,10 +47,9 @@ servers [
     host: "10.0.2.20"
     port: 8080
     weight: 50
-    labels ["secondary", "us-east"]
+    labels: ["secondary", "us-east"]
     # TLS is optional on this backend - null documents that explicitly
     tls: null
-
     health_check {
       path: "/healthz"
       interval_s: 10

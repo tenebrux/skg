@@ -35,3 +35,15 @@
 "[" @punctuation.bracket
 "]" @punctuation.bracket
 "," @punctuation.delimiter
+
+; Quoted keys retain their structural role.
+(block name: (string) @module)
+(block_array name: (string) @module)
+(pair key: (string) @variable.member)
+(scalar_array_field key: (string) @variable.member)
+
+; Explicit overlay operations do not reserve ordinary data keys.
+(overlay_operation "@" @keyword)
+(overlay_operation "delete" @keyword)
+(overlay_operation "replace" @keyword)
+(overlay_operation key: (_) @variable.member)

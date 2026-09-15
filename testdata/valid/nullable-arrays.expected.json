@@ -1,0 +1,222 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [],
+  "children": [
+    {
+      "type": "field",
+      "key": "first",
+      "value": {
+        "type": "array",
+        "element_type": "int",
+        "data": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "int",
+            "data": 1
+          },
+          {
+            "type": "int",
+            "data": 2
+          }
+        ]
+      }
+    },
+    {
+      "type": "field",
+      "key": "middle",
+      "value": {
+        "type": "array",
+        "element_type": "int",
+        "data": [
+          {
+            "type": "int",
+            "data": 1
+          },
+          {
+            "type": "null"
+          },
+          {
+            "type": "int",
+            "data": 3
+          }
+        ]
+      }
+    },
+    {
+      "type": "field",
+      "key": "last",
+      "value": {
+        "type": "array",
+        "element_type": "int",
+        "data": [
+          {
+            "type": "int",
+            "data": 1
+          },
+          {
+            "type": "int",
+            "data": 2
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    {
+      "type": "field",
+      "key": "all_null",
+      "value": {
+        "type": "array",
+        "element_type": "null",
+        "data": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    {
+      "type": "field",
+      "key": "empty",
+      "value": {
+        "type": "array",
+        "element_type": "string",
+        "data": []
+      }
+    },
+    {
+      "type": "field",
+      "key": "strings",
+      "value": {
+        "type": "array",
+        "element_type": "string",
+        "data": [
+          {
+            "type": "string",
+            "data": "a"
+          },
+          {
+            "type": "null"
+          },
+          {
+            "type": "string",
+            "data": "b"
+          }
+        ]
+      }
+    },
+    {
+      "type": "field",
+      "key": "booleans",
+      "value": {
+        "type": "array",
+        "element_type": "bool",
+        "data": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "bool",
+            "data": true
+          },
+          {
+            "type": "bool",
+            "data": false
+          }
+        ]
+      }
+    },
+    {
+      "type": "field",
+      "key": "floats",
+      "value": {
+        "type": "array",
+        "element_type": "float",
+        "data": [
+          {
+            "type": "float",
+            "data": 1.5
+          },
+          {
+            "type": "null"
+          },
+          {
+            "type": "float",
+            "data": 2.5
+          }
+        ]
+      }
+    },
+    {
+      "type": "field",
+      "key": "nested",
+      "value": {
+        "type": "array",
+        "element_type": "array",
+        "data": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "array",
+            "element_type": "int",
+            "data": [
+              {
+                "type": "int",
+                "data": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          {
+            "type": "array",
+            "element_type": "string",
+            "data": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string",
+                "data": "a"
+              }
+            ]
+          },
+          {
+            "type": "array",
+            "element_type": "string",
+            "data": []
+          }
+        ]
+      }
+    },
+    {
+      "type": "field",
+      "key": "colonless",
+      "value": {
+        "type": "array",
+        "element_type": "int",
+        "data": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "int",
+            "data": 1
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    }
+  ]
+}

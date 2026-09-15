@@ -3,9 +3,10 @@ package skg
 import (
 	"fmt"
 	"reflect"
+	"sync"
 )
 
-// Unmarshal parses SKG source bytes and decodes into a Go struct.
+// Unmarshal parses and materializes SKG source bytes, then decodes native values.
 // The target must be a pointer to a struct. Fields are matched via `skg:"name"` tags.
 //
 // Like Parse, Unmarshal never touches the filesystem: `import` statements are
@@ -19,7 +20,7 @@ func Unmarshal(data []byte, v interface{}) error {
 	if err != nil {
 		return err
 	}
-	return decodeNodes(file.Children, reflect.ValueOf(v))
+	return decodeNodes(MaterializeNodes(file.Children), reflect.ValueOf(v))
 }
 
 // UnmarshalFile reads an SKG file from disk and decodes into a Go struct,
@@ -29,6 +30,19 @@ func UnmarshalFile(path string, v interface{}) error {
 		return err
 	}
 	file, err := ParseFile(path)
+	if err != nil {
+		return err
+	}
+	return decodeNodes(file.Children, reflect.ValueOf(v))
+}
+
+// UnmarshalFileWithOptions is the legacy decoder paired with explicit file
+// resolution policy. New code should generally prefer DecodeFileWithOptions.
+func UnmarshalFileWithOptions(path string, v interface{}, options ResolveOptions) error {
+	if err := checkUnmarshalTarget(v); err != nil {
+		return err
+	}
+	file, err := ParseFileWithOptions(path, options)
 	if err != nil {
 		return err
 	}
@@ -62,252 +76,25 @@ func checkUnmarshalTarget(v interface{}) error {
 	return nil
 }
 
+// Compatibility entry points use the same engine without opting into strict
+// presence/null/precision checks, hooks, or transactional target replacement.
 func decodeNodes(nodes []Node, target reflect.Value) error {
-	if target.Kind() == reflect.Ptr {
-		if target.IsNil() {
-			target.Set(reflect.New(target.Type().Elem()))
-		}
-		target = target.Elem()
-	}
-
-	// Map target: block children become map entries.
-	// Field keys/block names are map keys, values decode into the map value type.
-	if target.Kind() == reflect.Map {
-		return decodeMap(nodes, target)
-	}
-
-	if target.Kind() != reflect.Struct {
-		return fmt.Errorf("skg: unmarshal target must be a struct or map, got %s", target.Kind())
-	}
-
-	fieldMap := buildFieldMap(target.Type())
-
-	for _, node := range nodes {
-		if node.Field != nil {
-			idx, ok := fieldMap[node.Field.Key]
-			if !ok {
-				continue // extra fields ignored
-			}
-			fv, err := fieldByIndex(target, idx)
-			if err != nil {
-				return fmt.Errorf("skg: field %q: %w", node.Field.Key, err)
-			}
-			if err := decodeValue(node.Field.Value, fv); err != nil {
-				return fmt.Errorf("skg: field %q: %w", node.Field.Key, err)
-			}
-		} else if node.Block != nil {
-			idx, ok := fieldMap[node.Block.Name]
-			if !ok {
-				continue
-			}
-			fv, err := fieldByIndex(target, idx)
-			if err != nil {
-				return fmt.Errorf("skg: block %q: %w", node.Block.Name, err)
-			}
-			// Handle pointer-to-struct fields: allocate if nil, then decode into the pointee.
-			if fv.Kind() == reflect.Ptr {
-				if fv.IsNil() {
-					fv.Set(reflect.New(fv.Type().Elem()))
-				}
-				if err := decodeNodes(node.Block.Children, fv); err != nil {
-					return fmt.Errorf("skg: block %q: %w", node.Block.Name, err)
-				}
-			} else {
-				if err := decodeNodes(node.Block.Children, fv.Addr()); err != nil {
-					return fmt.Errorf("skg: block %q: %w", node.Block.Name, err)
-				}
-			}
-		} else if node.BlockArray != nil {
-			idx, ok := fieldMap[node.BlockArray.Name]
-			if !ok {
-				continue
-			}
-			fv, err := fieldByIndex(target, idx)
-			if err != nil {
-				return fmt.Errorf("skg: block array %q: %w", node.BlockArray.Name, err)
-			}
-			if err := decodeBlockArray(node.BlockArray, fv); err != nil {
-				return fmt.Errorf("skg: block array %q: %w", node.BlockArray.Name, err)
-			}
-		}
-	}
-	return nil
+	ctx := DecodeContext{legacy: true}
+	return ctx.convert(Value{Type: TypeObject, Object: nodes}, target)
 }
 
-func decodeMap(nodes []Node, target reflect.Value) error {
-	if target.Type().Key().Kind() != reflect.String {
-		return fmt.Errorf("skg: map key must be string, got %s", target.Type().Key().Kind())
-	}
-
-	if target.IsNil() {
-		target.Set(reflect.MakeMap(target.Type()))
-	}
-
-	valType := target.Type().Elem()
-	isAny := valType.Kind() == reflect.Interface
-
-	// The key kind is string, but the key *type* may be a named string type, and
-	// SetMapIndex panics on an unconverted value.
-	keyType := target.Type().Key()
-	mapKey := func(s string) reflect.Value { return reflect.ValueOf(s).Convert(keyType) }
-
-	for _, node := range nodes {
-		if node.Field != nil {
-			if isAny {
-				target.SetMapIndex(mapKey(node.Field.Key), reflect.ValueOf(valueToAny(node.Field.Value)))
-			} else {
-				val := reflect.New(valType).Elem()
-				if err := decodeValue(node.Field.Value, val); err != nil {
-					return fmt.Errorf("skg: map key %q: %w", node.Field.Key, err)
-				}
-				target.SetMapIndex(mapKey(node.Field.Key), val)
-			}
-		} else if node.Block != nil {
-			if isAny {
-				// Decode block children into map[string]interface{}
-				inner := reflect.MakeMap(reflect.TypeOf(map[string]interface{}{}))
-				if err := decodeMap(node.Block.Children, inner); err != nil {
-					return fmt.Errorf("skg: map key %q: %w", node.Block.Name, err)
-				}
-				target.SetMapIndex(mapKey(node.Block.Name), inner)
-			} else {
-				val := reflect.New(valType).Elem()
-				if err := decodeNodes(node.Block.Children, val.Addr()); err != nil {
-					return fmt.Errorf("skg: map key %q: %w", node.Block.Name, err)
-				}
-				target.SetMapIndex(mapKey(node.Block.Name), val)
-			}
-		} else if node.BlockArray != nil {
-			// Without this branch a block array decoded into a map vanished
-			// silently: the node matched none of the cases above and the key
-			// simply never appeared in the result.
-			if isAny {
-				items := make([]interface{}, len(node.BlockArray.Items))
-				for i, item := range node.BlockArray.Items {
-					inner := reflect.MakeMap(reflect.TypeOf(map[string]interface{}{}))
-					if err := decodeMap(item, inner); err != nil {
-						return fmt.Errorf("skg: map key %q: index %d: %w", node.BlockArray.Name, i, err)
-					}
-					items[i] = inner.Interface()
-				}
-				target.SetMapIndex(mapKey(node.BlockArray.Name), reflect.ValueOf(items))
-			} else {
-				val := reflect.New(valType).Elem()
-				if err := decodeBlockArray(node.BlockArray, val); err != nil {
-					return fmt.Errorf("skg: map key %q: %w", node.BlockArray.Name, err)
-				}
-				target.SetMapIndex(mapKey(node.BlockArray.Name), val)
-			}
-		}
-	}
-	return nil
-}
-
-func decodeBlockArray(ba *BlockArray, target reflect.Value) error {
-	if target.Kind() == reflect.Ptr {
-		if target.IsNil() {
-			target.Set(reflect.New(target.Type().Elem()))
-		}
-		target = target.Elem()
-	}
-	if target.Kind() != reflect.Slice {
-		return fmt.Errorf("target must be a slice, got %s", target.Kind())
-	}
-	elemType := target.Type().Elem()
-	slice := reflect.MakeSlice(target.Type(), len(ba.Items), len(ba.Items))
-	for i, item := range ba.Items {
-		elem := reflect.New(elemType)
-		if err := decodeNodes(item, elem); err != nil {
-			return fmt.Errorf("index %d: %w", i, err)
-		}
-		slice.Index(i).Set(elem.Elem())
-	}
-	target.Set(slice)
-	return nil
-}
-
-func decodeValue(val Value, target reflect.Value) error {
-	// Handle pointer types (nullable)
-	if target.Kind() == reflect.Ptr {
-		if val.Type == TypeNull {
-			target.Set(reflect.Zero(target.Type()))
-			return nil
-		}
-		if target.IsNil() {
-			target.Set(reflect.New(target.Type().Elem()))
-		}
-		target = target.Elem()
-	}
-
-	// Handle interface{} / any - decode into native Go types
-	if target.Kind() == reflect.Interface {
-		target.Set(reflect.ValueOf(valueToAny(val)))
+// A nil reflect.Value means delete in SetMapIndex, and panics in Set. Always
+// represent SKG null as a typed zero, and reject incompatible interfaces.
+func assignInterface(target reflect.Value, value any) error {
+	if value == nil {
+		target.SetZero()
 		return nil
 	}
-
-	switch val.Type {
-	case TypeString:
-		if target.Kind() != reflect.String {
-			return fmt.Errorf("cannot assign string to %s", target.Kind())
-		}
-		target.SetString(val.Str)
-
-	case TypeInt:
-		switch target.Kind() {
-		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-			if target.OverflowInt(val.Int) {
-				return fmt.Errorf("int %d overflows %s", val.Int, target.Kind())
-			}
-			target.SetInt(val.Int)
-		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-			if val.Int < 0 {
-				return fmt.Errorf("cannot assign negative int %d to %s", val.Int, target.Kind())
-			}
-			if target.OverflowUint(uint64(val.Int)) {
-				return fmt.Errorf("int %d overflows %s", val.Int, target.Kind())
-			}
-			target.SetUint(uint64(val.Int))
-		case reflect.Float32, reflect.Float64:
-			target.SetFloat(float64(val.Int))
-		default:
-			return fmt.Errorf("cannot assign int to %s", target.Kind())
-		}
-
-	case TypeFloat:
-		switch target.Kind() {
-		case reflect.Float32, reflect.Float64:
-			if target.OverflowFloat(val.Float) {
-				return fmt.Errorf("float %v overflows %s", val.Float, target.Kind())
-			}
-			target.SetFloat(val.Float)
-		default:
-			return fmt.Errorf("cannot assign float to %s", target.Kind())
-		}
-
-	case TypeBool:
-		if target.Kind() != reflect.Bool {
-			return fmt.Errorf("cannot assign bool to %s", target.Kind())
-		}
-		target.SetBool(val.Bool)
-
-	case TypeNull:
-		target.Set(reflect.Zero(target.Type()))
-
-	case TypeArray:
-		if target.Kind() != reflect.Slice {
-			return fmt.Errorf("cannot assign array to %s", target.Kind())
-		}
-		if val.Array == nil {
-			return nil
-		}
-		slice := reflect.MakeSlice(target.Type(), len(val.Array.Items), len(val.Array.Items))
-		for i, item := range val.Array.Items {
-			if err := decodeValue(item, slice.Index(i)); err != nil {
-				return fmt.Errorf("index %d: %w", i, err)
-			}
-		}
-		target.Set(slice)
+	rv := reflect.ValueOf(value)
+	if !rv.Type().AssignableTo(target.Type()) {
+		return fmt.Errorf("cannot assign %s to %s", rv.Type(), target.Type())
 	}
+	target.Set(rv)
 	return nil
 }
 
@@ -324,6 +111,19 @@ func valueToAny(val Value) interface{} {
 		return val.Bool
 	case TypeNull:
 		return nil
+	case TypeObject:
+		out := make(map[string]any, len(val.Object))
+		for _, node := range val.Object {
+			switch {
+			case node.Field != nil:
+				out[node.Field.Key] = valueToAny(node.Field.Value)
+			case node.Block != nil:
+				out[node.Block.Name] = valueToAny(Value{Type: TypeObject, Object: node.Block.Children})
+			case node.BlockArray != nil:
+				out[node.BlockArray.Name] = valueToAny(Value{Type: TypeArray, Array: &Array{Items: node.BlockArray.Items}})
+			}
+		}
+		return out
 	case TypeArray:
 		if val.Array == nil {
 			return []interface{}{}
@@ -337,15 +137,6 @@ func valueToAny(val Value) interface{} {
 	return nil
 }
 
-func buildFieldMap(t reflect.Type) map[string][]int {
-	fields := structFields(t)
-	m := make(map[string][]int, len(fields))
-	for _, f := range fields {
-		m[f.name] = f.index
-	}
-	return m
-}
-
 // structField describes one SKG-visible field of a struct: the name from its
 // `skg` tag and the index path used to reach it. The path has more than one
 // element for fields promoted out of an anonymous embedded struct.
@@ -354,31 +145,69 @@ type structField struct {
 	index []int
 }
 
-// structFields returns the SKG-visible fields of t in declaration order,
-// promoting the tagged fields of anonymous embedded structs (and embedded
-// pointers to structs) into the outer struct. A field declared on the outer
-// struct shadows a promoted field of the same name, matching encoding/json's
-// shallowest-wins rule.
+// structMetadata caches the SKG-visible fields of a native struct together with
+// the lookup and ambiguity information used by strict decoding.
+type structMetadata struct {
+	fields    []structField
+	index     map[string][]int
+	ambiguous string
+}
+
+var structMetadataCache sync.Map // map[reflect.Type]*structMetadata
+
+func cachedStructMetadata(t reflect.Type) *structMetadata {
+	if cached, ok := structMetadataCache.Load(t); ok {
+		return cached.(*structMetadata)
+	}
+	computed := computeStructMetadata(t)
+	actual, _ := structMetadataCache.LoadOrStore(t, computed)
+	return actual.(*structMetadata)
+}
+
 func structFields(t reflect.Type) []structField {
+	return cachedStructMetadata(t).fields
+}
+
+// computeStructMetadata returns the SKG-visible fields of t in declaration
+// order, promoting the tagged fields of anonymous embedded structs (and
+// embedded pointers to structs) into the outer struct. A field declared on the
+// outer struct shadows a promoted field of the same name, matching
+// encoding/json's shallowest-wins rule.
+func computeStructMetadata(t reflect.Type) *structMetadata {
 	var cands []fieldCandidate
 	collectFields(t, nil, 0, map[reflect.Type]bool{t: true}, &cands)
 
 	// For each name keep the shallowest candidate; ties go to the first one.
 	best := make(map[string]int, len(cands))
+	counts := make(map[string]int, len(cands))
 	for i, c := range cands {
-		if j, ok := best[c.name]; ok && cands[j].depth <= c.depth {
-			continue
+		if j, ok := best[c.name]; ok {
+			if cands[j].depth < c.depth {
+				continue
+			}
+			if cands[j].depth == c.depth {
+				counts[c.name]++
+				continue
+			}
 		}
 		best[c.name] = i
+		counts[c.name] = 1
 	}
 
 	fields := make([]structField, 0, len(best))
+	index := make(map[string][]int, len(best))
+	ambiguous := ""
 	for i, c := range cands {
 		if best[c.name] == i {
-			fields = append(fields, structField{name: c.name, index: c.index})
+			field := structField{name: c.name, index: c.index}
+			fields = append(fields, field)
+			index[c.name] = c.index
+			if ambiguous == "" && counts[c.name] > 1 {
+				ambiguous = c.name
+			}
 		}
 	}
-	return fields
+	return &structMetadata{fields: fields, index: index, ambiguous: ambiguous}
 }
 
 type fieldCandidate struct {

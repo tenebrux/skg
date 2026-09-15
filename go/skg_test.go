@@ -634,11 +634,11 @@ users [
 		t.Fatalf("expected 2 items, got %d", len(ba.Items))
 	}
 	// First item: name=levi
-	if ba.Items[0][0].Field == nil || ba.Items[0][0].Field.Key != "name" || ba.Items[0][0].Field.Value.Str != "admin" {
+	if ba.Items[0].Object[0].Field == nil || ba.Items[0].Object[0].Field.Key != "name" || ba.Items[0].Object[0].Field.Value.Str != "admin" {
 		t.Error("first item: expected name=levi")
 	}
 	// Second item: name=guest
-	if ba.Items[1][0].Field == nil || ba.Items[1][0].Field.Key != "name" || ba.Items[1][0].Field.Value.Str != "guest" {
+	if ba.Items[1].Object[0].Field == nil || ba.Items[1].Object[0].Field.Key != "name" || ba.Items[1].Object[0].Field.Value.Str != "guest" {
 		t.Error("second item: expected name=guest")
 	}
 }

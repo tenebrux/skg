@@ -7,7 +7,6 @@
 # Each stage is its own block with its own fields. Steps inside a
 # stage are themselves a block array, so the whole thing is two
 # levels deep.
-
 pipeline {
   name: "release"
   timeout_minutes: 30
@@ -19,8 +18,12 @@ stages [
     name: "lint"
     image: "alpine:3.19"
     steps [
-      { run: "apk add --no-cache shellcheck" }
-      { run: "shellcheck scripts/*.sh" }
+      {
+        run: "apk add --no-cache shellcheck"
+      }
+      {
+        run: "shellcheck scripts/*.sh"
+      }
     ]
   }
   {
@@ -31,8 +34,12 @@ stages [
       GOFLAGS: "-mod=readonly"
     }
     steps [
-      { run: "go mod download" }
-      { run: "go test ./..." }
+      {
+        run: "go mod download"
+      }
+      {
+        run: "go test ./..."
+      }
       {
         run: "go test -race ./..."
         # Allow races to surface without failing the whole stage
@@ -45,8 +52,12 @@ stages [
     image: "golang:1.23"
     artifacts: ["bin/app", "bin/app-debug"]
     steps [
-      { run: "go build -o bin/app ./cmd/app" }
-      { run: "go build -gcflags=all='-N -l' -o bin/app-debug ./cmd/app" }
+      {
+        run: "go build -o bin/app ./cmd/app"
+      }
+      {
+        run: "go build -gcflags=all='-N -l' -o bin/app-debug ./cmd/app"
+      }
     ]
   }
   {
@@ -54,6 +65,7 @@ stages [
     image: "alpine:3.19"
     when: "manual"
     # An empty step list is valid - useful as a placeholder
-    steps []
+    steps [
+    ]
   }
 ]

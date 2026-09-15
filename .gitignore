@@ -2,5 +2,7 @@
 zig-out/
 zig-pkg/
 *.o
+node_modules/
 .claude/
-.local/
+/.local/
+/dist/

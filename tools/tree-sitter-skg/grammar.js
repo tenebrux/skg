@@ -19,17 +19,25 @@ module.exports = grammar({
 
   word: $ => $.identifier,
 
+  conflicts: $ => [[$.block_array, $._value], [$.object, $.block_array_item], [$.object_array, $.array]],
+
   rules: {
     // A document is zero or more top-level statements.
     document: $ => repeat($._statement),
 
     _statement: $ => choice(
+      $.overlay_operation,
       $.import,
       $.block_array,
       $.scalar_array_field,
       $.block,
       $.pair,
     ),
+
+    overlay_operation: $ => seq('@', choice(
+      seq('delete', field('key', $._key)),
+      seq('replace', field('key', $._key), field('value', $.object)),
+    )),
 
     // import "./foo.skg"   |   import [ "./a.skg", "./b.skg" ]
     import: $ => seq(
@@ -50,7 +58,7 @@ module.exports = grammar({
 
     // block:  name { ... }
     block: $ => seq(
-      field('name', $.identifier),
+      field('name', $._key),
       '{',
       repeat($._statement),
       '}',
@@ -59,9 +67,13 @@ module.exports = grammar({
     // block_array:  name [ { ... } { ... } ]
     // Distinguished from scalar_array_field by the first token inside [ ].
     block_array: $ => prec(2, seq(
-      field('name', $.identifier),
+      field('name', $._key),
       '[',
-      repeat($.block_array_item),
+      optional(seq(
+        repeat(seq($.null, optional(','))),
+        $.block_array_item,
+        repeat(choice($.block_array_item, seq($.null, optional(',')))),
+      )),
       ']',
     )),
 
@@ -75,16 +87,18 @@ module.exports = grammar({
     // Colonless scalar array shorthand: `tags ["a", "b"]`
     // Semantically equivalent to `tags: ["a", "b"]` per spec.
     scalar_array_field: $ => prec(1, seq(
-      field('key', $.identifier),
+      field('key', $._key),
       field('value', $.array),
     )),
 
     // pair:  key: value
     pair: $ => seq(
-      field('key', $.identifier),
+      field('key', $._key),
       ':',
       field('value', $._value),
     ),
+
+    _key: $ => choice($.identifier, $.string),
 
     _value: $ => choice(
       $.multiline_string,
@@ -94,7 +108,11 @@ module.exports = grammar({
       $.boolean,
       $.null,
       $.array,
+      $.object_array,
+      $.object,
     ),
+
+    object: $ => seq('{', repeat($._statement), '}'),
 
     // array:  [ value, value, ... ]
     array: $ => seq(
@@ -108,6 +126,16 @@ module.exports = grammar({
       ),
       ']',
     ),
+
+    // Object arrays use SKG block separators: commas are optional. Require at
+    // least one object so an all-null list remains an ordinary value array.
+    object_array: $ => prec(2, seq(
+      '[',
+      repeat(seq($.null, optional(','))),
+      $.block_array_item,
+      repeat(choice($.block_array_item, seq($.null, optional(',')))),
+      ']',
+    )),
 
     // Triple-quoted multiline string. No escape processing per spec -
     // content is taken literally between the delimiters. Higher precedence

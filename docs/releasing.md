@@ -2,8 +2,33 @@
 
 Two supported paths to a release. Both end at the same place: a `vX.Y.Z`
 (or `vX.Y.Z-rc.N`) tag triggers `.github/workflows/release.yml`, which
-gates on the full test suite, cross-compiles the `skg` CLI for five
+gates on the complete V1 contract, cross-compiles the `skg` CLI for five
 targets, and publishes a GitHub release with checksummed archives.
+
+## Release checklist
+
+Before any V1 stable or release-candidate tag:
+
+1. Classify every public change under [the V1 compatibility
+   policy](compatibility.md). A breaking change requires V2.
+2. Update [the changelog](../CHANGELOG.md). New normative fixtures must belong
+   to a new additive V1.x contract manifest; never rewrite `v1.0.json`.
+3. Run `mise run v1:check` from a clean Linux checkout. This is the same command
+   used by pull requests, Cut Release, and tagged releases.
+4. For a direct tag, stamp `build.zig.zon` first. Stable releases must also
+   stamp both editor `package.json` and `package-lock.json` files. Run
+   `node tools/check-release.mjs --tag vX.Y.Z` before pushing.
+5. Prefer at least one RC before `v1.0.0`. Install its CLI and VSIX artifacts,
+   and consume its Go and Zig packages from a small external project.
+
+The gate verifies the immutable V1 corpus, both public API surfaces, Debug and
+ReleaseSafe suites, Go race/vet, generated Go/Zig differential cases, standalone
+Go and Zig consumer projects, examples, both editor grammars, VSIX packaging,
+all shipped Zig targets, and the Go portability compile matrix. The consumer
+projects have their own module/package manifests and exercise public APIs from
+application code. Pull-request CI also runs the Go and Zig suites on macOS and
+Windows so their resolver and formatter behavior is exercised on the host
+operating system.
 
 ## Path 1: the Cut Release workflow (recommended)
 
@@ -24,8 +49,8 @@ allowed and closes nothing — the series stays iterable.
 
 Cut Release also:
 
-- runs the full Zig + Go suite **before** tagging, so a broken tree
-  can't become a tag;
+- runs the complete V1 release gate **before** tagging, so a broken tree cannot
+  become a tag;
 - stamps the version into `build.zig.zon` (and, for stable releases
   only, `tools/vscode-skg/package.json` + `tools/tree-sitter-skg/package.json`
   — the VS Code Marketplace rejects `-rc.N` versions);
@@ -44,10 +69,10 @@ git tag -a v1.4.0 -m "skg v1.4.0"
 git push origin v1.4.0
 ```
 
-Equally supported. The release workflow will:
-
-- warn (not fail) if the tag doesn't match `build.zig.zon`'s version;
-- create the missing `go/v1.4.0` companion tag for you.
+Equally supported after the metadata step in the checklist. The release
+workflow rejects a tag that does not exactly match `build.zig.zon` and creates
+the missing `go/v1.4.0` companion tag only at the same commit. If that companion
+tag already exists at another commit, publishing fails.
 
 Use this when you need a release exactly at a specific commit, or when
 the Actions UI is the wrong tool. RC tags work the same way

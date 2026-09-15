@@ -2,12 +2,15 @@
 experimental = true
 
 [tools]
-zig = "0.15"
-go = "latest"
-node = "lts"
-pkl = "latest"
-hk = "latest"
-"npm:@fission-ai/openspec" = "latest"
+zig = "0.15.2"
+go = "1.26.8"
+node = "24.21.0"
+pkl = "0.32.1"
+hk = "1.58.1"
+shellcheck = "0.11.0"
+"npm:@fission-ai/openspec" = "1.13.0"
+"go:golang.org/x/vuln/cmd/govulncheck" = "1.6.0"
+"go:github.com/rhysd/actionlint/cmd/actionlint" = "1.7.12"
 
 [env]
 HK_MISE = "1"
@@ -23,12 +26,19 @@ postinstall = """
   # Pre-stage so `mise install` leaves a build-ready tree.
   zig build --fetch >/dev/null 2>&1 || true
   (cd go && go mod download) || true
-  command -v govulncheck >/dev/null 2>&1 || go install golang.org/x/vuln/cmd/govulncheck@latest || true
 """
 
 [tasks.test]
 run = "zig build test && cd go && go test -race -v ./..."
+depends = ["test:consumers"]
 description = "Run all parser tests (Zig + Go)"
+
+[tasks."test:consumers"]
+run = """
+cd testdata/consumers/go && go vet ./... && go test -race ./...
+cd ../zig && zig build test && zig build test -Doptimize=ReleaseSafe
+"""
+description = "Run standalone Go and Zig application-boundary tests"
 
 [tasks."test:zig"]
 run = "zig build test"
@@ -42,6 +52,10 @@ description = "Run Zig parser tests"
 run = "cd go && go test -race -v ./..."
 description = "Run Go parser tests"
 
+[tasks."v1:differential"]
+run = "zig build && cd go && go run ../tools/differential.go"
+description = "Require Go and Zig to canonicalize 1,000 generated V1 sources identically"
+
 # Mirrors the tree-sitter job in .github/workflows/ci.yml, including the drift
 # check: check:fixtures regenerates src/ before parsing, so a committed
 # parser.c built from an older grammar.js shows up as a dirty tree. Neovim and
@@ -54,6 +68,10 @@ npm run check:fixtures
 git diff --exit-code -- src/
 """
 description = "Parse every valid fixture with the tree-sitter grammar, and check src/ is not stale"
+
+[tasks."test:vscode"]
+run = "cd tools/vscode-skg && npm ci --ignore-scripts && npm test"
+description = "Tokenize every valid fixture and V1 syntax probe with the VS Code grammar"
 
 # Mirrors the checks in .github/workflows/ci.yml so `mise run ci` matches the gate.
 [tasks.lint]
@@ -93,7 +111,7 @@ description = "Build the WASM tree-sitter parser (for Zed, web editors)"
 # the vscode job in .github/workflows/release.yml and attached to the release,
 # so the published extension always matches the tag.
 [tasks."plugins:vscode:package"]
-run = "cd tools/vscode-skg && npm install && npx --yes @vscode/vsce package --out skg.vsix"
+run = "cd tools/vscode-skg && npm ci && npx --no-install vsce package --out skg.vsix"
 description = "Package the VS Code extension as tools/vscode-skg/skg.vsix (gitignored)"
 
 [tasks."plugins:vscode:install"]
@@ -141,3 +159,7 @@ run = "cd go && govulncheck ./..."
 [tasks.ci]
 description = "Run the full CI check locally (lint + test + tree-sitter + security)"
 depends = ["lint", "test", "test:tree-sitter", "security"]
+
+[tasks."v1:check"]
+description = "Run the complete V1 compatibility and release gate"
+run = "bash tools/v1-check.sh"

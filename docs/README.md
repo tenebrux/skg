@@ -12,6 +12,8 @@ Reference material for the SKG (Static Key Group) config language.
   format, the capability manifest, and a checklist for porting SKG to
   a new language. Read this before writing a third parser; it is meant
   to be sufficient without reading `go/` or `zig/`.
+- **[compatibility.md](compatibility.md)** - the package V1 promise, additive
+  V1.x rules, supported toolchains/platforms, and changes reserved for V2.
 
 ## Editor support
 
@@ -24,13 +26,20 @@ Reference material for the SKG (Static Key Group) config language.
 
 ## Using the parsers
 
+- [Native types](native-types.md) — Go and Zig typed loading, defaults, ownership and hooks.
+- [Native conformance](native-conformance.md) — port-facing conversion contract and shared native profiles.
+- [Formatter contract](formatter.md) — canonical whitespace, comment movement,
+  atomic replacement and platform metadata guarantees.
+- [Release process](releasing.md) — the authoritative V1 gate, versioning,
+  release candidates, tags, and artifact checks.
+
 Pick your language and read the README in that directory:
 
 - **[../examples/go/README.md](../examples/go/README.md)** - Go
-  integration via `skg:"name"` struct tags, `UnmarshalFile`, and
+  integration via `skg:"name"` struct tags, `DecodeFile`, and
   `Marshal` for round-trip.
 - **[../examples/zig/README.md](../examples/zig/README.md)** - Zig
-  integration via AST walker, struct defaults, and explicit field
+  integration via native typed loading, struct defaults, and optional field
   mapping.
 
 Both examples read from [../examples/app.skg](../examples/app.skg) and

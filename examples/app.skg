@@ -3,8 +3,7 @@
 # SKG is typed, hierarchical, and comment-friendly.
 # Your Go/Zig structs ARE the schema - if the struct has the field,
 # it gets populated. Extra fields in the config are silently ignored.
-# Missing fields keep their zero value.
-
+# Missing fields follow the native binding's default/optional rules.
 skg_version: "1.0"
 schema_version: "0.1.0"
 
@@ -27,16 +26,14 @@ logging {
   level: "info"
   max_size_mb: 10
   keep_rotations: 5
-
-  # Nested blocks work too - no depth limit
+  # Nested blocks work too (up to the syntax-depth limit).
   streams {
     stdout: true
     file: true
     syslog: false
   }
 }
-
-# Null explicitly unsets an inherited value from an import
+# Null sets an explicit null value; @delete removes a key.
 cache_ttl: null
 
 # Blocks with dynamic keys map to map[string]T in Go.
@@ -53,7 +50,6 @@ extra {
   region: "us-west-2"
   verbose: true
 }
-
 # Multiline strings preserve newlines exactly
 motd: """Welcome to my-service.
 No warranty expressed or implied.

@@ -1,0 +1,80 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [],
+  "children": [
+    {
+      "type": "field",
+      "key": "keep",
+      "value": {
+        "type": "null"
+      }
+    },
+    {
+      "type": "delete",
+      "key": "absent"
+    },
+    {
+      "type": "block",
+      "name": "obj",
+      "replace": true,
+      "children": [
+        {
+          "type": "field",
+          "key": "c",
+          "value": {
+            "type": "int",
+            "data": 3
+          }
+        },
+        {
+          "type": "delete",
+          "key": "absentChild"
+        },
+        {
+          "type": "field",
+          "key": "d",
+          "value": {
+            "type": "int",
+            "data": 4
+          }
+        }
+      ]
+    },
+    {
+      "type": "block",
+      "name": "restore",
+      "replace": true,
+      "children": [
+        {
+          "type": "field",
+          "key": "ok",
+          "value": {
+            "type": "bool",
+            "data": true
+          }
+        }
+      ]
+    },
+    {
+      "type": "delete",
+      "key": "import"
+    },
+    {
+      "type": "field",
+      "key": "delete",
+      "value": {
+        "type": "int",
+        "data": 1
+      }
+    },
+    {
+      "type": "field",
+      "key": "replace",
+      "value": {
+        "type": "int",
+        "data": 2
+      }
+    }
+  ]
+}

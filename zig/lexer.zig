@@ -81,6 +81,11 @@ pub const Lexer = struct {
         const c = self.src[self.pos];
 
         switch (c) {
+            '@' => {
+                const start = self.pos;
+                _ = self.advance();
+                return Token{ .tag = .at, .text = self.src[start..self.pos], .line = tok_line, .col = tok_col };
+            },
             ':' => {
                 const start = self.pos;
                 _ = self.advance();
@@ -121,6 +126,10 @@ pub const Lexer = struct {
             },
             '"' => return self.lexString(tok_line, tok_col),
             '-' => return self.lexNegativeNumber(tok_line, tok_col),
+            '.' => if (self.peekAhead(1)) |next_byte| {
+                if (next_byte >= '0' and next_byte <= '9') return self.failAt(tok_line, tok_col, error.InvalidFloat);
+                return error.UnexpectedChar;
+            } else return error.UnexpectedChar,
             '0'...'9' => return self.lexNumber(tok_line, tok_col),
             'a'...'z', 'A'...'Z', '_' => return self.lexIdent(tok_line, tok_col),
             else => return error.UnexpectedChar,
@@ -227,9 +236,15 @@ pub const Lexer = struct {
                 if (c >= '0' and c <= '9') _ = self.advance() else break;
             }
             if (self.pos == frac_start or leading_zero) return self.failAt(line, col, error.InvalidFloat);
+            if (self.peek()) |suffix| {
+                if (isIdentChar(suffix) or suffix == '.') return self.failAt(line, col, error.InvalidFloat);
+            }
             return Token{ .tag = .float, .text = self.src[start..self.pos], .line = line, .col = col };
         }
         if (leading_zero) return self.failAt(line, col, error.InvalidInt);
+        if (self.peek()) |suffix| {
+            if (isIdentChar(suffix)) return self.failAt(line, col, if (suffix == 'e' or suffix == 'E') error.InvalidFloat else error.InvalidInt);
+        }
         return Token{ .tag = .int, .text = self.src[start..self.pos], .line = line, .col = col };
     }
 
@@ -256,3 +271,7 @@ pub const Lexer = struct {
         return Token{ .tag = tag, .text = text, .line = line, .col = col };
     }
 };
+
+fn isIdentChar(c: u8) bool {
+    return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or (c >= '0' and c <= '9') or c == '_';
+}

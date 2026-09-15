@@ -20,9 +20,10 @@ marshaled back to SKG text.
 ### Your struct IS the schema
 
 No separate schema file. The `skg:"name"` tag maps config keys to
-struct fields. Extra keys in the config are silently ignored; missing
-keys keep the zero value. Add a field to your struct, it gets picked
-up. Remove it, the config key becomes a silent no-op.
+struct fields. Extra keys in the config are ignored. With the typed loader,
+missing nonnullable fields fail; nullable fields may be absent. Supply native
+defaults through `DecodeFileInto` with `AllowMissingFields`. No second schema
+file is needed.
 
 ```go
 type Config struct {
@@ -38,19 +39,21 @@ type Config struct {
 }
 ```
 
-### Parse and unmarshal in one call
+### Parse and decode in one call
 
 ```go
-var cfg Config
-if err := skg.UnmarshalFile("app.skg", &cfg); err != nil {
+cfg, err := skg.DecodeFile[Config]("app.skg", skg.DecodeOptions{})
+if err != nil {
     log.Fatalf("config error: %v", err)
 }
 ```
 
 ### Marshal back to SKG
 
-Round-trip is supported. Useful for config migration tools,
-`--print-effective-config` flags, and tests.
+Encode the resulting struct for `--print-effective-config`, migration tools,
+or tests. `Marshal` writes native values, not the original comments or imports.
+It does not reverse custom decode hooks, and nil maps/slices encode as empty
+collections. See [native types](../../docs/native-types.md) for the exact rules.
 
 ```go
 out, err := skg.Marshal(cfg)
@@ -67,6 +70,7 @@ out, err := skg.Marshal(cfg)
 | `"""multi"""`     | `string` (newlines preserved)       |
 | `null`            | nil pointer / nil map / nil slice   |
 | `array`           | `[]T` where T matches element type  |
+| fixed array       | `[N]T`, with exactly N elements     |
 | block             | nested struct                       |
 | block array       | `[]T`                               |
 | block w/ dyn keys | `map[string]T`                      |
@@ -86,12 +90,22 @@ it without pulling in the Zig sources or test fixtures.
 
 The main entry points:
 
+- `skg.DecodeFile[T](path, options) (T, error)` - resolve a file and
+  decode with strict native type checks; no partial value on failure
+- `skg.DecodeFileWithOptions[T](path, decodeOptions, resolveOptions)` - strict
+  decode with explicit aggregate budgets and optional rooted resolution
+- `skg.DecodeSource[T](bytes, path, options) (T, error)` - decode bytes
+  without reading imports
+- `skg.DecodeFileInto(path, &target, options) error` - stage native defaults
+  and replace the target only on success
 - `skg.UnmarshalFile(path string, v interface{}) error` - parse a file
-  and populate `v`
+  and populate `v` with the existing permissive policy
 - `skg.Unmarshal(data []byte, v interface{}) error` - parse an
   in-memory buffer
-- `skg.ParseFile(path string) (*ast.File, error)` - parse only, get
+- `skg.ParseFile(path string) (*skg.File, error)` - parse only, get
   the AST
+- `skg.ParseFileWithOptions(path, resolveOptions)` - parse a file graph under
+  the same explicit resolution policy
 - `skg.Marshal(v interface{}) ([]byte, error)` - struct to SKG text
 
 See [../../go/](../../go/) for the full implementation.

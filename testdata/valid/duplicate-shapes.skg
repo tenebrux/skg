@@ -1,0 +1,23 @@
+scalar: 1
+scalar: 2
+
+object {
+  inherited: 1
+  changed: 1
+}
+object {
+  changed: 2
+  added: 3
+}
+
+replace_kind: 1
+replace_kind { fresh: true }
+
+list: [1]
+list: [2]
+
+records [{ id: 1 }]
+records [{ id: 2 }]
+
+same: "bare"
+"same": "quoted"

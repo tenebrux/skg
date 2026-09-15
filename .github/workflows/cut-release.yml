@@ -2,7 +2,7 @@ name: Cut Release
 
 # The release button. Pick a level, and this workflow computes the next
 # version from existing tags, gates on the full test suite, stamps the
-# version into the tree, and pushes the tags — which triggers release.yml.
+# version into the tree, pushes the tags, then dispatches release.yml.
 #
 #   major / minor / patch      straight stable release
 #   rc-major / rc-minor / rc-patch
@@ -34,6 +34,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: cut-release
@@ -44,12 +45,12 @@ jobs:
     name: Cut ${{ inputs.level }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: master
           fetch-depth: 0
 
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         with:
           version: "2026.4.10"
 
@@ -60,31 +61,11 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Cutting v$version" >> "$GITHUB_STEP_SUMMARY"
 
-      # Go modules encode the major version in the import path from v2 on.
-      # Tagging go/v2.0.0 while go.mod still says .../go would publish a
-      # version Go tooling refuses to fetch — fail here instead.
-      - name: Check go.mod major-version suffix
-        run: |
-          version="${{ steps.version.outputs.version }}"
-          major="${version%%.*}"
-          module=$(head -1 go/go.mod | awk '{print $2}')
-          if [ "$major" -ge 2 ]; then
-            case "$module" in
-              */v"$major") ;;
-              *) echo "::error::go.mod module path '$module' must end in /v$major before releasing v$version (Go semantic import versioning)"; exit 1 ;;
-            esac
-          else
-            case "$module" in
-              */v[0-9]*) echo "::error::go.mod module path '$module' carries a major suffix but the release is v$version"; exit 1 ;;
-              *) ;;
-            esac
-          fi
+      - name: Validate the prospective release version
+        run: node tools/check-release.mjs --version "${{ steps.version.outputs.version }}"
 
       - name: Test gate
-        run: |
-          zig build test
-          zig fmt --check zig/
-          cd go && go vet ./... && go test -race ./...
+        run: mise run v1:check
 
       - name: Stamp version
         run: |
@@ -103,18 +84,33 @@ jobs:
                   const j = JSON.parse(fs.readFileSync(p, "utf8"));
                   j.version = process.argv[2];
                   fs.writeFileSync(p, JSON.stringify(j, null, 2) + "\n");
+                  const lockPath = p.replace(/package.json$/, "package-lock.json");
+                  const lock = JSON.parse(fs.readFileSync(lockPath, "utf8"));
+                  lock.version = j.version;
+                  if (lock.packages?.[""]) lock.packages[""].version = j.version;
+                  fs.writeFileSync(lockPath, JSON.stringify(lock, null, 2) + "\n");
                 ' "$pkg" "$version"
               done
               ;;
           esac
+
+          node tools/check-release.mjs --tag "v$version"
 
       - name: Commit and tag
         run: |
           version="${{ steps.version.outputs.version }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -A
+          git add build.zig.zon tools/vscode-skg/package*.json tools/tree-sitter-skg/package*.json
           git commit -m "release: v$version"
           git tag -a "v$version" -m "skg v$version"
           git tag -a "go/v$version" -m "skg Go parser v$version"
-          git push origin master "v$version" "go/v$version"
+          git push --atomic origin HEAD:master "v$version" "go/v$version"
+
+      # A push made with GITHUB_TOKEN cannot trigger another push workflow.
+      # workflow_dispatch is supported with that token, so no PAT is needed.
+      - name: Start release build for the new tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: gh workflow run release.yml --ref "v$RELEASE_VERSION"

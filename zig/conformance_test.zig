@@ -24,12 +24,13 @@ const ast = @import("ast.zig");
 
 /// The closed set of capability names. A manifest naming anything else fails
 /// the run.
-const Capability = enum { parse, emit, imports, comments };
+const Capability = enum { parse, emit, imports, native, comments };
 
 const Capabilities = struct {
     parse: bool,
     emit: bool,
     imports: bool,
+    native: bool,
     comments: bool,
 };
 
@@ -46,6 +47,34 @@ fn loadCapabilities(alloc: std.mem.Allocator) !Capabilities {
         std.debug.print("zig/conformance.json: top level must be an object\n", .{});
         return error.BadManifest;
     };
+
+    const RootField = enum { contract_version, language_version, implementation, capabilities, notes };
+    var root_it = root_obj.iterator();
+    while (root_it.next()) |kv| {
+        if (std.meta.stringToEnum(RootField, kv.key_ptr.*) == null) {
+            std.debug.print("zig/conformance.json: unknown top-level field \"{s}\"\n", .{kv.key_ptr.*});
+            return error.BadManifest;
+        }
+    }
+
+    const contract_json = root_obj.get("contract_version") orelse {
+        std.debug.print("zig/conformance.json: \"contract_version\" is required\n", .{});
+        return error.BadManifest;
+    };
+    if (expectJsonInt(contract_json) != 1) {
+        std.debug.print("zig/conformance.json: contract_version must be 1\n", .{});
+        return error.BadManifest;
+    }
+
+    const language_json = root_obj.get("language_version") orelse {
+        std.debug.print("zig/conformance.json: \"language_version\" is required\n", .{});
+        return error.BadManifest;
+    };
+    const language_version = expectJsonString(language_json) orelse return error.BadManifest;
+    if (!std.mem.eql(u8, language_version, "1.0")) {
+        std.debug.print("zig/conformance.json: language_version must be \"1.0\"\n", .{});
+        return error.BadManifest;
+    }
 
     const impl_json = root_obj.get("implementation") orelse {
         std.debug.print("zig/conformance.json: \"implementation\" is required\n", .{});
@@ -83,20 +112,29 @@ fn loadCapabilities(alloc: std.mem.Allocator) !Capabilities {
         };
     }
 
-    if (!caps.parse) {
-        std.debug.print("zig/conformance.json: the \"parse\" capability is mandatory\n", .{});
+    if (!caps.parse or !caps.imports or !caps.native) {
+        std.debug.print("zig/conformance.json: parse, imports, and native are mandatory core capabilities\n", .{});
         return error.BadManifest;
     }
 
-    // An undeclared capability is allowed, but it has to be a decision someone
-    // wrote down. That is what keeps partial conformance honest rather than
-    // quiet.
-    const notes_obj: ?std.json.ObjectMap = if (root_obj.get("notes")) |n| expectJsonObject(n) else null;
+    // An undeclared optional capability is allowed, but it has to be a decision
+    // someone wrote down.
+    const notes_json = root_obj.get("notes") orelse {
+        std.debug.print("zig/conformance.json: \"notes\" is required (use an empty object when no notes apply)\n", .{});
+        return error.BadManifest;
+    };
+    const notes_obj = expectJsonObject(notes_json) orelse return error.BadManifest;
+    var notes_it = notes_obj.iterator();
+    while (notes_it.next()) |kv| {
+        if (std.meta.stringToEnum(Capability, kv.key_ptr.*) == null or expectJsonString(kv.value_ptr.*) == null) {
+            std.debug.print("zig/conformance.json: notes must map known capabilities to strings\n", .{});
+            return error.BadManifest;
+        }
+    }
     inline for (std.meta.fields(Capability)) |f| {
         if (!@field(caps, f.name)) {
             const note: []const u8 = blk: {
-                const n = notes_obj orelse break :blk "";
-                const v = n.get(f.name) orelse break :blk "";
+                const v = notes_obj.get(f.name) orelse break :blk "";
                 break :blk expectJsonString(v) orelse "";
             };
             if (note.len == 0) {
@@ -117,6 +155,7 @@ fn hasCapability(caps: Capabilities, cap: Capability) bool {
         .parse => caps.parse,
         .emit => caps.emit,
         .imports => caps.imports,
+        .native => caps.native,
         .comments => caps.comments,
     };
 }
@@ -329,12 +368,13 @@ const SchemaReport = struct {
 
 const root_valid_keys = [_][]const u8{ "skg_version", "schema_version", "imports", "children", "leading_comments", "trailing_comments" };
 const root_invalid_keys = [_][]const u8{ "error", "code", "line", "col" };
+const delete_node_keys = [_][]const u8{ "type", "key", "leading_comments", "trailing_comment" };
 const field_node_keys = [_][]const u8{ "type", "key", "value", "leading_comments", "trailing_comment" };
-const block_node_keys = [_][]const u8{ "type", "name", "children", "leading_comments", "trailing_comments" };
+const block_node_keys = [_][]const u8{ "type", "name", "children", "replace", "leading_comments", "trailing_comments" };
 const block_array_node_keys = [_][]const u8{ "type", "name", "items", "leading_comments", "trailing_comments" };
 const scalar_value_keys = [_][]const u8{ "type", "data" };
 const array_value_keys = [_][]const u8{ "type", "data", "element_type" };
-const value_type_names = [_][]const u8{ "string", "int", "float", "bool", "null", "array" };
+const value_type_names = [_][]const u8{ "string", "int", "float", "bool", "null", "array", "object" };
 
 fn containsString(haystack: []const []const u8, needle: []const u8) bool {
     for (haystack) |s| {
@@ -412,7 +452,7 @@ fn validateValidExpected(ctx: []const u8, root_obj: std.json.ObjectMap, rep: *Sc
     }
 }
 
-fn validateNodes(ctx: []const u8, json: std.json.Value, rep: *SchemaReport) !void {
+fn validateNodes(ctx: []const u8, json: std.json.Value, rep: *SchemaReport) anyerror!void {
     const arr = expectJsonArray(json) orelse {
         std.debug.print("{s}: children/items must be an array of nodes\n", .{ctx});
         return error.BadExpectedJson;
@@ -431,8 +471,8 @@ fn validateNodes(ctx: []const u8, json: std.json.Value, rep: *SchemaReport) !voi
             return error.BadExpectedJson;
         };
 
-        if (std.mem.eql(u8, node_type, "field")) {
-            try checkKeys(ctx, obj, &field_node_keys);
+        if (std.mem.eql(u8, node_type, "field") or std.mem.eql(u8, node_type, "delete")) {
+            try checkKeys(ctx, obj, if (std.mem.eql(u8, node_type, "delete")) &delete_node_keys else &field_node_keys);
             const key_json = obj.get("key") orelse {
                 std.debug.print("{s}: a field node requires a string \"key\"\n", .{ctx});
                 return error.BadExpectedJson;
@@ -442,7 +482,7 @@ fn validateNodes(ctx: []const u8, json: std.json.Value, rep: *SchemaReport) !voi
                 return error.BadExpectedJson;
             }
             if (obj.get("value")) |v| {
-                try validateValue(ctx, v);
+                try validateValue(ctx, v, rep);
             }
             if (obj.get("leading_comments")) |v| {
                 rep.asserts_comments = true;
@@ -465,15 +505,19 @@ fn validateNodes(ctx: []const u8, json: std.json.Value, rep: *SchemaReport) !voi
                 return error.BadExpectedJson;
             }
             if (is_block) {
+                if (obj.get("replace")) |v| {
+                    if (expectJsonBool(v) == null) return error.BadExpectedJson;
+                }
                 if (obj.get("children")) |v| {
                     try validateNodes(ctx, v, rep);
                 }
             } else if (obj.get("items")) |v| {
                 const items = expectJsonArray(v) orelse {
-                    std.debug.print("{s}: block_array \"items\" must be an array of node arrays\n", .{ctx});
+                    std.debug.print("{s}: block_array \"items\" must be an array of node arrays or null entries\n", .{ctx});
                     return error.BadExpectedJson;
                 };
                 for (items) |entry| {
+                    if (entry == .null) continue;
                     try validateNodes(ctx, entry, rep);
                 }
             }
@@ -486,13 +530,13 @@ fn validateNodes(ctx: []const u8, json: std.json.Value, rep: *SchemaReport) !voi
                 try checkStringArray(ctx, v);
             }
         } else {
-            std.debug.print("{s}: \"{s}\" is not one of field, block, block_array\n", .{ ctx, node_type });
+            std.debug.print("{s}: \"{s}\" is not one of field, block, block_array, delete\n", .{ ctx, node_type });
             return error.BadExpectedJson;
         }
     }
 }
 
-fn validateValue(ctx: []const u8, json: std.json.Value) !void {
+fn validateValue(ctx: []const u8, json: std.json.Value, rep: *SchemaReport) !void {
     const obj = expectJsonObject(json) orelse {
         std.debug.print("{s}: a value must be an object\n", .{ctx});
         return error.BadExpectedJson;
@@ -542,6 +586,8 @@ fn validateValue(ctx: []const u8, json: std.json.Value) !void {
             std.debug.print("{s}: bool \"data\" must be a boolean\n", .{ctx});
             return error.BadExpectedJson;
         }
+    } else if (std.mem.eql(u8, value_type, "object")) {
+        try validateNodes(ctx, data, rep);
     } else if (is_array) {
         const et_json = obj.get("element_type") orelse {
             std.debug.print("{s}: \"element_type\" is required for an array value\n", .{ctx});
@@ -560,7 +606,7 @@ fn validateValue(ctx: []const u8, json: std.json.Value) !void {
             return error.BadExpectedJson;
         };
         for (items) |item| {
-            try validateValue(ctx, item);
+            try validateValue(ctx, item, rep);
         }
     }
 }
@@ -615,15 +661,20 @@ fn compareValue(expected_obj: std.json.ObjectMap, actual: ast.Value) !void {
     } else if (std.mem.eql(u8, type_str, "float")) {
         try testing.expectEqual(ast.ValueType.float, std.meta.activeTag(actual));
         const expected_data = expectJsonFloat(expected_obj.get("data") orelse return error.MissingData) orelse return error.BadData;
-        try testing.expectApproxEqAbs(expected_data, actual.float, 1e-9);
+        try testing.expectEqual(@as(u64, @bitCast(expected_data)), @as(u64, @bitCast(actual.float)));
     } else if (std.mem.eql(u8, type_str, "bool")) {
         try testing.expectEqual(ast.ValueType.bool, std.meta.activeTag(actual));
         const expected_data = expectJsonBool(expected_obj.get("data") orelse return error.MissingData) orelse return error.BadData;
         try testing.expectEqual(expected_data, actual.bool);
     } else if (std.mem.eql(u8, type_str, "null")) {
         try testing.expectEqual(ast.ValueType.null, std.meta.activeTag(actual));
+    } else if (std.mem.eql(u8, type_str, "object")) {
+        try testing.expect(actual == .object);
+        try compareNodes(expectJsonArray(expected_obj.get("data") orelse return error.MissingData) orelse return error.BadData, actual.object.children);
     } else if (std.mem.eql(u8, type_str, "array")) {
         try testing.expectEqual(ast.ValueType.array, std.meta.activeTag(actual));
+        const element_type = expectJsonString(expected_obj.get("element_type") orelse return error.MissingType) orelse return error.BadType;
+        try testing.expectEqualStrings(element_type, @tagName(actual.array.element_type));
         const expected_items = expectJsonArray(expected_obj.get("data") orelse return error.MissingData) orelse return error.BadData;
         try testing.expectEqual(expected_items.len, actual.array.items.len);
         for (expected_items, 0..) |item_json, i| {
@@ -656,14 +707,20 @@ fn compareTrailingComment(expected_json: std.json.Value, actual: ?[]const u8) !v
     }
 }
 
-fn compareNodes(expected_children: []std.json.Value, actual_children: []const ast.Node) !void {
+fn compareNodes(expected_children: []std.json.Value, actual_children: []const ast.Node) anyerror!void {
     try testing.expectEqual(expected_children.len, actual_children.len);
 
     for (expected_children, 0..) |child_json, i| {
         const child_obj = expectJsonObject(child_json) orelse return error.BadChild;
         const node_type = expectJsonString(child_obj.get("type") orelse return error.MissingNodeType) orelse return error.BadNodeType;
 
-        if (std.mem.eql(u8, node_type, "field")) {
+        if (std.mem.eql(u8, node_type, "delete")) {
+            const actual = actual_children[i];
+            try testing.expect(actual == .delete);
+            try testing.expectEqualStrings(expectJsonString(child_obj.get("key") orelse return error.MissingKey) orelse return error.BadKey, actual.delete.key);
+            if (child_obj.get("leading_comments")) |v| try compareComments(v, actual.delete.leading_comments);
+            if (child_obj.get("trailing_comment")) |v| try compareTrailingComment(v, actual.delete.trailing_comment);
+        } else if (std.mem.eql(u8, node_type, "field")) {
             const actual = actual_children[i];
             try testing.expect(actual == .field);
             const expected_key = expectJsonString(child_obj.get("key") orelse return error.MissingKey) orelse return error.BadKey;
@@ -684,6 +741,7 @@ fn compareNodes(expected_children: []std.json.Value, actual_children: []const as
             try testing.expect(actual == .block);
             const expected_name = expectJsonString(child_obj.get("name") orelse return error.MissingName) orelse return error.BadName;
             try testing.expectEqualStrings(expected_name, actual.block.name);
+            if (child_obj.get("replace")) |v| try testing.expectEqual(expectJsonBool(v) orelse return error.BadExpectedJson, actual.block.replace);
 
             if (child_obj.get("children")) |children_json| {
                 const nested = expectJsonArray(children_json) orelse return error.BadChildren;
@@ -705,8 +763,14 @@ fn compareNodes(expected_children: []std.json.Value, actual_children: []const as
                 const expected_items = expectJsonArray(items_json) orelse return error.BadData;
                 try testing.expectEqual(expected_items.len, actual.block_array.items.len);
                 for (expected_items, 0..) |item_json, j| {
-                    const item_children = expectJsonArray(item_json) orelse return error.BadChildren;
-                    try compareNodes(item_children, actual.block_array.items[j]);
+                    const item = actual.block_array.items[j];
+                    if (item_json == .null) {
+                        try testing.expect(item == .null);
+                    } else {
+                        try testing.expect(item == .object);
+                        const item_children = expectJsonArray(item_json) orelse return error.BadChildren;
+                        try compareNodes(item_children, item.object.children);
+                    }
                 }
             }
             if (child_obj.get("leading_comments")) |v| {
@@ -732,18 +796,16 @@ fn compareNullableString(expected_json: std.json.Value, actual: ?[]const u8) !vo
 
 // ─── Skip accounting ────────────────────────────────────────────────────────
 //
-// Honest partial conformance is allowed; quiet partial conformance is not. Each
-// skip prints as it happens and the totals print again at the end of the file.
+// Each optional-capability skip prints as it happens and the totals print again
+// at the end of the file.
 
 var skipped_emit: usize = 0;
-var skipped_imports: usize = 0;
 var skipped_comments: usize = 0;
 
 fn recordSkip(cap: Capability, subdir: []const u8, name: []const u8) void {
     switch (cap) {
-        .parse => unreachable, // "parse" is mandatory; loadCapabilities rejects a manifest without it.
+        .parse, .imports, .native => unreachable, // mandatory core capabilities
         .emit => skipped_emit += 1,
-        .imports => skipped_imports += 1,
         .comments => skipped_comments += 1,
     }
     std.debug.print(
@@ -983,13 +1045,6 @@ test "conformance: invalid fixtures" {
 // declaration order.
 test "conformance: capability report" {
     var any_skipped = false;
-    if (skipped_imports > 0) {
-        std.debug.print(
-            "CONFORMANCE: SKIPPED {d} fixtures: capability \"imports\" not declared in zig/conformance.json\n",
-            .{skipped_imports},
-        );
-        any_skipped = true;
-    }
     if (skipped_emit > 0) {
         std.debug.print(
             "CONFORMANCE: SKIPPED {d} fixtures: capability \"emit\" not declared in zig/conformance.json\n",

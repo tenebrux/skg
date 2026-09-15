@@ -32,6 +32,14 @@
           "named": true
         },
         {
+          "type": "object",
+          "named": true
+        },
+        {
+          "type": "object_array",
+          "named": true
+        },
+        {
           "type": "string",
           "named": true
         }
@@ -48,6 +56,10 @@
         "types": [
           {
             "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "string",
             "named": true
           }
         ]
@@ -67,6 +79,10 @@
         },
         {
           "type": "import",
+          "named": true
+        },
+        {
+          "type": "overlay_operation",
           "named": true
         },
         {
@@ -91,6 +107,10 @@
           {
             "type": "identifier",
             "named": true
+          },
+          {
+            "type": "string",
+            "named": true
           }
         ]
       }
@@ -101,6 +121,10 @@
       "types": [
         {
           "type": "block_array_item",
+          "named": true
+        },
+        {
+          "type": "null",
           "named": true
         }
       ]
@@ -124,6 +148,10 @@
         },
         {
           "type": "import",
+          "named": true
+        },
+        {
+          "type": "overlay_operation",
           "named": true
         },
         {
@@ -163,6 +191,10 @@
           "named": true
         },
         {
+          "type": "overlay_operation",
+          "named": true
+        },
+        {
           "type": "pair",
           "named": true
         },
@@ -189,6 +221,90 @@
     }
   },
   {
+    "type": "object",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "block",
+          "named": true
+        },
+        {
+          "type": "block_array",
+          "named": true
+        },
+        {
+          "type": "import",
+          "named": true
+        },
+        {
+          "type": "overlay_operation",
+          "named": true
+        },
+        {
+          "type": "pair",
+          "named": true
+        },
+        {
+          "type": "scalar_array_field",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "object_array",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "block_array_item",
+          "named": true
+        },
+        {
+          "type": "null",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "overlay_operation",
+    "named": true,
+    "fields": {
+      "key": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "object",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "pair",
     "named": true,
     "fields": {
@@ -198,6 +314,10 @@
         "types": [
           {
             "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "string",
             "named": true
           }
         ]
@@ -231,6 +351,14 @@
             "named": true
           },
           {
+            "type": "object",
+            "named": true
+          },
+          {
+            "type": "object_array",
+            "named": true
+          },
+          {
             "type": "string",
             "named": true
           }
@@ -248,6 +376,10 @@
         "types": [
           {
             "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "string",
             "named": true
           }
         ]
@@ -273,6 +405,10 @@
     "named": false
   },
   {
+    "type": "@",
+    "named": false
+  },
+  {
     "type": "[",
     "named": false
   },
@@ -283,6 +419,10 @@
   {
     "type": "comment",
     "named": true
+  },
+  {
+    "type": "delete",
+    "named": false
   },
   {
     "type": "false",
@@ -311,6 +451,10 @@
   {
     "type": "null",
     "named": true
+  },
+  {
+    "type": "replace",
+    "named": false
   },
   {
     "type": "string",

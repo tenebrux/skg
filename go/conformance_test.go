@@ -19,7 +19,9 @@ package skg
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -34,16 +36,20 @@ const (
 	capParse    = "parse"
 	capEmit     = "emit"
 	capImports  = "imports"
+	capNative   = "native"
 	capComments = "comments"
 )
 
 // knownCapabilities is closed: a manifest naming anything else fails the run.
-var knownCapabilities = []string{capParse, capEmit, capImports, capComments}
+var knownCapabilities = []string{capParse, capEmit, capImports, capNative, capComments}
+var mandatoryCapabilities = []string{capParse, capImports, capNative}
 
 type capabilityManifest struct {
-	Implementation string            `json:"implementation"`
-	Capabilities   map[string]bool   `json:"capabilities"`
-	Notes          map[string]string `json:"notes"`
+	ContractVersion int               `json:"contract_version"`
+	LanguageVersion string            `json:"language_version"`
+	Implementation  string            `json:"implementation"`
+	Capabilities    map[string]bool   `json:"capabilities"`
+	Notes           map[string]string `json:"notes"`
 }
 
 func (m capabilityManifest) has(c string) bool { return m.Capabilities[c] }
@@ -60,6 +66,15 @@ func loadManifest(t *testing.T) capabilityManifest {
 	if err := dec.Decode(&m); err != nil {
 		t.Fatalf("go/conformance.json: %v", err)
 	}
+	if err := dec.Decode(&struct{}{}); err != io.EOF {
+		t.Fatal("go/conformance.json: trailing JSON value")
+	}
+	if m.ContractVersion != 1 {
+		t.Fatalf("go/conformance.json: contract_version must be 1, got %d", m.ContractVersion)
+	}
+	if m.LanguageVersion != "1.0" {
+		t.Fatalf("go/conformance.json: language_version must be %q, got %q", "1.0", m.LanguageVersion)
+	}
 	if m.Implementation == "" {
 		t.Fatal("go/conformance.json: \"implementation\" is required")
 	}
@@ -73,12 +88,21 @@ func loadManifest(t *testing.T) capabilityManifest {
 			t.Fatalf("go/conformance.json: unknown capability %q (known: %v)", name, knownCapabilities)
 		}
 	}
-	if !m.has(capParse) {
-		t.Fatal("go/conformance.json: the \"parse\" capability is mandatory")
+	if m.Notes == nil {
+		t.Fatal("go/conformance.json: \"notes\" is required (use an empty object when no notes apply)")
 	}
-	// An undeclared capability is allowed, but it must be a decision someone
-	// wrote down - that is what keeps partial conformance honest rather than
-	// quiet.
+	for name := range m.Notes {
+		if !contains(knownCapabilities, name) {
+			t.Fatalf("go/conformance.json: unknown note key %q (known capabilities: %v)", name, knownCapabilities)
+		}
+	}
+	for _, c := range mandatoryCapabilities {
+		if !m.has(c) {
+			t.Fatalf("go/conformance.json: core capability %q is mandatory", c)
+		}
+	}
+	// An undeclared optional capability is allowed, but it must be a decision
+	// someone wrote down.
 	for _, c := range knownCapabilities {
 		if !m.has(c) && strings.TrimSpace(m.Notes[c]) == "" {
 			t.Fatalf("go/conformance.json: capability %q is not declared and has no entry in \"notes\" explaining why", c)
@@ -259,13 +283,14 @@ type schemaReport struct {
 var (
 	rootValidKeys      = []string{"skg_version", "schema_version", "imports", "children", "leading_comments", "trailing_comments"}
 	rootInvalidKeys    = []string{"error", "code", "line", "col"}
+	deleteNodeKeys     = []string{"type", "key", "leading_comments", "trailing_comment"}
 	fieldNodeKeys      = []string{"type", "key", "value", "leading_comments", "trailing_comment"}
-	blockNodeKeys      = []string{"type", "name", "children", "leading_comments", "trailing_comments"}
+	blockNodeKeys      = []string{"type", "name", "children", "replace", "leading_comments", "trailing_comments"}
 	blockArrayNodeKeys = []string{"type", "name", "items", "leading_comments", "trailing_comments"}
 	scalarValueKeys    = []string{"type", "data"}
 	arrayValueKeys     = []string{"type", "data", "element_type"}
 
-	valueTypes = []string{"string", "int", "float", "bool", "null", "array"}
+	valueTypes = []string{"string", "int", "float", "bool", "null", "array", "object"}
 )
 
 type schemaError struct {
@@ -375,18 +400,22 @@ func validateNodes(path string, v any, rep *schemaReport) error {
 		}
 		typ, ok := obj["type"].(string)
 		if !ok {
-			return failAt(p, "\"type\" is required and must be one of field, block, block_array")
+			return failAt(p, "\"type\" is required and must be one of field, block, block_array, delete")
 		}
 		switch typ {
-		case "field":
-			if err := checkKeys(p, obj, fieldNodeKeys); err != nil {
+		case "field", "delete":
+			allowed := fieldNodeKeys
+			if typ == "delete" {
+				allowed = deleteNodeKeys
+			}
+			if err := checkKeys(p, obj, allowed); err != nil {
 				return err
 			}
 			if _, ok := obj["key"].(string); !ok {
 				return failAt(p, "a field node requires a string \"key\"")
 			}
 			if v, ok := obj["value"]; ok {
-				if err := validateValue(p+".value", v); err != nil {
+				if err := validateValue(p+".value", v, rep); err != nil {
 					return err
 				}
 			}
@@ -414,6 +443,11 @@ func validateNodes(path string, v any, rep *schemaReport) error {
 				return failAt(p, "a %s node requires a string \"name\"", typ)
 			}
 			if typ == "block" {
+				if v, ok := obj["replace"]; ok {
+					if _, ok := v.(bool); !ok {
+						return failAt(p+".replace", "must be a boolean")
+					}
+				}
 				if v, ok := obj["children"]; ok {
 					if err := validateNodes(p+".children", v, rep); err != nil {
 						return err
@@ -422,9 +456,12 @@ func validateNodes(path string, v any, rep *schemaReport) error {
 			} else if v, ok := obj["items"]; ok {
 				items, ok := v.([]any)
 				if !ok {
-					return failAt(p+".items", "must be an array of node arrays")
+					return failAt(p+".items", "must be an array of node arrays or null entries")
 				}
 				for j, it := range items {
+					if it == nil {
+						continue
+					}
 					if err := validateNodes(fmt.Sprintf("%s.items[%d]", p, j), it, rep); err != nil {
 						return err
 					}
@@ -439,13 +476,13 @@ func validateNodes(path string, v any, rep *schemaReport) error {
 				}
 			}
 		default:
-			return failAt(p+".type", "%q is not one of field, block, block_array", typ)
+			return failAt(p+".type", "%q is not one of field, block, block_array, delete", typ)
 		}
 	}
 	return nil
 }
 
-func validateValue(path string, v any) error {
+func validateValue(path string, v any, rep *schemaReport) error {
 	obj, ok := v.(map[string]any)
 	if !ok {
 		return failAt(path, "must be an object")
@@ -487,6 +524,8 @@ func validateValue(path string, v any) error {
 		if _, ok := data.(bool); !ok {
 			return failAt(path+".data", "must be a boolean")
 		}
+	case "object":
+		return validateNodes(path+".data", data, rep)
 	case "array":
 		et, ok := obj["element_type"]
 		if !ok {
@@ -501,7 +540,7 @@ func validateValue(path string, v any) error {
 			return failAt(path+".data", "must be an array of value objects")
 		}
 		for i, item := range items {
-			if err := validateValue(fmt.Sprintf("%s.data[%d]", path, i), item); err != nil {
+			if err := validateValue(fmt.Sprintf("%s.data[%d]", path, i), item, rep); err != nil {
 				return err
 			}
 		}
@@ -563,6 +602,7 @@ type expectedFile struct {
 }
 
 type expectedNode struct {
+	Replace  *bool            `json:"replace"`
 	Type     string           `json:"type"`
 	Key      string           `json:"key"`
 	Name     string           `json:"name"`
@@ -587,8 +627,7 @@ type expectedError struct {
 // ─── Skip accounting ────────────────────────────────────────────────────────
 
 // skipped counts fixtures not run because this implementation does not declare
-// the capability they need. The totals are printed unconditionally by TestMain:
-// honest partial conformance is allowed, quiet partial conformance is not.
+// the optional capability they need. TestMain always prints the totals.
 var skipped = map[string][]string{}
 
 func recordSkip(capability, fixtureName string) {
@@ -784,8 +823,8 @@ func TestConformanceInvalid(t *testing.T) {
 			if parseErr == nil {
 				t.Fatal("expected parse error, got success")
 			}
-			pe, ok := parseErr.(*ParseError)
-			if !ok {
+			var pe *ParseError
+			if !errors.As(parseErr, &pe) {
 				t.Fatalf("expected *ParseError, got %T: %v", parseErr, parseErr)
 			}
 			if string(pe.Diag.Code) != expected.Code {
@@ -817,6 +856,14 @@ func compareNodes(t *testing.T, path string, expected []expectedNode, actual []N
 		prefix := fmt.Sprintf("%s[%d].", path, i)
 
 		switch en.Type {
+		case "delete":
+			if an.Delete == nil {
+				t.Errorf("%sexpected delete", prefix)
+				continue
+			}
+			if an.Delete.Key != en.Key {
+				t.Errorf("%sdelete key: expected %q, got %q", prefix, en.Key, an.Delete.Key)
+			}
 		case "field":
 			if an.Field == nil {
 				t.Errorf("%sexpected field, got block", prefix)
@@ -833,6 +880,9 @@ func compareNodes(t *testing.T, path string, expected []expectedNode, actual []N
 			if an.Block == nil {
 				t.Errorf("%sexpected block, got non-block", prefix)
 				continue
+			}
+			if en.Replace != nil && an.Block.Replace != *en.Replace {
+				t.Errorf("%sreplace: expected %v, got %v", prefix, *en.Replace, an.Block.Replace)
 			}
 			if an.Block.Name != en.Name {
 				t.Errorf("%sname: expected %q, got %q", prefix, en.Name, an.Block.Name)
@@ -853,7 +903,16 @@ func compareNodes(t *testing.T, path string, expected []expectedNode, actual []N
 			}
 			for j, item := range en.Items {
 				itemPrefix := fmt.Sprintf("%sitems[%d].", prefix, j)
-				compareNodes(t, itemPrefix, item, an.BlockArray.Items[j])
+				actual := an.BlockArray.Items[j]
+				if item == nil {
+					if actual.Type != TypeNull {
+						t.Errorf("%sexpected null", itemPrefix)
+					}
+				} else if actual.Type != TypeObject {
+					t.Errorf("%sexpected object, got %s", itemPrefix, actual.Type)
+				} else {
+					compareNodes(t, itemPrefix, item, actual.Object)
+				}
 			}
 		}
 	}
@@ -874,6 +933,8 @@ func compareValue(t *testing.T, path string, expected expectedValue, actual Valu
 		expectedType = TypeBool
 	case "null":
 		expectedType = TypeNull
+	case "object":
+		expectedType = TypeObject
 	case "array":
 		expectedType = TypeArray
 	default:
@@ -918,7 +979,7 @@ func compareValue(t *testing.T, path string, expected expectedValue, actual Valu
 			t.Errorf("%scannot parse expected float data: %v", path, err)
 			return
 		}
-		if math.Abs(actual.Float-f) > 1e-9 {
+		if math.Float64bits(actual.Float) != math.Float64bits(f) {
 			t.Errorf("%svalue: expected %g, got %g", path, f, actual.Float)
 		}
 
@@ -935,6 +996,12 @@ func compareValue(t *testing.T, path string, expected expectedValue, actual Valu
 	case "null":
 		// Nothing to compare.
 
+	case "object":
+		var nodes []expectedNode
+		if err := json.Unmarshal(expected.Data, &nodes); err != nil {
+			t.Fatal(err)
+		}
+		compareNodes(t, path, nodes, actual.Object)
 	case "array":
 		if actual.Array == nil {
 			t.Errorf("%sexpected array data, got nil", path)
@@ -950,6 +1017,8 @@ func compareValue(t *testing.T, path string, expected expectedValue, actual Valu
 			expectedElemType = TypeFloat
 		case "bool":
 			expectedElemType = TypeBool
+		case "object":
+			expectedElemType = TypeObject
 		case "array":
 			expectedElemType = TypeArray
 		case "null":
@@ -997,6 +1066,9 @@ func TestExpectedSchemaRejectsUnknownKeys(t *testing.T) {
 		{"bad node type", kindValid, `{"children": [{"type": "feild", "key": "a"}]}`},
 		{"value without data", kindValid, `{"children": [{"type": "field", "key": "a", "value": {"type": "int"}}]}`},
 		{"array without element_type", kindValid, `{"children": [{"type": "field", "key": "a", "value": {"type": "array", "data": []}}]}`},
+		{"object with invalid child", kindValid, `{"children":[{"type":"field","key":"a","value":{"type":"object","data":[{"type":"field","key":"b","misspelled":1}]}}]}`},
+		{"object with non-list data", kindValid, `{"children":[{"type":"field","key":"a","value":{"type":"object","data":null}}]}`},
+		{"invalid block-array item", kindValid, `{"children":[{"type":"block_array","name":"a","items":[42]}]}`},
 		{"null with data", kindValid, `{"children": [{"type": "field", "key": "a", "value": {"type": "null", "data": 1}}]}`},
 	}
 	for _, tc := range cases {
@@ -1011,6 +1083,8 @@ func TestExpectedSchemaRejectsUnknownKeys(t *testing.T) {
 func TestExpectedSchemaDetectsCommentAssertions(t *testing.T) {
 	codes := loadErrorCodes(t)
 	withComments := []string{
+		`{"children":[{"type":"field","key":"a","value":{"type":"array","element_type":"object","data":[{"type":"object","data":[{"type":"field","key":"b","leading_comments":["# nested"]}]}]}}]}`,
+
 		`{"leading_comments": ["# hi"]}`,
 		`{"children": [{"type": "field", "key": "a", "trailing_comment": "# hi"}]}`,
 		`{"children": [{"type": "block", "name": "b", "trailing_comments": ["# hi"]}]}`,

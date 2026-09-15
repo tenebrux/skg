@@ -6,28 +6,23 @@
 #
 # Use imports to split shared config (theme, keybinds) from per-host
 # config. Circular imports are an error.
-
-skg_version: "1.0"
-
 # Array form - ordered, processed top to bottom
+skg_version: "1.0"
 import [
   "./theme.skg",
-  "./users.skg",
+  "./users.skg"
 ]
 
 # Single import form is also valid:
 #     import "./theme.skg"
-
 # Override a value the import set. Because this runs after the imports,
 # it wins. Keeps the shared file as a default without forking it.
 theme {
   accent: "purple"
 }
-
 # Colonless scalar array shorthand - equivalent to:
 #     hostnames: ["alpha", "beta", "gamma"]
-hostnames ["alpha", "beta", "gamma"]
-
-# Null explicitly unsets an inherited value. Useful when an imported
-# file set something you don't want in this deployment.
+hostnames: ["alpha", "beta", "gamma"]
+# Null overrides an inherited value with an explicit null. Use @delete when the
+# key must be absent from the materialized configuration.
 cache_ttl: null

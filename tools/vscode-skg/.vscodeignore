@@ -4,4 +4,5 @@
 .vscodeignore
 node_modules/**
 package-lock.json
+check-grammar.mjs
 **/*.vsix

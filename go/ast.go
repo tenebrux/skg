@@ -27,6 +27,7 @@ const (
 	TypeBool
 	TypeNull
 	TypeArray
+	TypeObject
 )
 
 func (t ValueType) String() string {
@@ -43,25 +44,28 @@ func (t ValueType) String() string {
 		return "null"
 	case TypeArray:
 		return "array"
+	case TypeObject:
+		return "object"
 	default:
 		return "unknown"
 	}
 }
 
-// Value represents a scalar or array value from a field assignment.
+// Value represents a scalar, array, or object value from a field assignment.
 type Value struct {
 	Type ValueType
 
 	// Exactly one of these is populated based on Type.
-	Str   string  // TypeString
-	Int   int64   // TypeInt
-	Float float64 // TypeFloat
-	Bool  bool    // TypeBool
-	Array *Array  // TypeArray
+	Str    string  // TypeString
+	Int    int64   // TypeInt
+	Float  float64 // TypeFloat
+	Bool   bool    // TypeBool
+	Array  *Array  // TypeArray
+	Object []Node  // TypeObject; nil denotes an empty object, not null
 	// TypeNull uses no fields.
 }
 
-// Array is a typed array. All elements must be the same type (enforced by parser).
+// Array is a typed array. All non-null elements have the same type (enforced by parser).
 type Array struct {
 	ElementType ValueType
 	Items       []Value
@@ -69,6 +73,7 @@ type Array struct {
 
 // Field is a key-value pair: `key: value`
 type Field struct {
+	Path  string // Source provenance; empty for programmatically built values.
 	Key   string
 	Value Value
 	Line  int
@@ -77,6 +82,8 @@ type Field struct {
 
 // Block is a named scope: `name { children... }`
 type Block struct {
+	Path     string // Source provenance; empty for programmatically built values.
+	Replace  bool   // @replace: do not inherit children from an earlier value
 	Name     string
 	Children []Node
 	Line     int
@@ -84,17 +91,27 @@ type Block struct {
 }
 
 // BlockArray is a named list of blocks: `name [ { ... } { ... } ]`
-// Each item is a list of child nodes representing one block entry.
+// Each item is an object or null value.
 type BlockArray struct {
+	Path  string // Source provenance; empty for programmatically built values.
 	Name  string
-	Items [][]Node
+	Items []Value
 	Line  int
 	Col   int
 }
 
-// Node is either a field, a block, or a block array.
+// Delete records @delete key until the overlay is materialized.
+type Delete struct {
+	Path string // Source provenance; empty for programmatically built values.
+	Key  string
+	Line int
+	Col  int
+}
+
+// Node is a field, block, block array, or deletion operation.
 type Node struct {
 	// Exactly one is non-nil.
+	Delete     *Delete
 	Field      *Field
 	Block      *Block
 	BlockArray *BlockArray
@@ -108,6 +125,7 @@ type Position struct {
 
 // File is the parsed representation of a single .skg file.
 type File struct {
+	Path          string   // Source provenance; empty for programmatically built values.
 	SKGVersion    *string  // skg_version: "1.0" - nil if absent
 	SchemaVersion *string  // schema_version: "1.0.0" - nil if absent
 	ImportPaths   []string // Raw import path strings
@@ -119,6 +137,9 @@ type File struct {
 	ImportPositions []Position
 
 	Children []Node
+	// File-loading APIs set this after applying all imports and operations.
+	// Emit omits active imports for a resolved file.
+	ImportsResolved bool
 }
 
 // ErrorCode is a stable, implementation-independent identifier for a parse
@@ -139,22 +160,26 @@ const (
 	CodeUnexpectedChar     ErrorCode = "UNEXPECTED_CHAR"
 	CodeUnterminatedString ErrorCode = "UNTERMINATED_STRING"
 	CodeInvalidEscape      ErrorCode = "INVALID_ESCAPE"
+	CodeInvalidUTF8        ErrorCode = "INVALID_UTF8"
 
 	// Syntax.
-	CodeExpectedColon          ErrorCode = "EXPECTED_COLON"
-	CodeExpectedRbrace         ErrorCode = "EXPECTED_RBRACE"
-	CodeExpectedRbracket       ErrorCode = "EXPECTED_RBRACKET"
-	CodeExpectedString         ErrorCode = "EXPECTED_STRING"
-	CodeExpectedIdent          ErrorCode = "EXPECTED_IDENT"
-	CodeExpectedValue          ErrorCode = "EXPECTED_VALUE"
-	CodeExpectedNodeBody       ErrorCode = "EXPECTED_NODE_BODY"
-	CodeUnexpectedToken        ErrorCode = "UNEXPECTED_TOKEN"
-	CodeUnterminatedBlock      ErrorCode = "UNTERMINATED_BLOCK"
-	CodeUnterminatedBlockArray ErrorCode = "UNTERMINATED_BLOCK_ARRAY"
-	CodeUnterminatedArray      ErrorCode = "UNTERMINATED_ARRAY"
-	CodeMixedArrayTypes        ErrorCode = "MIXED_ARRAY_TYPES"
-	CodeInvalidInt             ErrorCode = "INVALID_INT"
-	CodeInvalidFloat           ErrorCode = "INVALID_FLOAT"
+	CodeExpectedColon            ErrorCode = "EXPECTED_COLON"
+	CodeExpectedRbrace           ErrorCode = "EXPECTED_RBRACE"
+	CodeExpectedRbracket         ErrorCode = "EXPECTED_RBRACKET"
+	CodeExpectedString           ErrorCode = "EXPECTED_STRING"
+	CodeExpectedIdent            ErrorCode = "EXPECTED_IDENT"
+	CodeExpectedValue            ErrorCode = "EXPECTED_VALUE"
+	CodeExpectedComma            ErrorCode = "EXPECTED_COMMA"
+	CodeExpectedNodeBody         ErrorCode = "EXPECTED_NODE_BODY"
+	CodeUnexpectedToken          ErrorCode = "UNEXPECTED_TOKEN"
+	CodeUnterminatedBlock        ErrorCode = "UNTERMINATED_BLOCK"
+	CodeUnterminatedBlockArray   ErrorCode = "UNTERMINATED_BLOCK_ARRAY"
+	CodeUnterminatedArray        ErrorCode = "UNTERMINATED_ARRAY"
+	CodeMixedArrayTypes          ErrorCode = "MIXED_ARRAY_TYPES"
+	CodeInvalidInt               ErrorCode = "INVALID_INT"
+	CodeInvalidFloat             ErrorCode = "INVALID_FLOAT"
+	CodeUnknownOverlayOperation  ErrorCode = "UNKNOWN_OVERLAY_OPERATION"
+	CodeExpectedReplacementBlock ErrorCode = "EXPECTED_REPLACEMENT_BLOCK"
 
 	// Header directives.
 	CodeDuplicateSKGVersion    ErrorCode = "DUPLICATE_SKG_VERSION"
@@ -170,12 +195,16 @@ const (
 	CodeNestingTooDeep ErrorCode = "NESTING_TOO_DEEP"
 	CodeFileTooLarge   ErrorCode = "FILE_TOO_LARGE"
 
-	// Import resolution. Only a parser that resolves imports from disk can
-	// produce these; the Go parser records import paths but does not yet
-	// resolve them (see go/conformance.json).
-	CodeCircularImport     ErrorCode = "CIRCULAR_IMPORT"
-	CodeImportNotFound     ErrorCode = "IMPORT_NOT_FOUND"
-	CodeImportChainTooDeep ErrorCode = "IMPORT_CHAIN_TOO_DEEP"
+	// Import resolution. Only file APIs can produce these; byte APIs record
+	// import paths without opening them.
+	CodeCircularImport      ErrorCode = "CIRCULAR_IMPORT"
+	CodeImportNotFound      ErrorCode = "IMPORT_NOT_FOUND"
+	CodeImportChainTooDeep  ErrorCode = "IMPORT_CHAIN_TOO_DEEP"
+	CodePathOutsideRoot     ErrorCode = "PATH_OUTSIDE_ROOT"
+	CodeResolutionByteLimit ErrorCode = "RESOLUTION_BYTE_LIMIT"
+	CodeResolutionFileLimit ErrorCode = "RESOLUTION_FILE_LIMIT"
+	CodeResolutionNodeLimit ErrorCode = "RESOLUTION_NODE_LIMIT"
+	CodeResolutionWorkLimit ErrorCode = "RESOLUTION_WORK_LIMIT"
 
 	// Fallback. Never expected in a fixture - seeing it means a diagnostic
 	// site is missing its code.
@@ -188,12 +217,14 @@ var ErrorCodes = []ErrorCode{
 	CodeUnexpectedChar,
 	CodeUnterminatedString,
 	CodeInvalidEscape,
+	CodeInvalidUTF8,
 	CodeExpectedColon,
 	CodeExpectedRbrace,
 	CodeExpectedRbracket,
 	CodeExpectedString,
 	CodeExpectedIdent,
 	CodeExpectedValue,
+	CodeExpectedComma,
 	CodeExpectedNodeBody,
 	CodeUnexpectedToken,
 	CodeUnterminatedBlock,
@@ -202,6 +233,8 @@ var ErrorCodes = []ErrorCode{
 	CodeMixedArrayTypes,
 	CodeInvalidInt,
 	CodeInvalidFloat,
+	CodeUnknownOverlayOperation,
+	CodeExpectedReplacementBlock,
 	CodeDuplicateSKGVersion,
 	CodeDuplicateSchemaVersion,
 	CodeMalformedSKGVersion,
@@ -215,6 +248,11 @@ var ErrorCodes = []ErrorCode{
 	CodeCircularImport,
 	CodeImportNotFound,
 	CodeImportChainTooDeep,
+	CodePathOutsideRoot,
+	CodeResolutionByteLimit,
+	CodeResolutionFileLimit,
+	CodeResolutionNodeLimit,
+	CodeResolutionWorkLimit,
 	CodeUnknown,
 }
 

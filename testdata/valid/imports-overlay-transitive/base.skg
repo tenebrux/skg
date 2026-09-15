@@ -1,0 +1,4 @@
+removed: 1
+section { old: 1 }
+type_reset { inherited: 1 }
+empty { inherited: 1 }

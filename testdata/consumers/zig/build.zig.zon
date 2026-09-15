@@ -1,0 +1,13 @@
+.{
+    .name = .skg_consumer_smoke,
+    .version = "0.0.0",
+    .fingerprint = 0xcfa35ae45f1504c5,
+    .dependencies = .{
+        .skg = .{ .path = "../../.." },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "consumer_test.zig",
+    },
+}

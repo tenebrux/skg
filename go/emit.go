@@ -7,7 +7,8 @@ import (
 	"strings"
 )
 
-// Emit serializes an AST File back to canonical SKG text.
+// Emit serializes an AST File back to canonical SKG text. Unresolved overlays
+// retain operations/imports; resolved files emit standalone final data.
 func Emit(f *File) []byte {
 	var buf strings.Builder
 
@@ -16,16 +17,21 @@ func Emit(f *File) []byte {
 	// schema_version before the imports, which meant canonical output did not
 	// match the order the spec asks authors to write.
 	if f.SKGVersion != nil {
-		fmt.Fprintf(&buf, "skg_version: %q\n", *f.SKGVersion)
+		buf.WriteString("skg_version: ")
+		writeQuoted(&buf, *f.SKGVersion)
+		buf.WriteByte('\n')
 	}
 
-	if len(f.ImportPaths) > 0 {
+	if !f.ImportsResolved && len(f.ImportPaths) > 0 {
 		if len(f.ImportPaths) == 1 {
-			fmt.Fprintf(&buf, "import %q\n", f.ImportPaths[0])
+			buf.WriteString("import ")
+			writeQuoted(&buf, f.ImportPaths[0])
+			buf.WriteByte('\n')
 		} else {
 			buf.WriteString("import [\n")
 			for i, p := range f.ImportPaths {
-				fmt.Fprintf(&buf, "  %q", p)
+				buf.WriteString("  ")
+				writeQuoted(&buf, p)
 				if i+1 < len(f.ImportPaths) {
 					buf.WriteByte(',')
 				}
@@ -36,10 +42,12 @@ func Emit(f *File) []byte {
 	}
 
 	if f.SchemaVersion != nil {
-		fmt.Fprintf(&buf, "schema_version: %q\n", *f.SchemaVersion)
+		buf.WriteString("schema_version: ")
+		writeQuoted(&buf, *f.SchemaVersion)
+		buf.WriteByte('\n')
 	}
 
-	hasHeader := f.SKGVersion != nil || f.SchemaVersion != nil || len(f.ImportPaths) > 0
+	hasHeader := f.SKGVersion != nil || f.SchemaVersion != nil || (!f.ImportsResolved && len(f.ImportPaths) > 0)
 	if hasHeader && len(f.Children) > 0 {
 		buf.WriteByte('\n')
 	}
@@ -50,9 +58,14 @@ func Emit(f *File) []byte {
 
 func emitNodes(buf *strings.Builder, nodes []Node, depth int) {
 	for i, n := range nodes {
-		if n.Field != nil {
+		if n.Delete != nil {
 			writeIndent(buf, depth)
-			buf.WriteString(n.Field.Key)
+			buf.WriteString("@delete ")
+			writeKey(buf, n.Delete.Key, depth)
+			buf.WriteByte('\n')
+		} else if n.Field != nil {
+			writeIndent(buf, depth)
+			writeKey(buf, n.Field.Key, depth)
 			buf.WriteString(": ")
 			emitValue(buf, n.Field.Value, depth)
 			buf.WriteByte('\n')
@@ -61,7 +74,10 @@ func emitNodes(buf *strings.Builder, nodes []Node, depth int) {
 				buf.WriteByte('\n')
 			}
 			writeIndent(buf, depth)
-			buf.WriteString(n.Block.Name)
+			if n.Block.Replace {
+				buf.WriteString("@replace ")
+			}
+			writeKey(buf, n.Block.Name, depth)
 			buf.WriteString(" {\n")
 			emitNodes(buf, n.Block.Children, depth+1)
 			writeIndent(buf, depth)
@@ -71,14 +87,12 @@ func emitNodes(buf *strings.Builder, nodes []Node, depth int) {
 				buf.WriteByte('\n')
 			}
 			writeIndent(buf, depth)
-			buf.WriteString(n.BlockArray.Name)
+			writeKey(buf, n.BlockArray.Name, depth)
 			buf.WriteString(" [\n")
 			for _, item := range n.BlockArray.Items {
 				writeIndent(buf, depth+1)
-				buf.WriteString("{\n")
-				emitNodes(buf, item, depth+2)
-				writeIndent(buf, depth+1)
-				buf.WriteString("}\n")
+				emitValue(buf, item, depth+1)
+				buf.WriteByte('\n')
 			}
 			writeIndent(buf, depth)
 			buf.WriteString("]\n")
@@ -110,6 +124,11 @@ func emitValue(buf *strings.Builder, v Value, depth int) {
 		}
 	case TypeNull:
 		buf.WriteString("null")
+	case TypeObject:
+		buf.WriteString("{\n")
+		emitNodes(buf, v.Object, depth+1)
+		writeIndent(buf, depth)
+		buf.WriteByte('}')
 	case TypeArray:
 		buf.WriteByte('[')
 		if v.Array != nil {
@@ -117,7 +136,7 @@ func emitValue(buf *strings.Builder, v Value, depth int) {
 				if i > 0 {
 					buf.WriteString(", ")
 				}
-				emitValue(buf, item, depth)
+				emitValue(buf, item, depth+1)
 			}
 		}
 		buf.WriteByte(']')
@@ -172,5 +191,21 @@ func writeEscaped(buf *strings.Builder, s string) {
 func writeIndent(buf *strings.Builder, depth int) {
 	for i := 0; i < depth; i++ {
 		buf.WriteString("  ")
+	}
+}
+
+// Go's %q emits escapes such as \r, \x and \u that SKG does not accept.
+func writeQuoted(buf *strings.Builder, s string) {
+	buf.WriteByte('"')
+	writeEscaped(buf, s)
+	buf.WriteByte('"')
+}
+
+// writeKey keeps the familiar bare spelling wherever it is unambiguous.
+func writeKey(buf *strings.Builder, key string, depth int) {
+	if isIdentifier(key) && (depth > 0 || !isDirective(key)) {
+		buf.WriteString(key)
+	} else {
+		writeQuoted(buf, key)
 	}
 }

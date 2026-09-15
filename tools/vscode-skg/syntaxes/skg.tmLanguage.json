@@ -5,6 +5,7 @@
   "fileTypes": ["skg"],
   "patterns": [
     { "include": "#comment" },
+        { "include": "#overlay" },
     { "include": "#import" },
     { "include": "#block" },
     { "include": "#block_array" },
@@ -12,6 +13,29 @@
     { "include": "#value" }
   ],
   "repository": {
+    "overlay": {
+  "patterns": [
+    {
+      "match": "(@delete)\\s+(\\b[a-zA-Z_][a-zA-Z0-9_]*|\"(?:[^\"\\\\\\n]|\\\\[\"\\\\nt])*\")",
+      "captures": {
+        "1": {
+          "name": "keyword.control.skg"
+        },
+        "2": {
+          "name": "variable.other.property.skg"
+        }
+      }
+    },
+    {
+      "match": "(@replace)\\b",
+      "captures": {
+        "1": {
+          "name": "keyword.control.skg"
+        }
+      }
+    }
+  ]
+},
     "comment": {
       "name": "comment.line.number-sign.skg",
       "match": "#.*$"
@@ -76,7 +100,7 @@
     },
     "block": {
       "name": "meta.block.skg",
-      "begin": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*(\\{)",
+      "begin": "(\\b[a-zA-Z_][a-zA-Z0-9_]*|\"(?:[^\"\\\\\\n]|\\\\[\"\\\\nt])*\")\\s*(\\{)",
       "beginCaptures": {
         "1": { "name": "entity.name.section.skg" },
         "2": { "name": "punctuation.section.block.begin.skg" }
@@ -87,6 +111,7 @@
       },
       "patterns": [
         { "include": "#comment" },
+        { "include": "#overlay" },
         { "include": "#block" },
         { "include": "#block_array" },
         { "include": "#pair" },
@@ -95,7 +120,7 @@
     },
     "block_array": {
       "name": "meta.block-array.skg",
-      "begin": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*(\\[)",
+      "begin": "(\\b[a-zA-Z_][a-zA-Z0-9_]*|\"(?:[^\"\\\\\\n]|\\\\[\"\\\\nt])*\")\\s*(\\[)",
       "beginCaptures": {
         "1": { "name": "entity.name.section.skg" },
         "2": { "name": "punctuation.definition.array.begin.skg" }
@@ -106,6 +131,7 @@
       },
       "patterns": [
         { "include": "#comment" },
+        { "include": "#overlay" },
         { "include": "#block_array_item" },
         { "include": "#multiline_string" },
         { "include": "#string" },
@@ -120,7 +146,7 @@
       ]
     },
     "pair": {
-      "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*(:)",
+      "match": "(\\b[a-zA-Z_][a-zA-Z0-9_]*|\"(?:[^\"\\\\\\n]|\\\\[\"\\\\nt])*\")\\s*(:)",
       "captures": {
         "1": { "name": "variable.other.property.skg" },
         "2": { "name": "punctuation.separator.key-value.skg" }
@@ -138,6 +164,7 @@
       },
       "patterns": [
         { "include": "#comment" },
+        { "include": "#overlay" },
         { "include": "#block_array_item" },
         { "include": "#multiline_string" },
         { "include": "#string" },
@@ -163,6 +190,7 @@
       },
       "patterns": [
         { "include": "#comment" },
+        { "include": "#overlay" },
         { "include": "#block" },
         { "include": "#block_array" },
         { "include": "#pair" },
@@ -176,7 +204,8 @@
         { "include": "#boolean" },
         { "include": "#null" },
         { "include": "#number" },
-        { "include": "#array" }
+        { "include": "#array" },
+        { "include": "#block_array_item" }
       ]
     }
   }

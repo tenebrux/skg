@@ -16,6 +16,7 @@ const merge = @import("merge.zig");
 pub const ParseError = LexError || error{
     UnexpectedToken,
     ExpectedValue,
+    ExpectedComma,
     ExpectedRbrace,
     ExpectedRbracket,
     MixedArrayTypes,
@@ -26,9 +27,13 @@ pub const ParseError = LexError || error{
     NestingTooDeep,
     InvalidInt,
     InvalidFloat,
+    InvalidUtf8,
     AbsoluteImportPath,
     DirectiveAfterBody,
     OutOfMemory,
+    FileTooLarge,
+    UnknownOverlayOperation,
+    ExpectedReplacementBlock,
 };
 
 /// The highest skg_version this parser supports.
@@ -42,6 +47,7 @@ pub const supported_minor: u8 = 0;
 /// process. The Go sibling parser (go/parser.go) uses the same constant, so both
 /// implementations accept and reject exactly the same inputs.
 pub const max_nesting_depth: u32 = 128;
+pub const max_file_size: usize = 10 * 1024 * 1024;
 
 const nesting_too_deep_message = std.fmt.comptimePrint(
     "nesting too deep (max {d})",
@@ -251,7 +257,7 @@ const Parser = struct {
                             return error.MalformedSKGVersion;
                         },
                         .too_new => {
-                            self.setDiagnostic(val_tok.line, val_tok.col, .UNSUPPORTED_SKG_VERSION, "skg_version is newer than this parser supports");
+                            self.setDiagnostic(val_tok.line, val_tok.col, .UNSUPPORTED_SKG_VERSION, "skg_version is not supported by this parser");
                             return error.UnsupportedSKGVersion;
                         },
                     }
@@ -307,22 +313,29 @@ const Parser = struct {
             try self.appendImport(list, positions, t);
         } else if (t.tag == .lbracket) {
             _ = try self.consume();
+            var need_path = true;
             while (true) {
                 const nt = try self.peek();
                 if (nt.tag == .rbracket) {
                     _ = try self.consume();
                     break;
                 }
-                if (nt.tag == .comma) {
-                    _ = try self.consume();
-                    continue;
-                }
                 if (nt.tag == .eof) {
                     self.setDiagnostic(nt.line, nt.col, .UNTERMINATED_IMPORT_LIST, "unterminated import list, expected ']'");
                     return error.ExpectedRbracket;
                 }
+                if (!need_path) {
+                    if (nt.tag != .comma) {
+                        self.setDiagnostic(nt.line, nt.col, .EXPECTED_COMMA, "expected ',' or ']' in import list");
+                        return error.ExpectedComma;
+                    }
+                    _ = try self.consume();
+                    need_path = true;
+                    continue;
+                }
                 const path_tok = try self.expect(.string);
                 try self.appendImport(list, positions, path_tok);
+                need_path = false;
             }
         } else {
             self.setDiagnostic(t.line, t.col, .EXPECTED_IMPORT_PATH, "expected import path string or '['");
@@ -346,188 +359,117 @@ const Parser = struct {
         try positions.append(self.allocator, .{ .line = tok.line, .col = tok.col });
     }
 
-    /// Parse a single node (field or block). Expects an ident token next.
-    /// Leading comments are already buffered by the time we get here -
-    /// drain them before consuming the identifier.
-    fn parseNode(self: *Parser) ParseError!ast.Node {
-        const leading = try self.drainComments();
-        const name_tok = try self.expect(.ident);
-        const nt = try self.peek();
-
-        if (nt.tag == .colon) {
-            _ = try self.consume();
-            const value = try self.parseValue();
-            // A trailing comment sits on the line the *value* ends on, which is
-            // not the line the key starts on for a multiline string or a
-            // multi-line array. Anchoring on the key made those comments look
-            // like own-line comments and migrate onto the next field.
-            const trailing = try self.tryTrailingComment(self.lexer.line);
-            return ast.Node{ .field = .{
-                .key = name_tok.text,
-                .value = value,
-                .line = name_tok.line,
-                .col = name_tok.col,
-                .leading_comments = leading,
-                .trailing_comment = trailing,
-            } };
-        } else if (nt.tag == .lbrace) {
-            _ = try self.consume();
-            try self.enterNesting(nt.line, nt.col);
-            defer self.exitNesting();
-            var children: std.ArrayListUnmanaged(ast.Node) = .empty;
-            while (true) {
-                const ct = try self.peek();
-                if (ct.tag == .rbrace) {
-                    break;
-                }
-                if (ct.tag == .eof) {
-                    self.setDiagnostic(ct.line, ct.col, .UNTERMINATED_BLOCK, "unterminated block, expected '}'");
-                    return error.ExpectedRbrace;
-                }
-                try children.append(self.allocator, try self.parseNode());
-            }
-            // Comments before '}' are trailing comments for the block
-            const block_trailing = try self.drainComments();
-            _ = try self.consume(); // consume '}'
-            const raw = try children.toOwnedSlice(self.allocator);
-            return ast.Node{ .block = .{
-                .name = name_tok.text,
-                .children = try dedup(self.allocator, raw),
-                .line = name_tok.line,
-                .col = name_tok.col,
-                .leading_comments = leading,
-                .trailing_comments = block_trailing,
-            } };
-        } else if (nt.tag == .lbracket) {
-            _ = try self.consume();
-            try self.enterNesting(nt.line, nt.col);
-            defer self.exitNesting();
-            return try self.parseBlockArray(name_tok, leading);
-        } else {
-            self.setDiagnostic(nt.line, nt.col, .EXPECTED_NODE_BODY, "expected ':', '{', or '[' after identifier");
-            return error.UnexpectedToken;
+    fn parseKey(self: *Parser) ParseError!Token {
+        var t = try self.peek();
+        if (t.tag != .string or std.mem.startsWith(u8, t.text, "\"\"\"")) {
+            return self.expect(.ident);
         }
+        _ = try self.consume();
+        t.text = try self.unescapeString(t.text);
+        return t;
     }
 
-    /// Parse block array entries. '[' already consumed, and the caller has
-    /// already accounted for that bracket's nesting level.
-    /// Expects `{ children }` blocks until `]`. If the first token after `[`
-    /// is not `{`, falls back to parsing as a scalar array field (colonless shorthand).
-    fn parseBlockArray(self: *Parser, name_tok: Token, leading: []const []const u8) ParseError!ast.Node {
-        var items: std.ArrayListUnmanaged([]ast.Node) = .empty;
-
-        while (true) {
-            // peek() buffers any comments before the next real token
-            const t = try self.peek();
-            if (t.tag == .rbracket) {
-                break;
-            }
-            if (t.tag == .comma) {
-                _ = try self.consume();
-                continue;
-            }
-            if (t.tag == .eof) {
-                self.setDiagnostic(t.line, t.col, .UNTERMINATED_BLOCK_ARRAY, "unterminated block array, expected ']'");
-                return error.ExpectedRbracket;
-            }
-            if (t.tag != .lbrace) {
-                // `name [` whose first element is not `{` is the colonless
-                // scalar-array shorthand (docs/spec.md, "Block Arrays"), so hand
-                // the rest of the elements to the scalar-array parser.
-                //
-                // Once an entry has been parsed this is no longer a choice
-                // between two readings: the collection has already committed to
-                // being a block array, and a scalar here mixes element kinds.
-                // Falling back at that point silently discarded every entry
-                // parsed so far, turning `users [ {name: "a"} 99 ]` into
-                // `users: [99]` with no diagnostic.
-                if (items.items.len > 0) {
-                    self.setDiagnostic(t.line, t.col, .MIXED_ARRAY_TYPES, "mixed block and scalar elements in an array");
-                    return error.MixedArrayTypes;
-                }
-                return self.reParseAsFieldArray(name_tok, leading);
-            }
-            _ = try self.consume(); // consume '{'
-            try self.enterNesting(t.line, t.col);
-            defer self.exitNesting();
-            var children: std.ArrayListUnmanaged(ast.Node) = .empty;
-            while (true) {
-                const ct = try self.peek();
-                if (ct.tag == .rbrace) {
-                    _ = try self.consume();
-                    break;
-                }
-                if (ct.tag == .eof) {
-                    self.setDiagnostic(ct.line, ct.col, .UNTERMINATED_BLOCK, "unterminated block in block array, expected '}'");
-                    return error.ExpectedRbrace;
-                }
-                try children.append(self.allocator, try self.parseNode());
-            }
-            const raw = try children.toOwnedSlice(self.allocator);
-            try items.append(self.allocator, try dedup(self.allocator, raw));
+    /// Parse a single node (field or block). Expects an identifier or quoted key next.
+    /// Leading comments are already buffered by the time we get here -
+    /// drain them before consuming the key.
+    fn parseNode(self: *Parser) ParseError!ast.Node {
+        var node = try self.parseNodeBody();
+        switch (node) {
+            inline else => |*v| v.path = self.path,
         }
-        // Comments before ']' are trailing comments
-        const arr_trailing = try self.drainComments();
-        _ = try self.consume(); // consume ']'
-        return ast.Node{ .block_array = .{
-            .name = name_tok.text,
-            .items = try items.toOwnedSlice(self.allocator),
+        return node;
+    }
+
+    fn parseNodeBody(self: *Parser) ParseError!ast.Node {
+        const leading = try self.drainComments();
+        if ((try self.peek()).tag == .at) return self.parseOperation(leading);
+        const name_tok = try self.parseKey();
+        const nt = try self.peek();
+
+        const colonless = nt.tag == .lbracket;
+        const value = if (nt.tag == .colon) blk: {
+            _ = try self.consume();
+            break :blk try self.parseValue();
+        } else if (nt.tag == .lbrace) try self.parseValue() else if (colonless) blk: {
+            _ = try self.consume();
+            break :blk try self.parseArray(nt, true);
+        } else {
+            self.setDiagnostic(nt.line, nt.col, .EXPECTED_NODE_BODY, "expected ':', '{', or '[' after key");
+            return error.UnexpectedToken;
+        };
+
+        if (value == .object) {
+            return .{ .block = .{
+                .name = name_tok.text,
+                .children = value.object.children,
+                .line = name_tok.line,
+                .col = name_tok.col,
+                .leading_comments = leading,
+                .trailing_comments = value.object.trailing_comments,
+            } };
+        }
+        if (value == .array and (value.array.element_type == .object or (colonless and value.array.items.len == 0))) {
+            return .{ .block_array = .{
+                .name = name_tok.text,
+                .items = value.array.items,
+                .line = name_tok.line,
+                .col = name_tok.col,
+                .leading_comments = leading,
+                .trailing_comments = value.array.trailing_comments,
+            } };
+        }
+        const trailing = try self.tryTrailingComment(self.lexer.line);
+        return .{ .field = .{
+            .key = name_tok.text,
+            .value = value,
             .line = name_tok.line,
             .col = name_tok.col,
             .leading_comments = leading,
-            .trailing_comments = arr_trailing,
+            .trailing_comment = trailing,
         } };
     }
 
-    /// Fallback: `name [` was followed by a non-brace token, so parse
-    /// remaining contents as a scalar array and return as a field node.
-    fn reParseAsFieldArray(self: *Parser, name_tok: Token, leading: []const []const u8) ParseError!ast.Node {
-        var items: std.ArrayListUnmanaged(ast.Value) = .empty;
-        var element_type: ?ast.ValueType = null;
+    fn parseOperation(self: *Parser, leading: []const []const u8) ParseError!ast.Node {
+        _ = try self.consume(); // @
+        const op = try self.expect(.ident);
+        const deleting = std.mem.eql(u8, op.text, "delete");
+        if (!deleting and !std.mem.eql(u8, op.text, "replace")) {
+            self.setDiagnostic(op.line, op.col, .UNKNOWN_OVERLAY_OPERATION, "unknown overlay operation");
+            return error.UnknownOverlayOperation;
+        }
+        const key = try self.parseKey();
+        if (deleting) {
+            const trailing = try self.tryTrailingComment(self.lexer.line);
+            return .{ .delete = .{ .key = key.text, .line = key.line, .col = key.col, .leading_comments = leading, .trailing_comment = trailing } };
+        }
+        const open = try self.peek();
+        if (open.tag != .lbrace) {
+            self.setDiagnostic(open.line, open.col, .EXPECTED_REPLACEMENT_BLOCK, "@replace requires an object body in braces");
+            return error.ExpectedReplacementBlock;
+        }
+        _ = try self.consume();
+        const value = try self.parseObject(open);
+        return .{ .block = .{ .name = key.text, .children = value.object.children, .replace = true, .line = key.line, .col = key.col, .leading_comments = leading, .trailing_comments = value.object.trailing_comments } };
+    }
 
+    fn parseObject(self: *Parser, open: Token) ParseError!ast.Value {
+        try self.enterNesting(open.line, open.col);
+        defer self.exitNesting();
+        var children: std.ArrayListUnmanaged(ast.Node) = .empty;
         while (true) {
             const t = try self.peek();
-            if (t.tag == .rbracket) {
-                _ = try self.consume();
-                break;
-            }
-            if (t.tag == .comma) {
-                _ = try self.consume();
-                continue;
-            }
+            if (t.tag == .rbrace) break;
             if (t.tag == .eof) {
-                self.setDiagnostic(t.line, t.col, .UNTERMINATED_ARRAY, "unterminated array, expected ']'");
-                return error.ExpectedRbracket;
+                self.setDiagnostic(t.line, t.col, .UNTERMINATED_BLOCK, "unterminated block, expected '}'");
+                return error.ExpectedRbrace;
             }
-            if (t.tag == .lbrace) {
-                // The mirror of the check in parseBlockArray: this collection has
-                // committed to holding scalars, so a block entry mixes kinds.
-                self.setDiagnostic(t.line, t.col, .MIXED_ARRAY_TYPES, "mixed block and scalar elements in an array");
-                return error.MixedArrayTypes;
-            }
-
-            const val = try self.parseValue();
-            const vtype = std.meta.activeTag(val);
-            if (element_type) |et| {
-                if (et != vtype) {
-                    self.setDiagnostic(t.line, t.col, .MIXED_ARRAY_TYPES, "mixed types in array");
-                    return error.MixedArrayTypes;
-                }
-            } else {
-                element_type = vtype;
-            }
-            try items.append(self.allocator, val);
+            try children.append(self.allocator, try self.parseNode());
         }
-
-        return ast.Node{ .field = .{
-            .key = name_tok.text,
-            .value = .{ .array = .{
-                .element_type = element_type orelse .string,
-                .items = try items.toOwnedSlice(self.allocator),
-            } },
-            .line = name_tok.line,
-            .col = name_tok.col,
-            .leading_comments = leading,
+        const trailing = try self.drainComments();
+        _ = try self.consume();
+        return .{ .object = .{
+            .children = try dedup(self.allocator, try children.toOwnedSlice(self.allocator)),
+            .trailing_comments = trailing,
         } };
     }
 
@@ -543,7 +485,8 @@ const Parser = struct {
             .bool_false => ast.Value{ .bool = false },
             .null_lit => ast.Value{ .null = {} },
             .string => ast.Value{ .string = try self.unescapeString(t.text) },
-            .lbracket => try self.parseArray(t),
+            .lbracket => try self.parseArray(t, false),
+            .lbrace => try self.parseObject(t),
             else => {
                 self.setDiagnostic(t.line, t.col, .EXPECTED_VALUE, "expected a value (string, number, bool, or array)");
                 return error.ExpectedValue;
@@ -571,44 +514,76 @@ const Parser = struct {
     }
 
     /// Parse array elements. `open_tok` is the already-consumed `[`.
-    fn parseArray(self: *Parser, open_tok: Token) ParseError!ast.Value {
+    fn parseArray(self: *Parser, open_tok: Token, colonless: bool) ParseError!ast.Value {
         try self.enterNesting(open_tok.line, open_tok.col);
         defer self.exitNesting();
 
         var items: std.ArrayListUnmanaged(ast.Value) = .empty;
         var element_type: ?ast.ValueType = null;
+        var need_value = true;
+        var first_missing_separator: ?Token = null;
 
         while (true) {
             const t = try self.peek();
             if (t.tag == .rbracket) {
-                _ = try self.consume();
                 break;
             }
-            if (t.tag == .comma) {
+            if (!need_value and t.tag == .comma) {
                 _ = try self.consume();
+                need_value = true;
                 continue;
             }
             if (t.tag == .eof) {
-                self.setDiagnostic(t.line, t.col, .UNTERMINATED_ARRAY, "unterminated array, expected ']'");
+                self.setDiagnostic(t.line, t.col, if (colonless and (element_type == null or element_type == .object)) .UNTERMINATED_BLOCK_ARRAY else .UNTERMINATED_ARRAY, "unterminated array, expected ']'");
                 return error.ExpectedRbracket;
+            }
+
+            if (need_value and t.tag == .comma) {
+                self.setDiagnostic(t.line, t.col, .EXPECTED_VALUE, "expected an array value after ','");
+                return error.ExpectedValue;
+            }
+            if (!need_value) {
+                if (element_type != null and element_type.? != .null and element_type.? != .object) {
+                    self.setDiagnostic(t.line, t.col, .EXPECTED_COMMA, "expected ',' or ']' in value array");
+                    return error.ExpectedComma;
+                }
+                if (first_missing_separator == null) first_missing_separator = t;
             }
 
             const val = try self.parseValue();
             const vtype = std.meta.activeTag(val);
             if (element_type) |et| {
-                if (et != vtype) {
+                if (et != .null and vtype != .null and et != vtype) {
                     self.setDiagnostic(t.line, t.col, .MIXED_ARRAY_TYPES, "mixed types in array");
                     return error.MixedArrayTypes;
                 }
+                if (et == .null) element_type = vtype;
             } else {
                 element_type = vtype;
             }
             try items.append(self.allocator, val);
+            need_value = false;
+            if (element_type == .object) {
+                first_missing_separator = null;
+            } else if (element_type != null and element_type.? != .null) {
+                if (first_missing_separator) |missing| {
+                    self.setDiagnostic(missing.line, missing.col, .EXPECTED_COMMA, "expected ',' or ']' in value array");
+                    return error.ExpectedComma;
+                }
+            }
         }
 
+        if (first_missing_separator) |missing| {
+            self.setDiagnostic(missing.line, missing.col, .EXPECTED_COMMA, "expected ',' or ']' in value array");
+            return error.ExpectedComma;
+        }
+
+        const trailing = try self.drainComments();
+        _ = try self.consume();
         return ast.Value{ .array = .{
             .element_type = element_type orelse .string,
             .items = try items.toOwnedSlice(self.allocator),
+            .trailing_comments = trailing,
         } };
     }
 
@@ -672,9 +647,8 @@ pub fn isDirective(name: []const u8) bool {
 /// Reports whether an import path escapes the relative-path grammar.
 ///
 /// Absolute imports are rejected outright (docs/spec.md, "Imports"): they are
-/// not portable between machines, and a config parsed as root - which is how
-/// umbra reads its manifests - has no business following a path out of the
-/// config tree. The Windows spellings are rejected too so a file cannot mean
+/// not portable between machines. This is not containment: parent components
+/// and symlinks may still reach outside the config tree. The Windows spellings are rejected too so a file cannot mean
 /// different things on different hosts. go/parser.go carries the same rule.
 pub fn isAbsoluteImportPath(path: []const u8) bool {
     if (path.len == 0) return false;
@@ -690,23 +664,28 @@ pub const VersionCheck = enum {
     ok,
     /// Not a "MAJOR.MINOR" pair of decimal numbers.
     malformed,
-    /// Well-formed, but newer than this parser supports.
+    /// Well-formed, but outside the versions this parser supports.
     too_new,
 };
 
 /// Classify a declared skg_version: malformed values are reported separately
-/// from values that are merely newer than `supported_major.supported_minor`.
+/// from values outside the supported major/minor range.
 fn checkVersion(version: []const u8) VersionCheck {
     const dot = std.mem.indexOfScalar(u8, version, '.') orelse return .malformed;
-    const major = std.fmt.parseUnsigned(u8, version[0..dot], 10) catch return .malformed;
-    const minor = std.fmt.parseUnsigned(u8, version[dot + 1 ..], 10) catch return .malformed;
-    if (major > supported_major) return .too_new;
+    for (version, 0..) |c, i| {
+        if (i != dot and !std.ascii.isDigit(c)) return .malformed;
+    }
+    const major = std.fmt.parseUnsigned(u64, version[0..dot], 10) catch return .malformed;
+    const minor = std.fmt.parseUnsigned(u64, version[dot + 1 ..], 10) catch return .malformed;
+    if (major != supported_major) return .too_new;
     if (major == supported_major and minor > supported_minor) return .too_new;
     return .ok;
 }
 
 /// Parse an SKG source string into an ast.File.
-/// All AST memory is allocated from `allocator` - use an arena for easy cleanup.
+/// Allocates AST containers from `allocator` but borrows source/path bytes.
+/// Keep those bytes alive until the AST is no longer used. The public
+/// root.parseSource wrapper copies them into an owning arena.
 /// Import paths are recorded but not resolved (see root.zig).
 /// Pass a non-null `diagnostic` pointer to capture error location on failure.
 pub fn parseSource(
@@ -715,6 +694,14 @@ pub fn parseSource(
     path: []const u8,
     diagnostic: ?*?ast_mod.Diagnostic,
 ) ParseError!ast.File {
+    if (src.len > max_file_size) {
+        if (diagnostic) |d| d.* = .{ .code = .FILE_TOO_LARGE, .path = path, .line = 0, .col = 0, .message = "file too large (max 10MB)" };
+        return error.FileTooLarge;
+    }
+    if (firstInvalidUtf8(src)) |location| {
+        if (diagnostic) |d| d.* = .{ .code = .INVALID_UTF8, .path = path, .line = location.line, .col = location.col, .message = "source is not valid UTF-8" };
+        return error.InvalidUtf8;
+    }
     var p = Parser.init(allocator, src, path);
     return p.parseFile() catch |err| {
         if (diagnostic) |d| {
@@ -728,4 +715,24 @@ pub fn parseSource(
         }
         return err;
     };
+}
+
+fn firstInvalidUtf8(src: []const u8) ?ast_mod.Position {
+    var index: usize = 0;
+    var line: u32 = 1;
+    var col: u32 = 1;
+    while (index < src.len) {
+        const size = std.unicode.utf8ByteSequenceLength(src[index]) catch return .{ .line = line, .col = col };
+        const end = index + size;
+        if (end > src.len) return .{ .line = line, .col = col };
+        _ = std.unicode.utf8Decode(src[index..end]) catch return .{ .line = line, .col = col };
+        if (src[index] == '\n') {
+            line += 1;
+            col = 1;
+        } else {
+            col += size;
+        }
+        index = end;
+    }
+    return null;
 }

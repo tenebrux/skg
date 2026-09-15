@@ -20,16 +20,21 @@ pub fn emitFile(allocator: std.mem.Allocator, file: ast.File) EmitError![]u8 {
     // schema_version before the imports, which meant canonical output did not
     // match the order the spec asks authors to write.
     if (file.skg_version) |v| {
-        try w.print("skg_version: \"{s}\"\n", .{v});
+        try w.writeAll("skg_version: ");
+        try writeQuoted(w, v);
+        try w.writeByte('\n');
     }
 
-    if (file.import_paths.len > 0) {
+    if (!file.imports_resolved and file.import_paths.len > 0) {
         if (file.import_paths.len == 1) {
-            try w.print("import \"{s}\"\n", .{file.import_paths[0]});
+            try w.writeAll("import ");
+            try writeQuoted(w, file.import_paths[0]);
+            try w.writeByte('\n');
         } else {
             try w.writeAll("import [\n");
             for (file.import_paths, 0..) |p, i| {
-                try w.print("  \"{s}\"", .{p});
+                try w.writeAll("  ");
+                try writeQuoted(w, p);
                 if (i + 1 < file.import_paths.len) try w.writeByte(',');
                 try w.writeByte('\n');
             }
@@ -38,10 +43,12 @@ pub fn emitFile(allocator: std.mem.Allocator, file: ast.File) EmitError![]u8 {
     }
 
     if (file.schema_version) |v| {
-        try w.print("schema_version: \"{s}\"\n", .{v});
+        try w.writeAll("schema_version: ");
+        try writeQuoted(w, v);
+        try w.writeByte('\n');
     }
 
-    if ((file.skg_version != null or file.schema_version != null or file.import_paths.len > 0) and file.children.len > 0) {
+    if ((file.skg_version != null or file.schema_version != null or (!file.imports_resolved and file.import_paths.len > 0)) and file.children.len > 0) {
         try w.writeByte('\n');
     }
 
@@ -53,13 +60,22 @@ pub fn emitFile(allocator: std.mem.Allocator, file: ast.File) EmitError![]u8 {
     return buf.toOwnedSlice(allocator);
 }
 
-fn emitNodes(w: anytype, nodes: []const ast.Node, depth: usize) !void {
+fn emitNodes(w: anytype, nodes: []const ast.Node, depth: usize) EmitError!void {
     for (nodes, 0..) |node, i| {
         switch (node) {
+            .delete => |d| {
+                try emitCommentLines(w, d.leading_comments, depth);
+                try writeIndent(w, depth);
+                try w.writeAll("@delete ");
+                try writeKey(w, d.key, depth);
+                if (d.trailing_comment) |tc| try w.print(" {s}", .{tc});
+                try w.writeByte('\n');
+            },
             .field => |f| {
                 try emitCommentLines(w, f.leading_comments, depth);
                 try writeIndent(w, depth);
-                try w.print("{s}: ", .{f.key});
+                try writeKey(w, f.key, depth);
+                try w.writeAll(": ");
                 try emitValue(w, f.value, depth);
                 if (f.trailing_comment) |tc| {
                     try w.print(" {s}", .{tc});
@@ -70,7 +86,9 @@ fn emitNodes(w: anytype, nodes: []const ast.Node, depth: usize) !void {
                 if (i > 0 and depth == 0) try w.writeByte('\n');
                 try emitCommentLines(w, b.leading_comments, depth);
                 try writeIndent(w, depth);
-                try w.print("{s} {{\n", .{b.name});
+                if (b.replace) try w.writeAll("@replace ");
+                try writeKey(w, b.name, depth);
+                try w.writeAll(" {\n");
                 try emitNodes(w, b.children, depth + 1);
                 try emitCommentLines(w, b.trailing_comments, depth + 1);
                 try writeIndent(w, depth);
@@ -80,13 +98,12 @@ fn emitNodes(w: anytype, nodes: []const ast.Node, depth: usize) !void {
                 if (i > 0 and depth == 0) try w.writeByte('\n');
                 try emitCommentLines(w, ba.leading_comments, depth);
                 try writeIndent(w, depth);
-                try w.print("{s} [\n", .{ba.name});
+                try writeKey(w, ba.name, depth);
+                try w.writeAll(" [\n");
                 for (ba.items) |item| {
                     try writeIndent(w, depth + 1);
-                    try w.writeAll("{\n");
-                    try emitNodes(w, item, depth + 2);
-                    try writeIndent(w, depth + 1);
-                    try w.writeAll("}\n");
+                    try emitValue(w, item, depth + 1);
+                    try w.writeByte('\n');
                 }
                 try emitCommentLines(w, ba.trailing_comments, depth + 1);
                 try writeIndent(w, depth);
@@ -133,11 +150,23 @@ fn emitValue(w: anytype, value: ast.Value, depth: usize) !void {
             }
         },
         .null => try w.writeAll("null"),
+        .object => |obj| {
+            try w.writeAll("{\n");
+            try emitNodes(w, obj.children, depth + 1);
+            try emitCommentLines(w, obj.trailing_comments, depth + 1);
+            try writeIndent(w, depth);
+            try w.writeByte('}');
+        },
         .array => |arr| {
             try w.writeByte('[');
             for (arr.items, 0..) |item, i| {
                 if (i > 0) try w.writeAll(", ");
-                try emitValue(w, item, depth);
+                try emitValue(w, item, depth + 1);
+            }
+            if (arr.trailing_comments.len > 0) {
+                try w.writeByte('\n');
+                try emitCommentLines(w, arr.trailing_comments, depth + 1);
+                try writeIndent(w, depth);
             }
             try w.writeByte(']');
         },
@@ -181,5 +210,27 @@ fn writeEscaped(w: anytype, s: []const u8) !void {
 fn writeIndent(w: anytype, depth: usize) !void {
     for (0..depth) |_| {
         try w.writeAll("  ");
+    }
+}
+
+fn writeQuoted(w: anytype, value: []const u8) !void {
+    try w.writeByte('"');
+    try writeEscaped(w, value);
+    try w.writeByte('"');
+}
+
+fn writeKey(w: anytype, key: []const u8, depth: usize) !void {
+    var bare = key.len > 0;
+    for (key, 0..) |c, i| {
+        if (!(std.ascii.isAlphabetic(c) or c == '_' or (i > 0 and std.ascii.isDigit(c)))) bare = false;
+    }
+    for ([_][]const u8{ "true", "false", "null" }) |reserved| {
+        if (std.mem.eql(u8, key, reserved)) bare = false;
+    }
+    if (depth == 0 and @import("parser.zig").isDirective(key)) bare = false;
+    if (bare) {
+        try w.writeAll(key);
+    } else {
+        try writeQuoted(w, key);
     }
 }

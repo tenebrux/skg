@@ -1,0 +1,88 @@
+{
+  "skg_version": null,
+  "schema_version": null,
+  "imports": [
+    "base.skg",
+    "layer.skg",
+    "layer.skg"
+  ],
+  "children": [
+    {
+      "type": "block",
+      "name": "settings",
+      "replace": false,
+      "children": [
+        {
+          "type": "field",
+          "key": "fresh",
+          "value": {
+            "type": "int",
+            "data": 3
+          }
+        },
+        {
+          "type": "field",
+          "key": "final",
+          "value": {
+            "type": "int",
+            "data": 4
+          }
+        }
+      ]
+    },
+    {
+      "type": "field",
+      "key": "nullable",
+      "value": {
+        "type": "null"
+      }
+    },
+    {
+      "type": "block",
+      "name": "reborn",
+      "replace": false,
+      "children": [
+        {
+          "type": "field",
+          "key": "new",
+          "value": {
+            "type": "int",
+            "data": 2
+          }
+        }
+      ]
+    },
+    {
+      "type": "block",
+      "name": "nested",
+      "replace": false,
+      "children": [
+        {
+          "type": "field",
+          "key": "keep",
+          "value": {
+            "type": "int",
+            "data": 2
+          }
+        }
+      ]
+    },
+    {
+      "type": "block_array",
+      "name": "items",
+      "items": [
+        [
+          {
+            "type": "field",
+            "key": "keep",
+            "value": {
+              "type": "int",
+              "data": 1
+            }
+          }
+        ],
+        null
+      ]
+    }
+  ]
+}

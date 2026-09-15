@@ -1,0 +1,39 @@
+matrix: [[{
+      id: 1
+      labels {
+        "x.y": "a"
+      }
+    }, null], [{
+    }, {
+      id: 2
+    }]]
+
+records [
+  null
+  {
+    id: 1
+    labels {
+      "x.y": "a"
+    }
+  }
+  null
+  {
+  }
+]
+
+colon_records [
+  {
+    id: 2
+  }
+  null
+]
+
+settings {
+  retained: true
+  changed: 2
+}
+all_null: [null, null]
+
+empty_blocks [
+]
+empty_values: []

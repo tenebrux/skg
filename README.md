@@ -29,13 +29,13 @@ motd: """Welcome.
 No warranty expressed or implied.
 You get what you get."""
 
-cache_ttl: null    # explicitly unset an inherited value
+cache_ttl: null    # override an inherited value with explicit null
 ```
 
 ## Why SKG
 
-- **One way to write each construct.** No shortcuts, no alternatives,
-  no implicit behavior.
+- **Small grammar and one canonical output.** The few accepted conveniences,
+  such as colonless arrays, normalize to the same formatter output.
 - **Structured data, nothing more.** No variables, templates,
   expressions, or computation. Configuration is data, not a program.
 - **Your struct is the schema.** The parser hands back an AST; your
@@ -45,9 +45,9 @@ cache_ttl: null    # explicitly unset an inherited value
 - **Typed scalars, nullable, hierarchical.** `int`, `float`, `bool`,
   `string`, `null`, arrays, blocks, block arrays. Triple-quoted
   multiline strings. Imports with last-wins merge.
-- **Two first-party parsers, one conformance suite.** Shared fixtures
-  in [testdata/](testdata/) are the contract between the Zig and Go
-  implementations.
+- **Two first-party parsers, one frozen contract.** Versioned shared fixtures
+  in [testdata/](testdata/) bind Zig and Go to the same syntax, resolution,
+  native decoding, diagnostics, and canonical output.
 
 Created for [dusk](https://github.com/tenebrux/dusk) but standalone -
 nothing in the parser depends on dusk.
@@ -67,12 +67,14 @@ type Config struct {
     DB    Database `skg:"database"` // nested struct = block
 }
 
-var cfg Config
-err := skg.UnmarshalFile("config.skg", &cfg)
+cfg, err := skg.DecodeFile[Config]("config.skg", skg.DecodeOptions{})
 ```
 
-Struct tags work like `encoding/json`. Extra config keys are ignored,
-missing keys keep zero values. Round-trip with `skg.Marshal`.
+Tagged fields define the schema. Extra keys are ignored; missing nonnullable
+fields and inexact numeric conversions are errors. Supply native defaults with
+`DecodeFileInto` and `AllowMissingFields`. Existing `Unmarshal` APIs retain their
+permissive behavior. See [native types](docs/native-types.md) for mappings,
+custom hooks and encoding details.
 
 Full walk-through: **[examples/go/](examples/go/)**.
 
@@ -81,19 +83,27 @@ Full walk-through: **[examples/go/](examples/go/)**.
 ```zig
 const skg = @import("skg");
 
-var result = skg.parseSource(allocator, source, "config.skg");
+const Config = struct {
+    name: []const u8,
+    port: u16,
+    debug: bool = false,
+};
+
+var result = skg.decodeFile(Config, allocator, "config.skg", .{});
 defer result.deinit();
 
-if (result.file) |file| {
-    // walk file.children, pattern-match on field keys and block names
+if (result.value) |config| {
+    // use native fields while result is alive
+    _ = config;
 } else if (result.diagnostic) |d| {
-    std.debug.print("{s}:{d}:{d}: {s}\n", .{ d.path, d.line, d.col, d.message });
+    std.debug.print("{s}: {s}\n", .{ d.field_path, d.message });
 }
 ```
 
-No reflection, no tags - you write a small walker that maps keys to
-struct fields. Explicit, arena-allocated, full control over defaults
-and validation.
+Native structs, maps, lists, optional values and enums decode in process.
+Defaults live on the struct; optional name mappings and custom hooks handle
+application-specific types. The result owns all decoded storage.
+See [native types](docs/native-types.md) for exact conversion and ownership rules.
 
 Full walk-through: **[examples/zig/](examples/zig/)**.
 
@@ -111,7 +121,7 @@ config patterns:
 
 ## Build
 
-### Zig (0.15+)
+### Zig (0.15.2)
 
 ```sh
 zig build       # build the module
@@ -129,9 +139,17 @@ go test ./...
 ## Documentation
 
 - **[docs/spec.md](docs/spec.md)** - full language specification
+- **[docs/compatibility.md](docs/compatibility.md)** - the V1 compatibility,
+  toolchain, platform, and evolution policy
+- **[docs/conformance.md](docs/conformance.md)** - shared parser, resolver, and
+  porting contract
+- **[docs/native-types.md](docs/native-types.md)** - native struct mappings,
+  ownership, conversion, and validation rules
 - **[docs/tree-sitter.md](docs/tree-sitter.md)** - tree-sitter grammar
   for Neovim, Helix, Zed, Emacs
 - **[docs/vscode.md](docs/vscode.md)** - VS Code extension
+- **[docs/formatter.md](docs/formatter.md)** - formatter behavior and in-place
+  write guarantees
 
 ## Repo layout
 
@@ -139,15 +157,21 @@ go test ./...
 skg/
   zig/        # Zig implementation (lexer, parser, ast, merge, emit)
   go/         # Go implementation (+ unmarshal, marshal)
-  testdata/   # Shared conformance fixtures - the contract
+  testdata/   # Shared conformance fixtures + standalone consumers
   examples/   # Working Go and Zig examples + real-world .skg files
   tools/      # tree-sitter grammar + VS Code extension
   docs/       # Language spec and editor integration guides
 ```
 
-Each language directory is a self-contained implementation with its
-own build tooling. Both are validated against the same `testdata/`
-fixtures on every test run.
+Each language directory is a self-contained implementation with its own build
+tooling. Both are validated against the same `testdata/` fixtures on every test
+run. Independent Go and Zig projects under
+[`testdata/consumers/`](testdata/consumers/) also compile and exercise the
+public packages exactly as application code does.
+
+The package is currently a V1 release candidate while package metadata remains
+`0.x`. Starting at package `v1.0.0`, the [V1 compatibility
+policy](docs/compatibility.md) reserves breaking changes for V2.
 
 ## License
 
