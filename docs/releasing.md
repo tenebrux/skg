@@ -5,6 +5,14 @@ Two supported paths to a release. Both end at the same place: a `vX.Y.Z`
 gates on the complete V1 contract, cross-compiles the `skg` CLI for five
 targets, and publishes a GitHub release with checksummed archives.
 
+Pushes to `master` also publish an immutable prerelease through the Edge
+workflow after the same V1 gate passes. Edge tags use
+`X.Y.Z-edge.YYYYMMDD.gCOMMIT`, derived from the core version in
+`build.zig.zon`; for example, `0.1.0-edge.20260915.g6057c542025a`. They omit
+the leading `v` so they cannot trigger the stable-release workflow. The date
+and commit make every published edge build traceable without moving a tag or
+replacing existing release artifacts.
+
 ## Release checklist
 
 Before any V1 stable or release-candidate tag:

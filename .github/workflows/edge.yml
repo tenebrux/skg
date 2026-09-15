@@ -30,15 +30,65 @@ jobs:
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         with:
           version: "2026.4.10"
-      - name: Move the daily edge tag
+      - name: Create immutable semver edge tag
+        id: edge_tag
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          tag="edge-$(date +'%Y%m%d')"
+          tag=$(.github/scripts/edge-version.sh)
+          previous_tag=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '
+            map(select(
+              .draft == false
+              and .prerelease == true
+              and (.published_at | type == "string")
+            ))
+            | sort_by(.published_at)
+            | reverse
+            | map(.tag_name)
+            | map(select(test("^(edge-[0-9]{8}|[0-9]+\\.[0-9]+\\.[0-9]+-edge\\.[0-9]{8}\\.g[0-9a-f]{12})$")))
+            | .[]
+          ' | awk -v current="$tag" '$0 != current && !found { print; found = 1 }')
+          if [ -n "$previous_tag" ]; then
+            echo "GORELEASER_PREVIOUS_TAG=$previous_tag" >> "$GITHUB_ENV"
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -f "$tag"
-          git push origin "$tag" -f
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+            tagged_commit=$(git ls-remote --tags origin "refs/tags/$tag^{}" | awk 'NR == 1 { print $1 }')
+            if [ -z "$tagged_commit" ]; then
+              tagged_commit=$(git ls-remote --tags origin "refs/tags/$tag" | awk 'NR == 1 { print $1 }')
+            fi
+            if [ "$tagged_commit" != "$GITHUB_SHA" ]; then
+              echo "::error::$tag already exists at $tagged_commit, expected $GITHUB_SHA"
+              exit 1
+            fi
+          else
+            git tag "$tag" "$GITHUB_SHA"
+            git push origin "refs/tags/$tag"
+          fi
+          release_json=$(gh release view "$tag" \
+            --json isDraft,isImmutable,isPrerelease,publishedAt,assets 2>/dev/null || true)
+          if printf '%s' "$release_json" \
+            | node .github/scripts/edge-release-complete.mjs "$tag"; then
+            echo "release_exists=true" >> "$GITHUB_OUTPUT"
+            echo "$tag is already published with every expected asset; skipping the duplicate build"
+          else
+            if [ -n "$release_json" ]; then
+              stale_asset_ids=$(printf '%s' "$release_json" \
+                | node .github/scripts/edge-release-complete.mjs \
+                  --unexpected-asset-ids "$tag")
+              while IFS= read -r asset_id; do
+                if [ -n "$asset_id" ]; then
+                  gh api --method DELETE \
+                    "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"
+                fi
+              done <<< "$stale_asset_ids"
+            fi
+            echo "::notice::$tag is absent, draft, or incomplete; GoReleaser will create or repair it"
+          fi
           echo "GORELEASER_CURRENT_TAG=$tag" >> "$GITHUB_ENV"
       - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7
+        if: steps.edge_tag.outputs.release_exists != 'true'
         with:
           version: "v2.18.1"
           args: release --clean --config .goreleaser.edge.yaml
