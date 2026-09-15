@@ -1,5 +1,8 @@
 name: Fuzz
 
+permissions:
+  contents: read
+
 # The targets cover parser totality and canonical output, native conversion,
 # overlay composition, and bounded import-graph resolution. Without -fuzz,
 # `go test` runs only their seed corpora, so ordinary CI proves nothing about

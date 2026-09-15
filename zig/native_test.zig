@@ -209,6 +209,16 @@ test "native parse failures keep parser diagnostics and no partial result" {
     try testing.expectEqualStrings("broken.skg", d.source.path);
 }
 
+test "public native context skips unresolved delete operations" {
+    var parsed = skg.parseSource(testing.allocator, "@delete removed\nkept: 7", "overlay.skg");
+    defer parsed.deinit();
+    const file = parsed.file orelse return error.UnexpectedParseFailure;
+    var ctx = native.Context{ .allocator = parsed.arena.allocator(), .options = .{ .unknown_fields = .reject } };
+    const Config = struct { kept: u8 };
+    const value = try ctx.decode(Config, .{ .object = .{ .children = file.children } });
+    try testing.expectEqual(@as(u8, 7), value.kept);
+}
+
 test "native recursive hooks are bounded" {
     const Recursive = struct {
         pub fn skgDecode(ctx: *native.Context, value: skg.Value) native.Error!@This() {

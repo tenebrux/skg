@@ -98,6 +98,9 @@ func TestMarshalRejectsUnrepresentableInputs(t *testing.T) {
 		struct {
 			X map[string]any `skg:"x"`
 		}{m},
+		struct {
+			X []map[int]string `skg:"x"`
+		}{},
 	}
 	for i, v := range cases {
 		t.Run(fmt.Sprint(i), func(t *testing.T) {

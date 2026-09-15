@@ -31,8 +31,12 @@ async function checkWorkflowPins() {
   for (const name of await readdir(workflowDir)) {
     if (!name.endsWith(".yml") && !name.endsWith(".yaml")) continue;
     const source = await readFile(path.join(workflowDir, name), "utf8");
-    for (const match of source.matchAll(/\buses:\s*([^\s@]+)@([^\s#]+)/g)) {
-      const [, action, reference] = match;
+    for (const match of source.matchAll(/\buses:\s*(?:"([^"\r\n]+)"|'([^'\r\n]+)'|([^\s#]+))/g)) {
+      const value = match[1] ?? match[2] ?? match[3];
+      const separator = value.lastIndexOf("@");
+      if (separator < 0) continue; // local actions use a path without a ref
+      const action = value.slice(0, separator);
+      const reference = value.slice(separator + 1);
       if (!/^[0-9a-f]{40}$/.test(reference)) {
         throw new Error(`${name}: ${action}@${reference} is not pinned to a full commit SHA`);
       }

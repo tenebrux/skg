@@ -1,5 +1,8 @@
 name: CI
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [master]
@@ -49,7 +52,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        # Zig 0.15.2 cannot link on the macOS 26 image currently selected by
+        # macos-latest. V1 supports the pinned compiler, so run it on the
+        # supported macOS 15 image rather than silently dropping macOS runtime
+        # coverage.
+        os: [macos-15, windows-latest]
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read

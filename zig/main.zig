@@ -135,12 +135,16 @@ fn fmtFile(allocator: std.mem.Allocator, path: []const u8, check: bool) !bool {
     // formatter runs cannot redirect the eventual replacement elsewhere.
     const resolved = try std.fs.cwd().realpathAlloc(allocator, path);
     defer allocator.free(resolved);
+    // realpath uses a nonblocking metadata handle on POSIX. Reject FIFOs and
+    // devices before openFile performs a potentially blocking read.
+    const path_snapshot = try std.fs.cwd().statFile(resolved);
+    if (path_snapshot.kind != .file) return error.NotRegularFile;
     const file = try std.fs.cwd().openFile(resolved, .{});
     defer file.close();
-    const src = try file.readToEndAlloc(allocator, 10 * 1024 * 1024);
-    defer allocator.free(src);
     const snapshot = try file.stat();
     if (snapshot.kind != .file) return error.NotRegularFile;
+    const src = try file.readToEndAlloc(allocator, 10 * 1024 * 1024);
+    defer allocator.free(src);
 
     var result = skg.parseSource(allocator, src, path);
     defer result.deinit();
@@ -219,8 +223,8 @@ fn ensureUnchanged(allocator: std.mem.Allocator, path: []const u8, expected: []c
 
 fn ensureSingleLink(file: std.fs.File) !void {
     if (builtin.os.tag == .windows) {
-        const info = try windowsFileInfo(file);
-        if (info.StandardInformation.NumberOfLinks != 1) return error.HardLinkedFile;
+        const info = try windowsStandardInfo(file);
+        if (info.NumberOfLinks != 1) return error.HardLinkedFile;
     } else if (builtin.os.tag != .wasi) {
         const info = try std.posix.fstat(file.handle);
         if (info.nlink != 1) return error.HardLinkedFile;
@@ -229,19 +233,19 @@ fn ensureSingleLink(file: std.fs.File) !void {
 
 fn copyMetadata(allocator: std.mem.Allocator, source: std.fs.File, destination: std.fs.File, snapshot: std.fs.File.Stat) !void {
     if (builtin.os.tag == .windows) {
-        const info = try windowsFileInfo(source);
+        const info = try windowsBasicInfo(source);
         var io_status: std.os.windows.IO_STATUS_BLOCK = undefined;
         var basic = std.os.windows.FILE_BASIC_INFORMATION{
             .CreationTime = 0,
             .LastAccessTime = 0,
             .LastWriteTime = 0,
             .ChangeTime = 0,
-            .FileAttributes = info.BasicInformation.FileAttributes,
+            .FileAttributes = info.FileAttributes,
         };
         const rc = std.os.windows.ntdll.NtSetInformationFile(destination.handle, &io_status, &basic, @sizeOf(@TypeOf(basic)), .FileBasicInformation);
         if (rc != .SUCCESS) return error.MetadataCopyFailed;
-        const copied = try windowsFileInfo(destination);
-        if (copied.BasicInformation.FileAttributes != info.BasicInformation.FileAttributes) return error.MetadataCopyFailed;
+        const copied = try windowsBasicInfo(destination);
+        if (copied.FileAttributes != info.FileAttributes) return error.MetadataCopyFailed;
         return;
     }
     if (builtin.os.tag == .wasi) return;
@@ -261,13 +265,24 @@ fn copyMetadata(allocator: std.mem.Allocator, source: std.fs.File, destination: 
     }
 }
 
-fn windowsFileInfo(file: std.fs.File) !std.os.windows.FILE_ALL_INFORMATION {
+fn windowsBasicInfo(file: std.fs.File) !std.os.windows.FILE_BASIC_INFORMATION {
     if (builtin.os.tag != .windows) unreachable;
     var io_status: std.os.windows.IO_STATUS_BLOCK = undefined;
-    var info: std.os.windows.FILE_ALL_INFORMATION = undefined;
-    const rc = std.os.windows.ntdll.NtQueryInformationFile(file.handle, &io_status, &info, @sizeOf(@TypeOf(info)), .FileAllInformation);
+    var info: std.os.windows.FILE_BASIC_INFORMATION = undefined;
+    const rc = std.os.windows.ntdll.NtQueryInformationFile(file.handle, &io_status, &info, @sizeOf(@TypeOf(info)), .FileBasicInformation);
     return switch (rc) {
-        .SUCCESS, .BUFFER_OVERFLOW => info,
+        .SUCCESS => info,
+        else => error.MetadataReadFailed,
+    };
+}
+
+fn windowsStandardInfo(file: std.fs.File) !std.os.windows.FILE_STANDARD_INFORMATION {
+    if (builtin.os.tag != .windows) unreachable;
+    var io_status: std.os.windows.IO_STATUS_BLOCK = undefined;
+    var info: std.os.windows.FILE_STANDARD_INFORMATION = undefined;
+    const rc = std.os.windows.ntdll.NtQueryInformationFile(file.handle, &io_status, &info, @sizeOf(@TypeOf(info)), .FileStandardInformation);
+    return switch (rc) {
+        .SUCCESS => info,
         else => error.MetadataReadFailed,
     };
 }
@@ -354,6 +369,22 @@ test "formatter preserves a config symlink and formats its referent" {
     const data = try tmp.dir.readFileAlloc(t.allocator, "target.skg", 100);
     defer t.allocator.free(data);
     try t.expectEqualStrings("value: 1\n", data);
+}
+
+test "formatter rejects a FIFO before opening it" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    const t = std.testing;
+    var tmp = t.tmpDir(.{});
+    defer tmp.cleanup();
+    const path = try tmp.dir.realpathAlloc(t.allocator, ".");
+    defer t.allocator.free(path);
+    const fifo_path = try std.fs.path.join(t.allocator, &.{ path, "config.skg" });
+    defer t.allocator.free(fifo_path);
+    const fifo_path_z = try t.allocator.dupeZ(u8, fifo_path);
+    defer t.allocator.free(fifo_path_z);
+    const rc = std.os.linux.mknod(fifo_path_z.ptr, std.os.linux.S.IFIFO | 0o600, 0);
+    try t.expectEqual(std.posix.E.SUCCESS, std.posix.errno(rc));
+    try t.expectError(error.NotRegularFile, fmtFile(t.allocator, fifo_path, false));
 }
 
 test "formatter refuses hard links before replacement" {

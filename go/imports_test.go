@@ -718,3 +718,24 @@ func TestParseFileWithOptionsSymlinksUseCanonicalIdentity(t *testing.T) {
 		t.Fatalf("want %s for symlink escape, got %s", CodePathOutsideRoot, got)
 	}
 }
+
+func TestRootedReadCannotFollowOutsideSymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("creating symlinks normally requires an elevated token on Windows")
+	}
+	root := writeFiles(t, map[string]string{"inside.skg": "inside: true\n"})
+	outside := writeFiles(t, map[string]string{"secret.skg": "secret: true\n"})
+	link := filepath.Join(root, "link.skg")
+	if err := os.Symlink(filepath.Join(outside, "secret.skg"), link); err != nil {
+		t.Fatal(err)
+	}
+	rootFS, err := os.OpenRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rootFS.Close()
+	r := importResolver{root: root, rootFS: rootFS}
+	if _, err := r.readCapped(link); err == nil {
+		t.Fatal("rooted descriptor traversal followed a symlink outside the root")
+	}
+}

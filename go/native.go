@@ -213,20 +213,23 @@ func (c *DecodeContext) convert(value Value, target reflect.Value) (err error) {
 		}
 		target = target.Elem()
 	}
+	var validator NativeValidator
 	if !c.legacy && target.CanAddr() && target.Addr().CanInterface() {
 		receiver := target.Addr().Interface()
-		if validator, ok := receiver.(NativeValidator); ok {
-			defer func() {
-				if err == nil {
-					err = c.hookError(validator.ValidateSKG(c))
-				}
-			}()
-		}
+		validator, _ = receiver.(NativeValidator)
 		if decoder, ok := receiver.(NativeDecoder); ok {
-			return c.hookError(decoder.DecodeSKG(c, value))
+			err = c.hookError(decoder.DecodeSKG(c, value))
+			if err == nil && validator != nil {
+				err = c.hookError(validator.ValidateSKG(c))
+			}
+			return err
 		}
 		if decoder, ok := receiver.(encoding.TextUnmarshaler); ok && value.Type == TypeString {
-			return c.hookError(decoder.UnmarshalText([]byte(value.Str)))
+			err = c.hookError(decoder.UnmarshalText([]byte(value.Str)))
+			if err == nil && validator != nil {
+				err = c.hookError(validator.ValidateSKG(c))
+			}
+			return err
 		}
 	}
 	if !c.legacy && target.Type() == reflect.TypeFor[Value]() {
@@ -256,6 +259,13 @@ func (c *DecodeContext) convert(value Value, target reflect.Value) (err error) {
 			return nil
 		}
 		return c.Fail(NativeTypeMismatch, "null requires a nullable native target")
+	}
+	if validator != nil {
+		defer func() {
+			if err == nil {
+				err = c.hookError(validator.ValidateSKG(c))
+			}
+		}()
 	}
 	switch value.Type {
 	case TypeObject:
@@ -422,27 +432,12 @@ func (c *DecodeContext) object(nodes []Node, target reflect.Value) error {
 	if target.Kind() != reflect.Struct {
 		return c.Fail(NativeTypeMismatch, "expected a native struct or string map")
 	}
-	if !c.legacy {
-		var candidates []fieldCandidate
-		collectFields(target.Type(), nil, 0, map[reflect.Type]bool{target.Type(): true}, &candidates)
-		best := make(map[string]int)
-		counts := make(map[string]int)
-		for _, field := range candidates {
-			depth, found := best[field.name]
-			if !found || field.depth < depth {
-				best[field.name], counts[field.name] = field.depth, 1
-			} else if field.depth == depth {
-				counts[field.name]++
-			}
-		}
-		for _, field := range candidates {
-			if counts[field.name] > 1 {
-				return c.Fail(NativeUnsupportedType, "ambiguous native field mapping: "+field.name)
-			}
-		}
+	metadata := cachedStructMetadata(target.Type())
+	if !c.legacy && metadata.ambiguous != "" {
+		return c.Fail(NativeUnsupportedType, "ambiguous native field mapping: "+metadata.ambiguous)
 	}
-	fields := structFields(target.Type())
-	index := buildFieldMap(target.Type())
+	fields := metadata.fields
+	index := metadata.index
 	seen := make(map[string]bool, len(nodes))
 	for _, node := range nodes {
 		key, ok := nodeKey(node)

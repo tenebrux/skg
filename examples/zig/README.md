@@ -23,7 +23,7 @@ const Config = struct {
     debug: bool = false,
 };
 
-var result = skg.decodeFile(Config, allocator, "config.skg", .{});
+var result = skg.decodeFile(Config, allocator, "../app.skg", .{});
 defer result.deinit();
 if (result.value) |config| {
     _ = config; // use native fields while result remains alive

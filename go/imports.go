@@ -66,6 +66,7 @@ type resolvedImport struct {
 type importResolver struct {
 	limits resolveLimits
 	root   string
+	rootFS *os.Root
 	bytes  int64
 	files  int
 	nodes  int
@@ -123,9 +124,18 @@ func resolveImportsWithOptions(path string, options ResolveOptions) (*File, erro
 			return nil, &ParseError{Diag: Diagnostic{Code: CodeImportNotFound, Path: options.Root, Message: "resolution root is not a directory"}}
 		}
 	}
+	var rootFS *os.Root
+	if root != "" {
+		rootFS, err = os.OpenRoot(root)
+		if err != nil {
+			return nil, &ParseError{Diag: Diagnostic{Code: CodeImportNotFound, Path: options.Root, Message: "resolution root not found"}, Err: err}
+		}
+		defer rootFS.Close()
+	}
 	r := &importResolver{
 		limits:  limits,
 		root:    root,
+		rootFS:  rootFS,
 		work:    limits.maxMergeWork,
 		visited: make(map[string]bool),
 		done:    make(map[string]resolvedImport),
@@ -199,7 +209,7 @@ func (r *importResolver) load(path string, from *origin) (*File, error) {
 	}
 	r.files++
 
-	src, err := readCapped(key)
+	src, err := r.readCapped(key)
 	if err != nil {
 		if from == nil {
 			return nil, err
@@ -251,8 +261,7 @@ func (r *importResolver) load(path string, from *origin) (*File, error) {
 		if err != nil {
 			return nil, err
 		}
-		childKey, _ := canonicalPath(childPath)
-		depth = max(depth, 1+r.done[childKey].depth)
+		depth = max(depth, 1+r.done[imported.Path].depth)
 		merged, err = mergeNodesBudget(merged, imported.Children, &r.work)
 		if err != nil {
 			return nil, r.reject(key, &origin{path: key, pos: file.ImportPositions[i]},
@@ -388,8 +397,20 @@ func countValueNodes(value Value) int {
 // It reads one byte past the cap rather than stat-ing: a size check alone lies
 // for pipes and /proc entries, and os.ReadFile would buffer the whole input
 // before ParseSource could reject it.
-func readCapped(path string) ([]byte, error) {
-	f, err := os.Open(path)
+func (r *importResolver) readCapped(path string) ([]byte, error) {
+	var (
+		f   *os.File
+		err error
+	)
+	if r.rootFS != nil {
+		relative, relErr := filepath.Rel(r.root, path)
+		if relErr != nil || filepath.IsAbs(relative) || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return nil, os.ErrPermission
+		}
+		f, err = r.rootFS.Open(relative)
+	} else {
+		f, err = os.Open(path)
+	}
 	if err != nil {
 		return nil, err
 	}

@@ -161,7 +161,7 @@ fn emitValue(w: anytype, value: ast.Value, depth: usize) !void {
             try w.writeByte('[');
             for (arr.items, 0..) |item, i| {
                 if (i > 0) try w.writeAll(", ");
-                try emitValue(w, item, depth);
+                try emitValue(w, item, depth + 1);
             }
             if (arr.trailing_comments.len > 0) {
                 try w.writeByte('\n');

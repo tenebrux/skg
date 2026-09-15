@@ -105,15 +105,34 @@ func generate(index int, rng *random) []byte {
 	fmt.Fprintf(&out, "%s: %s%d.%06d\n", skgKey(fmt.Sprintf("quoted key %d/雪", index)), floatSign, whole, fraction)
 	fmt.Fprintf(&out, "text: %s\n", skgString(text))
 	fmt.Fprintf(&out, "enabled: %t\n", rng.next()&1 == 0)
-	fmt.Fprintf(&out, "nullable: [null, %d, null, %d]\n", index%251, (index+1)%251)
-	out.WriteString("matrix: [[1, 2], [3, null], []]\n")
-	out.WriteString("nothing: [null, null]\n")
-	fmt.Fprintf(&out, "inline: { left: %d nested: { ok: true } }\n", index)
-	fmt.Fprintf(&out, "items [ { id: %d } null { id: %d note: \"last\" } ]\n", index, index+1)
-	fmt.Fprintf(&out, "settings { left: %d nested { first: true } }\n", index)
-	fmt.Fprintf(&out, "settings { right: %d nested { second: false } }\n", index+1)
-	out.WriteString("gone: true\n@delete gone\n")
-	fmt.Fprintf(&out, "old { stale: true }\n@replace old { fresh: %d }\n", index)
+	switch index % 8 {
+	case 0:
+		fmt.Fprintf(&out, "nullable: [null, %d, null, %d]\n", index%251, (index+1)%251)
+		out.WriteString("matrix: [[1, 2], [3, null], []]\n")
+		out.WriteString("nothing: [null, null]\n")
+	case 1:
+		fmt.Fprintf(&out, "items [ { id: %d } null { id: %d note: \"last\" } ]\n", index, index+1)
+		out.WriteString("empty_items [ ]\n")
+	case 2:
+		fmt.Fprintf(&out, "grid: [[{ id: %d }, { id: %d nested: { ok: true } }], [null]]\n", index, index+1)
+		out.WriteString("deep: [[[[1, 2]]], [[[3]]]]\n")
+	case 3:
+		fmt.Fprintf(&out, "settings { left: %d nested { first: true } }\n", index)
+		fmt.Fprintf(&out, "settings { right: %d nested { second: false } }\n", index+1)
+		out.WriteString("gone: true\n@delete gone\n")
+	case 4:
+		fmt.Fprintf(&out, "inline: { left: %d nested: { values: [1, null, 3] } }\n", index)
+		out.WriteString("empty_value: []\nempty_object: {}\n")
+	case 5:
+		fmt.Fprintf(&out, "%s: { %s: %d }\n", skgKey("object/key~name"), skgKey("skg_version"), index)
+		fmt.Fprintf(&out, "%s { %s: true }\n", skgKey("block key"), skgKey(""))
+	case 6:
+		fmt.Fprintf(&out, "shape: %d\nshape { nested: true }\n", index)
+		fmt.Fprintf(&out, "old { stale: true }\n@replace old { fresh: %d }\nold { later: true }\n", index)
+	case 7:
+		out.WriteString("records: [{ name: \"a\" children: [{ id: 1 }, null] }, { name: \"b\" children: [] }]\n")
+		fmt.Fprintf(&out, "tail: %d\n", index)
+	}
 	return []byte(out.String())
 }
 

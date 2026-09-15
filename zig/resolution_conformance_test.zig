@@ -71,6 +71,8 @@ fn validateContractShape(value: std.json.Value) !void {
             &.{ "name", "entry", "limits", "files" },
         );
         if (case.contains("expected_formatted") == case.contains("expected_code")) return error.BadResolutionContract;
+        if (case.get("expected_formatted")) |expected| if (expected == .null) return error.BadResolutionContract;
+        if (case.get("expected_code")) |expected| if (expected == .null) return error.BadResolutionContract;
         const limits = try object(case.get("limits").?);
         try fields(limits, &.{ "bytes", "files", "nodes", "merge_work" }, &.{ "bytes", "files", "nodes", "merge_work" });
         const files_value = case.get("files").?;

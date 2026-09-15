@@ -3,6 +3,7 @@ package skg
 import (
 	"fmt"
 	"reflect"
+	"sync"
 )
 
 // Unmarshal parses and materializes SKG source bytes, then decodes native values.
@@ -136,15 +137,6 @@ func valueToAny(val Value) interface{} {
 	return nil
 }
 
-func buildFieldMap(t reflect.Type) map[string][]int {
-	fields := structFields(t)
-	m := make(map[string][]int, len(fields))
-	for _, f := range fields {
-		m[f.name] = f.index
-	}
-	return m
-}
-
 // structField describes one SKG-visible field of a struct: the name from its
 // `skg` tag and the index path used to reach it. The path has more than one
 // element for fields promoted out of an anonymous embedded struct.
@@ -153,31 +145,69 @@ type structField struct {
 	index []int
 }
 
-// structFields returns the SKG-visible fields of t in declaration order,
-// promoting the tagged fields of anonymous embedded structs (and embedded
-// pointers to structs) into the outer struct. A field declared on the outer
-// struct shadows a promoted field of the same name, matching encoding/json's
-// shallowest-wins rule.
+// structMetadata caches the SKG-visible fields of a native struct together with
+// the lookup and ambiguity information used by strict decoding.
+type structMetadata struct {
+	fields    []structField
+	index     map[string][]int
+	ambiguous string
+}
+
+var structMetadataCache sync.Map // map[reflect.Type]*structMetadata
+
+func cachedStructMetadata(t reflect.Type) *structMetadata {
+	if cached, ok := structMetadataCache.Load(t); ok {
+		return cached.(*structMetadata)
+	}
+	computed := computeStructMetadata(t)
+	actual, _ := structMetadataCache.LoadOrStore(t, computed)
+	return actual.(*structMetadata)
+}
+
 func structFields(t reflect.Type) []structField {
+	return cachedStructMetadata(t).fields
+}
+
+// computeStructMetadata returns the SKG-visible fields of t in declaration
+// order, promoting the tagged fields of anonymous embedded structs (and
+// embedded pointers to structs) into the outer struct. A field declared on the
+// outer struct shadows a promoted field of the same name, matching
+// encoding/json's shallowest-wins rule.
+func computeStructMetadata(t reflect.Type) *structMetadata {
 	var cands []fieldCandidate
 	collectFields(t, nil, 0, map[reflect.Type]bool{t: true}, &cands)
 
 	// For each name keep the shallowest candidate; ties go to the first one.
 	best := make(map[string]int, len(cands))
+	counts := make(map[string]int, len(cands))
 	for i, c := range cands {
-		if j, ok := best[c.name]; ok && cands[j].depth <= c.depth {
-			continue
+		if j, ok := best[c.name]; ok {
+			if cands[j].depth < c.depth {
+				continue
+			}
+			if cands[j].depth == c.depth {
+				counts[c.name]++
+				continue
+			}
 		}
 		best[c.name] = i
+		counts[c.name] = 1
 	}
 
 	fields := make([]structField, 0, len(best))
+	index := make(map[string][]int, len(best))
+	ambiguous := ""
 	for i, c := range cands {
 		if best[c.name] == i {
-			fields = append(fields, structField{name: c.name, index: c.index})
+			field := structField{name: c.name, index: c.index}
+			fields = append(fields, field)
+			index[c.name] = c.index
+			if ambiguous == "" && counts[c.name] > 1 {
+				ambiguous = c.name
+			}
 		}
 	}
-	return fields
+	return &structMetadata{fields: fields, index: index, ambiguous: ambiguous}
 }
 
 type fieldCandidate struct {

@@ -25,5 +25,12 @@ This project follows semantic versioning for packages and explicit
 - Added standalone Go and Zig consumer projects to the release gate, exercising
   public package installation, file resolution, native types, hooks,
   diagnostics, canonical output, and failure behavior from application code.
+- Hardened the V1 candidate after cross-platform review: safe rooted Go file
+  opens, stable cached import depth, cached reflection metadata, consistent
+  null validation, raw-AST delete handling, nested-array formatting, FIFO
+  rejection, and reliable Windows formatter metadata queries.
+- Expanded differential generation across object, array, overlay, replacement,
+  and quoted-key shapes, and pinned CI to LF fixtures and a macOS image supported
+  by the V1 Zig compiler.
 - Removed the committed editor `node_modules` tree and its host-specific binary;
   locked clean installs now reproduce all editor build dependencies.

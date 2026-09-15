@@ -331,7 +331,7 @@
     "testdata/valid/simple-string.expected.json": "251707bae3f4e2fd8670909fd95b9e0876896e17947f7be8885e356987e39416",
     "testdata/valid/simple-string.skg": "8c2cd7cea97c1994cc282aa8b8ff74a60403f656d06be6937113dd2a61f96a06",
     "testdata/valid/structured-values.expected.json": "6896e724f14b12854ac3d84943a7f3105ad33d5474b046a4610dd132fb513732",
-    "testdata/valid/structured-values.formatted.skg": "e4321827daa5f7d200e74fb457ecdf35f1bac2753384edb32277159a618288f1",
+    "testdata/valid/structured-values.formatted.skg": "673c5fda134d41f183bce53eb7bf66947ac9092612dc72d6693a5b06ec4f0e2a",
     "testdata/valid/structured-values.skg": "d4c79d677eff1c8e65274c339d59a2628e69ef32df714ca8ce0a11956169c007",
     "testdata/valid/trivia-duplicate-block-merge.expected.json": "668b6c5965ef3f65e31724160df8599d3aea1f13f7b2954873ed21eb06dc2ead",
     "testdata/valid/trivia-duplicate-block-merge.formatted.skg": "d106d67bef3df1e2834f67b73cfc897d5cf2d8dc0970ba7ef96f2d6962ed465b",
@@ -354,4 +354,3 @@
     "testdata/valid/versions.skg": "04c64caf667eaa48c0aede67c7c8e14ff2ee6c15e65f3ba5dd7d77a07235b37a"
   }
 }
-

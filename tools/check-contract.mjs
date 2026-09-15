@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { lstat, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -17,8 +17,8 @@ const sourceRoots = [
 
 async function filesUnder(relative) {
   const absolute = path.join(repo, relative);
-  const info = await stat(absolute);
-  if (info.isSymbolicLink?.()) throw new Error(`${relative}: symlinks are not contract files`);
+  const info = await lstat(absolute);
+  if (info.isSymbolicLink()) throw new Error(`${relative}: symlinks are not contract files`);
   if (info.isFile()) return [relative];
   if (!info.isDirectory()) throw new Error(`${relative}: unsupported filesystem entry`);
   const result = [];

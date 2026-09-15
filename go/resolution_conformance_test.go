@@ -90,6 +90,12 @@ func validateResolutionContractJSON(t *testing.T, data []byte) {
 		if formatted == code {
 			t.Fatal("resolution case needs exactly one of expected_formatted and expected_code")
 		}
+		if formatted && bytes.Equal(bytes.TrimSpace(obj["expected_formatted"]), []byte("null")) {
+			t.Fatal("expected_formatted must not be null")
+		}
+		if code && bytes.Equal(bytes.TrimSpace(obj["expected_code"]), []byte("null")) {
+			t.Fatal("expected_code must not be null")
+		}
 		nativeFixtureObject(t, obj["limits"],
 			[]string{"bytes", "files", "nodes", "merge_work"},
 			[]string{"bytes", "files", "nodes", "merge_work"})

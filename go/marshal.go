@@ -112,6 +112,9 @@ func encodeNode(key string, rv reflect.Value, depth int) (Node, error) {
 			}
 			elem = elem.Elem()
 		}
+		if elem.Kind() == reflect.Map && elem.Key().Kind() != reflect.String {
+			return Node{}, fmt.Errorf("map key must be a string, got %s", elem.Key().Kind())
+		}
 		if elem.Kind() == reflect.Struct || elem.Kind() == reflect.Map {
 			node = Node{BlockArray: &BlockArray{Name: key, Items: value.Array.Items}}
 		}

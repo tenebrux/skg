@@ -78,12 +78,14 @@ schema DSL, code generation requirement, or general constraint evaluator.
 Applications express cross-field rules in ordinary native validation hooks.
 
 The Go parser does not retain comments. The Zig formatter retains comment text
-under its documented placement rules; see [formatter.md](formatter.md). Rooted
-file resolution is a containment policy after canonical path resolution, not a
-secure filesystem sandbox, and retains the documented final path-use race. The
-formatter's strongest metadata guarantee is on Linux; macOS/BSD extended
-attributes and ACLs, Windows DACLs and alternate streams, and hard-linked files
-remain outside the portable in-place guarantee.
+under its documented placement rules; see [formatter.md](formatter.md). Go
+rooted resolution opens files through `os.Root`, so path traversal and symlink
+replacement cannot escape the opened root. Zig rooted resolution enforces
+containment after canonical path resolution and retains a final path-use race;
+use process-level isolation when the configuration directory is controlled by
+an active adversary. The formatter's strongest metadata guarantee is on Linux;
+macOS/BSD extended attributes and ACLs, Windows DACLs and alternate streams,
+and hard-linked files remain outside the portable in-place guarantee.
 
 Release archives and the VSIX include SHA-256 checksum files. V1 does not yet
 promise signed artifacts or build-provenance attestations; verify downloads

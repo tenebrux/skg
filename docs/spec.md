@@ -320,7 +320,7 @@ vsync: false
 
 ### Null
 
-The literal `null` represents an absent value. No quotes.
+The literal `null` represents an explicit present null value. No quotes.
 
 ```
 background: null
@@ -331,6 +331,12 @@ Null replaces an inherited value with an explicit null; it does not delete the k
 ### String
 
 Any value that is not an int, float, bool, or null must be quoted with double quotes `"`.
+
+Ordinary quoted strings use `\"`, `\\`, `\n`, and `\t` escapes. A raw newline
+ends an ordinary string. Other valid UTF-8 bytes, including control bytes such
+as carriage return and NUL, are preserved byte-for-byte; the canonical emitter
+does not invent escape forms that the parser cannot read. Triple-quoted strings
+preserve their contents verbatim.
 
 ```
 accent: "green"

@@ -136,7 +136,7 @@ func emitValue(buf *strings.Builder, v Value, depth int) {
 				if i > 0 {
 					buf.WriteString(", ")
 				}
-				emitValue(buf, item, depth)
+				emitValue(buf, item, depth+1)
 			}
 		}
 		buf.WriteByte(']')

@@ -203,6 +203,22 @@ func TestNativeHooks(t *testing.T) {
 	}
 }
 
+type nullValidatedSlice []int
+
+func (*nullValidatedSlice) ValidateSKG(ctx *DecodeContext) error {
+	return ctx.Fail(NativeCustomError, "null container must not be validated")
+}
+
+func TestNativeValidatorSkipsNullTargets(t *testing.T) {
+	type Config struct {
+		Items nullValidatedSlice `skg:"items"`
+	}
+	value, err := DecodeSource[Config]([]byte("items: null"), "null.skg", DecodeOptions{})
+	if err != nil || value.Items != nil {
+		t.Fatalf("null target validation mismatch: %#v, %v", value, err)
+	}
+}
+
 func TestNativeDefaultsTransaction(t *testing.T) {
 	type Config struct {
 		Count uint8           `skg:"count"`

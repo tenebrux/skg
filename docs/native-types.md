@@ -223,9 +223,11 @@ pointer receiver. Use `ctx.Decode(value, &target)` or
 `ctx.DecodeChild(value, key, location, &target)` for ordinary nested conversions.
 `ctx.Fail(code, message)` creates a diagnostic at the current field. A
 `ValidateSKG(*skg.DecodeContext) error` method runs after successful conversion,
-including a custom decoder. Defaults retained for absent fields are copied as
-supplied, not individually re-decoded or revalidated. A containing validation
-hook can check the complete resulting object.
+including a custom decoder. Decoding `null` directly into a nullable target does
+not invoke a validation method on that target because no value was constructed;
+this matches Zig optional decoding. Defaults retained for absent fields are
+copied as supplied, not individually re-decoded or revalidated. A containing
+validation hook can check the complete resulting object.
 
 The SKG-specific decoder takes precedence over `encoding.TextUnmarshaler`.
 Go enum-like types use native validation/custom decoding to restrict their

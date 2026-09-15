@@ -134,6 +134,7 @@ pub const Context = struct {
             if (value != .object) return self.fail(.type_mismatch, "expected an object for a string map");
             var out: T = if (T == std.StringHashMap(V)) T.init(self.allocator) else .empty;
             for (value.object.children) |node| {
+                if (node == .delete) continue;
                 const key = nodeKey(node);
                 const item = try self.decodeChild(V, nodeValue(node), key, nodeLocation(node));
                 const owned_key = try self.allocator.dupe(u8, key);
@@ -215,6 +216,7 @@ pub const Context = struct {
                 try self.checkFieldNames(T);
                 if (self.options.unknown_fields == .reject) {
                     for (value.object.children) |node| {
+                        if (node == .delete) continue;
                         var known = false;
                         inline for (info.fields) |field| {
                             if (comptime !field.is_comptime) {
@@ -242,6 +244,7 @@ pub const Context = struct {
                         var found: ?ast.Node = null;
                         const wire_key = comptime wireName(T, field.name);
                         if (wire_key) |key| for (value.object.children) |node| {
+                            if (node == .delete) continue;
                             if (std.mem.eql(u8, key, nodeKey(node))) {
                                 found = node;
                                 break;

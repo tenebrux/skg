@@ -105,7 +105,7 @@ named `value`; the fixture's `expected` describes that field's value.
 | `array2_u8` | Exactly two bytes | `[2]uint8` | `[2]u8` |
 | `record` | Required record: required `id` u16, nullable `note` string | Tagged struct | Struct |
 | `list_optional_records` | Nullable list of nullable `record` values | `[]*Record` | `?[]?Record` |
-| `map_optional_u8` | Nullable string map of nullable bytes | `map[string]*uint8` | `?std.StringHashMap(?u8)` |
+| `map_optional_u8` | Nullable string map of nullable unsigned 8-bit integers | `map[string]*uint8` | `?std.StringHashMap(?u8)` |
 | `port` | Custom integer decoder to u16, validation rejects zero | `DecodeSKG` and `ValidateSKG` | `skgDecode` and `skgValidate` |
 | `enum` | String tag: exactly `local` or `remote` | Named string with native decoder | `enum { local, remote }` |
 

@@ -1,12 +1,12 @@
 matrix: [[{
-  id: 1
-  labels {
-    "x.y": "a"
-  }
-}, null], [{
-}, {
-  id: 2
-}]]
+      id: 1
+      labels {
+        "x.y": "a"
+      }
+    }, null], [{
+    }, {
+      id: 2
+    }]]
 
 records [
   null

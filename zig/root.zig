@@ -8,6 +8,7 @@
 ///
 /// All AST memory lives in an internal arena. `result.deinit()` frees everything at once.
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const parser = @import("parser.zig");
 pub const merge = @import("merge.zig");
@@ -302,7 +303,18 @@ const Resolver = struct {
 
 /// Real absolute identity shared by cache, cycle detection and rooted policy.
 fn canonicalPath(allocator: Allocator, path: []const u8) ![]const u8 {
-    return std.fs.cwd().realpathAlloc(allocator, path);
+    return std.fs.cwd().realpathAlloc(allocator, path) catch |err| {
+        // Zig 0.15's Windows realpath can reject an absolute path returned by
+        // realpath itself. Resolve the basename relative to an opened parent
+        // handle instead. This still follows the final symlink and retains a
+        // real filesystem identity for cycle detection and rooted containment.
+        if (builtin.os.tag == .windows and std.fs.path.basename(path).len > 0) {
+            var parent = try std.fs.cwd().openDir(std.fs.path.dirname(path) orelse ".", .{});
+            defer parent.close();
+            return parent.realpathAlloc(allocator, std.fs.path.basename(path));
+        }
+        return err;
+    };
 }
 
 fn pathWithinRoot(allocator: Allocator, root_path: []const u8, path: []const u8) !bool {

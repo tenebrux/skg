@@ -2,7 +2,7 @@
 #
 # Shows off:
 #   - block array for an ordered list of backends
-#   - colonless scalar array shorthand (`labels ["a", "b"]`)
+#   - colon-based array values (`labels: ["a", "b"]`)
 #   - nested blocks (health_check)
 #   - mixed value types within a single block
 #   - null to explicitly mark an optional field absent
