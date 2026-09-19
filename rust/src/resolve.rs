@@ -136,10 +136,15 @@ impl Loader for MemoryLoader {
     fn canonicalize(&self, path: &Path) -> io::Result<PathBuf> {
         let canonical = normalize_path(&self.base, path);
         if self.files.contains_key(&canonical) {
-            Ok(canonical)
-        } else {
-            Err(io::Error::new(io::ErrorKind::NotFound, "no such file"))
+            return Ok(canonical);
         }
+        // Directories are implied by the stored files beneath them, so a
+        // rooted resolution can canonicalize its root without requiring an
+        // explicit directory entry.
+        if self.files.keys().any(|file| file.starts_with(&canonical)) {
+            return Ok(canonical);
+        }
+        Err(io::Error::new(io::ErrorKind::NotFound, "no such file"))
     }
 
     fn read(&self, path: &Path) -> io::Result<Vec<u8>> {

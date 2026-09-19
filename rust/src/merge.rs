@@ -69,6 +69,8 @@ pub(crate) fn merge_nodes_budget(
         match (overlay_node, base_node) {
             // Only a block onto a non-replacing block merges recursively.
             (Node::Block(overlay_block), Node::Block(base_block)) if !overlay_block.replace => {
+                let base_id = block_identity(&base_block);
+                let overlay_id = block_identity(&overlay_block);
                 let children =
                     merge_nodes_budget(base_block.children, overlay_block.children, remaining)?;
                 result[position] = Node::Block(Block {
@@ -79,10 +81,14 @@ pub(crate) fn merge_nodes_budget(
                     line: base_block.line,
                     col: base_block.col,
                     leading_comments: concat_comments(
+                        &base_id,
+                        &overlay_id,
                         &base_block.leading_comments,
                         &overlay_block.leading_comments,
                     ),
                     trailing_comments: concat_comments(
+                        &base_id,
+                        &overlay_id,
                         &base_block.trailing_comments,
                         &overlay_block.trailing_comments,
                     ),
@@ -108,27 +114,47 @@ pub(crate) fn merge_nodes_budget(
     Ok(result)
 }
 
+/// Where a merged block was written: its source file and position. Comments
+/// from one source node are identified by this, because comment trivia itself
+/// carries no position in the model.
+type BlockIdentity = (String, u32, u32);
+
+fn block_identity(block: &Block) -> BlockIdentity {
+    (block.path.clone(), block.line, block.col)
+}
+
 /// Preserve each source comment exactly once when cached imports meet again.
 ///
-/// Compare source identity, not text: identical comments at different source
-/// locations must all survive. Cached parse results share their comment
-/// strings, so pointer identity identifies the same source comment.
-fn concat_comments(a: &[String], b: &[String]) -> Vec<String> {
+/// When both sides come from the same source node - the same file, written at
+/// the same position - a comment text already seen on the base side is not
+/// repeated. This is what keeps a diamond-shaped import graph from emitting
+/// its shared file's comments twice. Comments attached to different nodes
+/// survive even when their text is identical: two `# same` comments over two
+/// separate block definitions are two source comments, and the `comments`
+/// capability promises each of them survives.
+fn concat_comments(
+    base_id: &BlockIdentity,
+    overlay_id: &BlockIdentity,
+    a: &[String],
+    b: &[String],
+) -> Vec<String> {
     if b.is_empty() {
         return a.to_vec();
     }
     if a.is_empty() {
         return b.to_vec();
     }
-    let mut seen: Vec<(&str, usize)> = Vec::new();
+    let same_source = base_id == overlay_id;
+    let mut seen: Vec<&str> = Vec::new();
     let mut out = Vec::with_capacity(a.len() + b.len());
     for comments in [a, b] {
         for comment in comments {
-            let identity = (comment.as_str(), comment.len());
-            if seen.contains(&identity) {
-                continue;
+            if same_source {
+                if seen.contains(&comment.as_str()) {
+                    continue;
+                }
+                seen.push(comment.as_str());
             }
-            seen.push(identity);
             out.push(comment.clone());
         }
     }

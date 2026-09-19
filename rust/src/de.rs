@@ -1034,7 +1034,21 @@ impl<'de> VariantAccess<'de> for ObjectEnumAccess<'de> {
     type Error = Error;
 
     fn unit_variant(self) -> Result<(), Error> {
-        // `Tag { }` decodes a unit variant, discarding the empty body.
+        // `Tag { }` decodes a unit variant. A nonempty body is a mistake the
+        // caller should hear about, not a payload to discard silently.
+        if let Val::Object(children) = self.inner {
+            let has_entries = children
+                .iter()
+                .any(|node| !matches!(node, Node::Delete(_) | Node::None));
+            if has_entries {
+                let path = render_path(&self.segments) + "/" + &escape_key(&self.tag);
+                return Err(Error::new(
+                    ErrorKind::TypeMismatch,
+                    format!("unit enum variant `{}` must have an empty body", self.tag),
+                )
+                .at(path, self.context.source.clone()));
+            }
+        }
         Ok(())
     }
 
@@ -1042,7 +1056,7 @@ impl<'de> VariantAccess<'de> for ObjectEnumAccess<'de> {
     where
         T: DeserializeSeed<'de>,
     {
-        seed.deserialize(self.payload_deserializer())
+        seed.deserialize(self.payload_deserializer()?)
     }
 
     fn tuple_variant<V>(self, _len: usize, _visitor: V) -> Result<V::Value, Error>
@@ -1063,21 +1077,28 @@ impl<'de> VariantAccess<'de> for ObjectEnumAccess<'de> {
     where
         V: Visitor<'de>,
     {
-        serde::Deserializer::deserialize_struct(self.payload_deserializer(), "", &[], visitor)
+        serde::Deserializer::deserialize_struct(self.payload_deserializer()?, "", &[], visitor)
     }
 }
 
 impl<'de> ObjectEnumAccess<'de> {
     /// The payload decodes one level under the variant's own name, so field
     /// pointers read `/service/port` for `service { port: 1 }`.
-    fn payload_deserializer(&self) -> ValueDeserializer<'de> {
+    fn payload_deserializer(&self) -> Result<ValueDeserializer<'de>, Error> {
+        if self.depth >= MAX_NATIVE_NESTING_DEPTH {
+            return Err(Error::new(
+                ErrorKind::NestingTooDeep,
+                format!("native target nesting exceeds {MAX_NATIVE_NESTING_DEPTH}"),
+            )
+            .at(render_path(&self.segments), self.context.source.clone()));
+        }
         let mut segments = self.segments.clone();
         segments.push(Segment::Key(self.tag.clone()));
-        ValueDeserializer {
+        Ok(ValueDeserializer {
             value: self.inner,
             context: self.context.clone(),
             segments,
             depth: self.depth + 1,
-        }
+        })
     }
 }

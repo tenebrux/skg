@@ -596,3 +596,123 @@ fn crlf_comments_normalize_on_emit() {
     assert!(!text.contains('\r'), "emit normalizes CRLF: {text:?}");
     assert_eq!(text, "name: \"x\" # trailing\n# last\n");
 }
+
+// ─── Review round 2 regressions ─────────────────────────────────────────────
+
+#[test]
+fn unit_enum_variants_reject_nonempty_bodies() {
+    #[derive(Debug, Deserialize, PartialEq)]
+    enum Mode {
+        Local,
+    }
+    #[derive(Debug, Deserialize)]
+    struct Target {
+        #[serde(rename = "mode")]
+        mode: Mode,
+    }
+
+    // The string tag form.
+    let decoded: Target = from_str("mode: \"Local\"").expect("string tag decodes");
+    assert_eq!(decoded.mode, Mode::Local);
+    // An empty block body is a valid spelling of a unit variant.
+    let decoded: Target = from_str("mode { Local {} }").expect("empty body decodes");
+    assert_eq!(decoded.mode, Mode::Local);
+    // A nonempty body is a configuration mistake, not a payload to discard.
+    let error = from_str::<Target>("mode { Local { typo: true } }").expect_err("payload rejected");
+    assert_eq!(error.code, NativeCode::TypeMismatch);
+    assert_eq!(error.field_path, "/mode/Local");
+}
+
+#[test]
+fn memory_loader_supports_rooted_resolution() {
+    let loader = MemoryLoader::new()
+        .with_file("cfg/main.skg", "import \"base.skg\"\nhost: \"main\"\n")
+        .with_file("cfg/base.skg", "port: 80\n");
+    let document = resolve_with("cfg/main.skg", &loader, &ResolveOptions::rooted("cfg"))
+        .expect("rooted in-memory resolution");
+    // The base's key holds the first slot; the importer's value wins.
+    assert_eq!(emit(&document), "port: 80\nhost: \"main\"\n");
+
+    // A root with no stored file beneath it is simply not found, exactly
+    // like a missing root on the filesystem loader.
+    let error = resolve_with(
+        "cfg/main.skg",
+        &loader,
+        &ResolveOptions::rooted("elsewhere"),
+    )
+    .expect_err("missing root");
+    assert_eq!(error.code(), skg::ErrorCode::ImportNotFound);
+}
+
+#[test]
+fn identical_comment_text_from_separate_locations_survives_merge() {
+    let source = "# same\nservice { a: 1 }\n# same\nservice { b: 2 }\n";
+    let document = parse(source).expect("parses");
+    let text = emit(&document);
+    assert_eq!(
+        text.matches("# same").count(),
+        2,
+        "two source comments with equal text must both survive: {text}"
+    );
+}
+
+#[test]
+fn shared_comments_are_emitted_once_across_a_diamond() {
+    let dir = scratch("diamond-comments");
+    // The comment must attach to the block: file-leading comments are not
+    // part of the children a merge propagates.
+    write(
+        &dir,
+        "shared.skg",
+        "other: true\n# shared comment\nsvc { port: 80 }\n",
+    );
+    write(&dir, "left.skg", "import \"shared.skg\"\nleft: 1\n");
+    write(&dir, "right.skg", "import \"shared.skg\"\nright: 1\n");
+    write(
+        &dir,
+        "top.skg",
+        "import \"left.skg\"\nimport \"right.skg\"\nmain: 1\n",
+    );
+    let document = resolve_with(
+        dir.join("top.skg"),
+        &FsLoader,
+        &ResolveOptions::rooted(&dir),
+    )
+    .expect("diamond resolves");
+    let text = emit(&document);
+    assert_eq!(
+        text.matches("# shared comment").count(),
+        1,
+        "a cached import's comment must not repeat: {text}"
+    );
+}
+
+#[test]
+fn deeply_nested_enum_payloads_hit_the_native_depth_bound() {
+    // 300 nested `Choice { ... }` blocks, deeper than the native limit of
+    // 256. Parsed files stop at the syntax limit long before this; the
+    // programmatic document path must still stop at the native bound.
+    let mut children: Vec<skg::Node> = Vec::new();
+    for _ in 0..300 {
+        children = vec![skg::Node::Block(skg::Block {
+            name: "Choice".into(),
+            children,
+            ..skg::Block::default()
+        })];
+    }
+    let document = skg::Document {
+        children,
+        ..skg::Document::default()
+    };
+
+    #[derive(Debug, Deserialize)]
+    #[allow(dead_code)]
+    enum Rec {
+        Choice(Box<Rec>),
+        Leaf,
+    }
+
+    let error = from_document_with::<Rec>(&document, &DecodeOptions::default())
+        .expect_err("depth bound reached");
+    assert_eq!(error.code, NativeCode::NestingTooDeep);
+}
