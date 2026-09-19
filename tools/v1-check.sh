@@ -3,7 +3,18 @@ set -euo pipefail
 
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 artifacts=$(mktemp -d)
-trap 'rm -rf "$artifacts"' EXIT
+temporary_edge_tag=
+edge_worktree=
+cleanup() {
+  if [[ -n $temporary_edge_tag ]]; then
+    git tag -d "$temporary_edge_tag" >/dev/null 2>&1 || true
+  fi
+  if [[ -n $edge_worktree ]]; then
+    git worktree remove --force "$edge_worktree" >/dev/null 2>&1 || true
+  fi
+  rm -rf "$artifacts"
+}
+trap cleanup EXIT
 vsix_out=${SKG_VSIX_OUT:-$artifacts/skg-vscode.vsix}
 mkdir -p "$(dirname "$vsix_out")"
 cd "$repo"
@@ -15,9 +26,35 @@ if [[ -n "${SKG_RELEASE_TAG:-}" ]]; then
   release_args=(--tag "$SKG_RELEASE_TAG")
 fi
 node tools/check-release.mjs "${release_args[@]}"
-bash -n tools/v1-check.sh .github/scripts/next-version.sh
-shellcheck tools/v1-check.sh .github/scripts/next-version.sh
+node .github/scripts/edge-release-complete.mjs --self-test \
+  "0.1.0-edge.19700101.g000000000000"
+bash -n tools/v1-check.sh .github/scripts/next-version.sh .github/scripts/edge-version.sh
+shellcheck tools/v1-check.sh .github/scripts/next-version.sh .github/scripts/edge-version.sh
 actionlint
+
+echo "[v1] edge release package pipeline"
+edge_worktree="$artifacts/edge-release"
+git worktree add --quiet --detach "$edge_worktree" HEAD
+edge_tag=$("$edge_worktree/.github/scripts/edge-version.sh" 19700101 "$(git rev-parse HEAD)")
+if [[ ! $edge_tag =~ ^[0-9]+\.[0-9]+\.[0-9]+-edge\.19700101\.g[0-9a-f]{12}$ ]]; then
+  echo "edge tag is not semver-compatible: $edge_tag" >&2
+  exit 1
+fi
+if git rev-parse --quiet --verify "refs/tags/$edge_tag" >/dev/null; then
+  echo "temporary edge validation tag already exists: $edge_tag" >&2
+  exit 1
+fi
+git tag "$edge_tag"
+temporary_edge_tag=$edge_tag
+(
+  cd "$edge_worktree"
+  GORELEASER_CURRENT_TAG="$edge_tag" \
+    goreleaser release --clean --skip=publish --config .goreleaser.edge.yaml
+)
+git tag -d "$temporary_edge_tag" >/dev/null
+temporary_edge_tag=
+git worktree remove --force "$edge_worktree"
+edge_worktree=
 
 echo "[v1] source formatting"
 zig fmt --check build.zig zig/
