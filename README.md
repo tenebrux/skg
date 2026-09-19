@@ -166,7 +166,7 @@ go build ./...
 go test ./...
 ```
 
-### Rust (1.70+, stable)
+### Rust (1.71+, stable)
 
 ```sh
 cd rust

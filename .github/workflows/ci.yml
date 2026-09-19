@@ -54,7 +54,7 @@ jobs:
         working-directory: testdata/consumers/go
         run: go test ./...
 
-  # rust/Cargo.toml names 1.70 as the MSRV. The release gate runs the pinned
+  # rust/Cargo.toml names 1.71 as the MSRV. The release gate runs the pinned
   # toolchain; this adjunct compiles and tests the crate on exactly that MSRV,
   # plus a current-stable full-suite run.
   rust:
@@ -70,7 +70,7 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
-          toolchain: ${{ matrix.toolchain == 'msrv' && '1.70.0' || 'stable' }}
+          toolchain: ${{ matrix.toolchain == 'msrv' && '1.71.0' || 'stable' }}
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.8.3
         with:

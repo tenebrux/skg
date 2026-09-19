@@ -2,7 +2,7 @@
 name = "skg"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.70"
+rust-version = "1.71"
 description = "Native SKG (Static Key Group) V1 parser, resolver, canonical formatter and Serde typed loader"
 license = "MIT"
 repository = "https://github.com/tenebrux/skg"

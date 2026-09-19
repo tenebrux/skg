@@ -65,7 +65,7 @@ an established native mapping or default/null rule.
 | --- | --- | --- |
 | Zig package and CLI | Zig **0.15.2** exactly | Debug and ReleaseSafe tests on Linux; ReleaseSafe runtime suites on macOS and Windows; Linux musl x86-64/ARM64, macOS x86-64/ARM64, Windows x86-64 cross-builds |
 | Go package | Go **1.26 or newer** | Race tests on Linux 1.26.8; runtime suites on macOS and Windows; compile checks for Linux x86-64/ARM64/386, macOS x86-64/ARM64, Windows x86-64/ARM64, FreeBSD x86-64; CI also tests Go 1.27 |
-| Rust package | Stable Rust **1.70 or newer** (`rust-version` in `rust/Cargo.toml`) | Debug and release suites on Linux 1.98 including the shared corpora; runtime suites on macOS and Windows; CI also compiles and tests on exactly MSRV 1.70 |
+| Rust package | Stable Rust **1.71 or newer** (`rust-version` in `rust/Cargo.toml`) | Debug and release suites on Linux 1.98 including the shared corpora; runtime suites on macOS and Windows; CI also compiles and tests on exactly MSRV 1.71 |
 | Editor and contract tools | Node.js **24 LTS** | tree-sitter corpus, TextMate corpus/probes, VSIX packaging, contract locks |
 
 Zig is pre-1.0 and regularly changes source APIs, so V1 supports the exact

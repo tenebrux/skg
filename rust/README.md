@@ -211,7 +211,7 @@ bounded at 256. Version rules: unversioned files use V1.0 semantics;
 
 ## Compatibility and MSRV
 
-- **MSRV: Rust 1.70**, pinned by `rust-version` in `Cargo.toml`; stable Rust
+- **MSRV: Rust 1.71**, pinned by `rust-version` in `Cargo.toml`; stable Rust
   only, `#![forbid(unsafe_code)]`.
 - The crate follows the repository [V1 compatibility
   policy](../docs/compatibility.md): the V1.0 grammar, canonical bytes,
