@@ -58,7 +58,10 @@ description = "Run Go parser tests"
 # The Rust conformance, native, resolution and differential suites all run
 # under `cargo test`; release mode re-runs them with optimizations on.
 [tasks."test:rust"]
+# mise's rust plugin installs the minimal rustup profile, so make sure the
+# rustfmt and clippy components exist before the gate uses them.
 run = """
+rustup component add rustfmt clippy
 cd rust
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
