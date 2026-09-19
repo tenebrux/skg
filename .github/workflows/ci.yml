@@ -78,7 +78,11 @@ jobs:
             rust
             testdata/consumers/rust
           key: ${{ matrix.toolchain }}
+      # Lints run on stable only: clippy and rustfmt rules drift between
+      # toolchain versions, so gating the MSRV leg on them would pin the
+      # repo to whatever the oldest supported compiler happens to print.
       - name: Format and lint
+        if: matrix.toolchain == 'stable'
         working-directory: rust
         run: |
           cargo fmt --check
