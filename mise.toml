@@ -95,7 +95,7 @@ depends = ["lint", "test"]
 description = "Full check - lint + tests"
 
 [tasks."plugins:tree-sitter:generate"]
-run = "cd tools/tree-sitter-skg && npm install && npx tree-sitter generate"
+run = "cd tools/tree-sitter-skg && npm install && npx tree-sitter generate --abi 14"
 description = "Regenerate the tree-sitter parser from grammar.js"
 
 [tasks."plugins:tree-sitter:build"]
