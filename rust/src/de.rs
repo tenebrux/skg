@@ -1034,20 +1034,22 @@ impl<'de> VariantAccess<'de> for ObjectEnumAccess<'de> {
     type Error = Error;
 
     fn unit_variant(self) -> Result<(), Error> {
-        // `Tag { }` decodes a unit variant. A nonempty body is a mistake the
-        // caller should hear about, not a payload to discard silently.
-        if let Val::Object(children) = self.inner {
-            let has_entries = children
+        // `Tag { }` decodes a unit variant. Any other payload - a scalar, an
+        // array, null, or a nonempty body - is a configuration mistake the
+        // caller should hear about, not data to discard silently.
+        let has_payload = match self.inner {
+            Val::Object(children) => children
                 .iter()
-                .any(|node| !matches!(node, Node::Delete(_) | Node::None));
-            if has_entries {
-                let path = render_path(&self.segments) + "/" + &escape_key(&self.tag);
-                return Err(Error::new(
-                    ErrorKind::TypeMismatch,
-                    format!("unit enum variant `{}` must have an empty body", self.tag),
-                )
-                .at(path, self.context.source.clone()));
-            }
+                .any(|node| !matches!(node, Node::Delete(_) | Node::None)),
+            _ => true,
+        };
+        if has_payload {
+            let path = render_path(&self.segments) + "/" + &escape_key(&self.tag);
+            return Err(Error::new(
+                ErrorKind::TypeMismatch,
+                format!("unit enum variant `{}` must have an empty body", self.tag),
+            )
+            .at(path, self.context.source.clone()));
         }
         Ok(())
     }

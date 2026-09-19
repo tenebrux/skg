@@ -716,3 +716,65 @@ fn deeply_nested_enum_payloads_hit_the_native_depth_bound() {
         .expect_err("depth bound reached");
     assert_eq!(error.code, NativeCode::NestingTooDeep);
 }
+
+#[test]
+fn unit_enum_variants_reject_scalar_and_null_payloads() {
+    #[derive(Debug, Deserialize, PartialEq)]
+    enum Mode {
+        Local,
+    }
+    #[derive(Debug, Deserialize)]
+    struct Target {
+        #[serde(rename = "mode")]
+        mode: Mode,
+    }
+
+    // Scalars, arrays and null payloads are configuration mistakes, not
+    // payloads a unit variant can silently swallow.
+    for source in [
+        "mode { Local: 42 }",
+        "mode { Local: null }",
+        "mode { Local: [1] }",
+        "mode { Local: \"text\" }",
+    ] {
+        let error = from_str::<Target>(source).expect_err(source);
+        assert_eq!(error.code, NativeCode::TypeMismatch, "{source}");
+        assert_eq!(error.field_path, "/mode/Local", "{source}");
+    }
+
+    // The empty-body spelling still decodes.
+    let decoded: Target = from_str("mode { Local {} }").expect("empty body decodes");
+    assert_eq!(decoded.mode, Mode::Local);
+}
+
+#[test]
+fn repeated_identical_comments_survive_a_diamond() {
+    // Two distinct `# same` comments inside one shared block: the diamond
+    // shows the block twice to the merger, and both comments must still
+    // come out - block-level identity is not comment provenance.
+    let dir = scratch("diamond-two-comments");
+    write(
+        &dir,
+        "shared.skg",
+        "other: true\nsvc {\n  a: 1\n  # same\n  # same\n}\n",
+    );
+    write(&dir, "left.skg", "import \"shared.skg\"\nleft: 1\n");
+    write(&dir, "right.skg", "import \"shared.skg\"\nright: 1\n");
+    write(
+        &dir,
+        "top.skg",
+        "import \"left.skg\"\nimport \"right.skg\"\nmain: 1\n",
+    );
+    let document = resolve_with(
+        dir.join("top.skg"),
+        &FsLoader,
+        &ResolveOptions::rooted(&dir),
+    )
+    .expect("diamond resolves");
+    let text = emit(&document);
+    assert_eq!(
+        text.matches("# same").count(),
+        2,
+        "both source comments must survive the diamond: {text}"
+    );
+}

@@ -114,9 +114,9 @@ pub(crate) fn merge_nodes_budget(
     Ok(result)
 }
 
-/// Where a merged block was written: its source file and position. Comments
-/// from one source node are identified by this, because comment trivia itself
-/// carries no position in the model.
+/// Where a merged block was written: its source file and position. A
+/// merged comment's provenance is this identity plus its index in the
+/// node's list, because comment trivia itself carries no position.
 type BlockIdentity = (String, u32, u32);
 
 fn block_identity(block: &Block) -> BlockIdentity {
@@ -125,13 +125,15 @@ fn block_identity(block: &Block) -> BlockIdentity {
 
 /// Preserve each source comment exactly once when cached imports meet again.
 ///
-/// When both sides come from the same source node - the same file, written at
-/// the same position - a comment text already seen on the base side is not
-/// repeated. This is what keeps a diamond-shaped import graph from emitting
-/// its shared file's comments twice. Comments attached to different nodes
-/// survive even when their text is identical: two `# same` comments over two
-/// separate block definitions are two source comments, and the `comments`
-/// capability promises each of them survives.
+/// Provenance is per comment: a comment is identified by its source node
+/// plus its index in that node's list, not by its text. Lists only ever grow
+/// by appending, so when both sides come from the same source node - the
+/// same file written at the same position, seen twice through a diamond -
+/// the overlay's first `a.len()` comments are the base's own and only the
+/// remainder can be new. Comments from different source nodes always
+/// concatenate: two `# same` comments over two separate block definitions,
+/// or two `# same` lines over one block, are distinct source comments and
+/// the `comments` capability promises each of them survives.
 fn concat_comments(
     base_id: &BlockIdentity,
     overlay_id: &BlockIdentity,
@@ -144,19 +146,14 @@ fn concat_comments(
     if a.is_empty() {
         return b.to_vec();
     }
-    let same_source = base_id == overlay_id;
-    let mut seen: Vec<&str> = Vec::new();
     let mut out = Vec::with_capacity(a.len() + b.len());
-    for comments in [a, b] {
-        for comment in comments {
-            if same_source {
-                if seen.contains(&comment.as_str()) {
-                    continue;
-                }
-                seen.push(comment.as_str());
-            }
-            out.push(comment.clone());
-        }
+    out.extend_from_slice(a);
+    if base_id == overlay_id {
+        // Index-provenance pairing: b[0..a.len()] are the same source
+        // comments the base already holds.
+        out.extend_from_slice(&b[a.len().min(b.len())..]);
+    } else {
+        out.extend_from_slice(b);
     }
     out
 }
