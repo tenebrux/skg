@@ -62,8 +62,9 @@ struct Serializer {
     /// The next scalar is a map key, not a value: it must be a string and
     /// fills the pending key slot.
     key_slot: bool,
-    /// A struct-variant wrapper records the variant name until `end`.
-    pending_variant: Option<String>,
+    /// Open struct-variant wrappers record their variant names and close in
+    /// LIFO order, so nested variants resolve to the right names.
+    pending_variants: Vec<String>,
 }
 
 impl Serializer {
@@ -135,11 +136,14 @@ impl Serializer {
             ));
         };
         Ok(match frame {
-            Frame::Array { items } => Value::Array(Array {
-                element_type: array_element_type(&items),
-                items,
-                trailing_comments: Vec::new(),
-            }),
+            Frame::Array { items } => {
+                check_homogeneous(&items)?;
+                Value::Array(Array {
+                    element_type: array_element_type(&items),
+                    items,
+                    trailing_comments: Vec::new(),
+                })
+            }
             Frame::Map {
                 entries,
                 pending_key,
@@ -180,7 +184,7 @@ impl Serializer {
     /// and attach it: `{ Variant { fields } }`, which decodes symmetrically.
     fn finish_variant(&mut self) -> Result<(), EncodeError> {
         let inner = self.leave()?;
-        let variant = self.pending_variant.take().ok_or_else(|| {
+        let variant = self.pending_variants.pop().ok_or_else(|| {
             EncodeError::InvalidValue("struct variant ended without a variant name".into())
         })?;
         let entry = named_node(&variant, inner);
@@ -199,6 +203,31 @@ fn object_from(entries: Vec<(String, Value)>) -> ObjectBody {
             .collect(),
         trailing_comments: Vec::new(),
     }
+}
+
+/// Reject heterogeneous arrays before emission: the parser would refuse the
+/// output with `MIXED_ARRAY_TYPES`, so the encoder must refuse it first.
+fn check_homogeneous(items: &[Value]) -> Result<(), EncodeError> {
+    let mut expected: Option<ValueType> = None;
+    for (index, item) in items.iter().enumerate() {
+        let tag = item.value_type();
+        if tag == ValueType::Null {
+            continue;
+        }
+        match expected {
+            Some(et) if et != tag => {
+                return Err(EncodeError::InvalidValue(format!(
+                    "array index {index} has type {} but the array holds {} values; \
+                     SKG arrays must be homogeneous",
+                    tag.as_str(),
+                    et.as_str(),
+                )));
+            }
+            Some(_) => {}
+            None => expected = Some(tag),
+        }
+    }
+    Ok(())
 }
 
 /// The element tag a completed array reports, mirroring the parser: the first
@@ -371,7 +400,18 @@ impl serde::Serializer for &mut Serializer {
         variant: &'static str,
         value: &T,
     ) -> Result<Self::Ok, Self::Error> {
-        let mut scratch = Serializer::default();
+        // The wrapper itself is a nesting level, so a recursive payload
+        // cannot bypass the depth bound through a fresh serializer.
+        let mut scratch = Serializer {
+            depth: self.depth + 1,
+            ..Serializer::default()
+        };
+        if scratch.depth > Serializer::MAX_DEPTH {
+            return Err(EncodeError::Unsupported(format!(
+                "nesting exceeds {} levels (possible cycle)",
+                Serializer::MAX_DEPTH
+            )));
+        }
         value.serialize(&mut scratch)?;
         let Some(payload) = scratch.root else {
             return Err(EncodeError::InvalidValue(
@@ -450,7 +490,7 @@ impl serde::Serializer for &mut Serializer {
             pending_key: None,
             sort: false,
         })?;
-        self.pending_variant = Some(variant.to_string());
+        self.pending_variants.push(variant.to_string());
         Ok(self)
     }
 

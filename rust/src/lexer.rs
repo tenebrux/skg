@@ -185,7 +185,13 @@ impl<'src> Lexer<'src> {
             self.pos += 1;
             self.col += 1;
         }
-        let text = String::from_utf8_lossy(&self.src[start..self.pos]).into_owned();
+        let mut end = self.pos;
+        // CRLF input: the carriage return belongs to the line ending, not the
+        // comment, so canonical emission stays LF-normalized.
+        if end > start && self.src[end - 1] == b'\r' {
+            end -= 1;
+        }
+        let text = String::from_utf8_lossy(&self.src[start..end]).into_owned();
         Ok(Token {
             tag: Tag::Comment,
             text,

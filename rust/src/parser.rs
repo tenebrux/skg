@@ -551,6 +551,7 @@ impl<'src> Parser<'src> {
             if tag == Tag::RBrace {
                 let trailing = self.drain_comments();
                 self.consume()?;
+                self.leave();
                 return Ok(Value::Object(ObjectBody {
                     children: merge_nodes(children),
                     trailing_comments: trailing,

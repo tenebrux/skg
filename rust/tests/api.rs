@@ -501,3 +501,98 @@ fn aggregate_limits_are_enforceable_per_call() {
     let error = resolve_with(&main, &FsLoader, &options).unwrap_err();
     assert_eq!(error.code(), skg::ErrorCode::ResolutionFileLimit);
 }
+
+// ─── Review regressions ─────────────────────────────────────────────────────
+
+#[test]
+fn sibling_blocks_do_not_exhaust_the_nesting_budget() {
+    // The depth counter must release when a block closes; 200 shallow
+    // siblings are not 200 levels of nesting.
+    let source: String = (0..200)
+        .map(|i| format!("block{i} {{ value: {i} }}\n"))
+        .collect();
+    let document = parse(&source).expect("sibling blocks parse");
+    assert_eq!(document.children.len(), 200);
+    // Siblings inside a block count one level, regardless of quantity.
+    let mut inner = String::from("outer {\n");
+    inner.push_str(
+        &(0..200)
+            .map(|i| format!("  key{i}: {i}\n"))
+            .collect::<String>(),
+    );
+    inner.push_str("}\n");
+    let document = parse(&inner).expect("many sibling fields parse");
+    assert_eq!(document.children.len(), 1);
+}
+
+#[test]
+fn encoder_rejects_heterogeneous_sequences() {
+    let mixed: Vec<serde_json::Value> = vec![serde_json::json!(1), serde_json::json!("text")];
+    // A heterogeneous array would emit text the parser rejects with
+    // MIXED_ARRAY_TYPES, so encoding must refuse it up front.
+    let error = to_string(&mixed).expect_err("mixed array rejected");
+    assert!(matches!(error, skg::EncodeError::InvalidValue(_)));
+
+    // Homogeneous arrays with nulls keep working.
+    #[derive(Serialize)]
+    struct WithNullable {
+        v: Vec<Option<i32>>,
+    }
+    assert_eq!(
+        to_string(&WithNullable {
+            v: vec![Some(1), None, Some(2)]
+        })
+        .expect("nullable array encodes"),
+        "v: [1, null, 2]\n"
+    );
+}
+
+#[test]
+fn nested_struct_variants_keep_their_names() {
+    #[derive(Debug, Serialize, Deserialize, PartialEq)]
+    enum Outer {
+        Holds(Inner),
+    }
+    #[derive(Debug, Serialize, Deserialize, PartialEq)]
+    enum Inner {
+        Wrapped { deep: u8 },
+    }
+
+    let value = Outer::Holds(Inner::Wrapped { deep: 7 });
+    let encoded = to_string(&value).expect("nested variants encode");
+    assert_eq!(encoded, "Holds {\n  Wrapped {\n    deep: 7\n  }\n}\n");
+    let decoded: Outer = from_str(&encoded).expect("nested variants decode");
+    assert_eq!(decoded, value);
+}
+
+#[test]
+fn recursive_newtype_variants_stop_at_the_depth_bound() {
+    #[derive(Serialize)]
+    enum Rec {
+        V(Box<Rec>),
+        Leaf(u8),
+    }
+    fn chain(depth: usize) -> Rec {
+        let mut value = Rec::Leaf(0);
+        for _ in 0..depth {
+            value = Rec::V(Box::new(value));
+        }
+        value
+    }
+    assert!(
+        to_string(&chain(100)).is_ok(),
+        "depth inside the bound encodes"
+    );
+    let error = to_string(&chain(500)).expect_err("deep recursion rejected");
+    assert!(matches!(error, skg::EncodeError::Unsupported(_)));
+}
+
+#[test]
+fn crlf_comments_normalize_on_emit() {
+    // The comment text excludes the carriage return: canonical output is
+    // LF-normalized end to end.
+    let document = parse("name: \"x\" # trailing\r\n# last\r\n").expect("parses");
+    let text = emit(&document);
+    assert!(!text.contains('\r'), "emit normalizes CRLF: {text:?}");
+    assert_eq!(text, "name: \"x\" # trailing\n# last\n");
+}
