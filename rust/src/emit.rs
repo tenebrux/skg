@@ -5,7 +5,7 @@
 //! whose imports were resolved emits standalone final data.
 
 use crate::lexer::is_identifier;
-use crate::model::{Document, Node, Value};
+use crate::model::{Comment, Document, Node, Value};
 use crate::parser::is_directive;
 
 /// Serialize a document back to canonical SKG text.
@@ -76,7 +76,7 @@ fn emit_nodes(out: &mut String, nodes: &[Node], depth: usize) {
                 write_key(out, &delete.key, depth);
                 if let Some(trailing) = &delete.trailing_comment {
                     out.push(' ');
-                    out.push_str(trailing);
+                    out.push_str(&trailing.text);
                 }
                 out.push('\n');
             }
@@ -88,7 +88,7 @@ fn emit_nodes(out: &mut String, nodes: &[Node], depth: usize) {
                 emit_value(out, &field.value, depth);
                 if let Some(trailing) = &field.trailing_comment {
                     out.push(' ');
-                    out.push_str(trailing);
+                    out.push_str(&trailing.text);
                 }
                 out.push('\n');
             }
@@ -210,10 +210,10 @@ fn can_emit_multiline(s: &str) -> bool {
     !s.ends_with('"')
 }
 
-fn emit_comment_lines(out: &mut String, comments: &[String], depth: usize) {
+fn emit_comment_lines(out: &mut String, comments: &[Comment], depth: usize) {
     for comment in comments {
         write_indent(out, depth);
-        out.push_str(comment);
+        out.push_str(&comment.text);
         out.push('\n');
     }
 }

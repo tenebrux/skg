@@ -37,6 +37,56 @@ impl ValueType {
     }
 }
 
+/// Where a comment was written. Comments are numbered in source order as a
+/// file is parsed, so two comments never share an origin, while one file
+/// seen twice through an import graph shares origins. Merge deduplication
+/// compares origins; equal comment text alone never means "the same
+/// comment".
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct CommentOrigin {
+    /// Source provenance of the file the comment was written in.
+    pub path: String,
+    /// The comment's sequence number within that file's parse.
+    pub sequence: u64,
+}
+
+/// One comment attached to a node as trivia: its text plus where it was
+/// written.
+///
+/// Provenance is per comment because merges append comments from different
+/// sources onto one node. `None` marks a programmatically built comment,
+/// which merges never deduplicate.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Comment {
+    /// The comment text, including the leading `#` and excluding the
+    /// trailing newline.
+    pub text: String,
+    pub origin: Option<CommentOrigin>,
+}
+
+impl Comment {
+    /// A comment with no source provenance.
+    #[must_use]
+    pub fn new(text: impl Into<String>) -> Self {
+        Comment {
+            text: text.into(),
+            origin: None,
+        }
+    }
+}
+
+impl From<&str> for Comment {
+    fn from(text: &str) -> Self {
+        Comment::new(text)
+    }
+}
+
+impl From<String> for Comment {
+    fn from(text: String) -> Self {
+        Comment { text, origin: None }
+    }
+}
+
 /// A typed array: all non-null elements share the outer element tag, checked
 /// one level deep by the parser. Null entries preserve their positions.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -46,7 +96,7 @@ pub struct Array {
     pub element_type: ValueType,
     pub items: Vec<Value>,
     /// Comments between the last element and the closing `]`.
-    pub trailing_comments: Vec<String>,
+    pub trailing_comments: Vec<Comment>,
 }
 
 /// An anonymous object: the value form of a block. Objects may appear at any
@@ -55,7 +105,7 @@ pub struct Array {
 pub struct ObjectBody {
     pub children: Vec<Node>,
     /// Comments between the last child and the closing `}`.
-    pub trailing_comments: Vec<String>,
+    pub trailing_comments: Vec<Comment>,
 }
 
 /// A scalar, array, or object value.
@@ -98,9 +148,9 @@ pub struct Field {
     pub value: Value,
     pub line: u32,
     pub col: u32,
-    pub leading_comments: Vec<String>,
+    pub leading_comments: Vec<Comment>,
     /// One comment on the same line as the value, if any.
-    pub trailing_comment: Option<String>,
+    pub trailing_comment: Option<Comment>,
 }
 
 /// A named scope: `name { children }`
@@ -114,9 +164,9 @@ pub struct Block {
     pub children: Vec<Node>,
     pub line: u32,
     pub col: u32,
-    pub leading_comments: Vec<String>,
+    pub leading_comments: Vec<Comment>,
     /// Comments between the last child and the closing `}`.
-    pub trailing_comments: Vec<String>,
+    pub trailing_comments: Vec<Comment>,
 }
 
 /// A named list of object and null entries: `name [ { ... } null ]`
@@ -128,9 +178,9 @@ pub struct BlockArray {
     pub items: Vec<Value>,
     pub line: u32,
     pub col: u32,
-    pub leading_comments: Vec<String>,
+    pub leading_comments: Vec<Comment>,
     /// Comments between the last entry and the closing `]`.
-    pub trailing_comments: Vec<String>,
+    pub trailing_comments: Vec<Comment>,
 }
 
 /// Records `@delete key` until the overlay is materialized.
@@ -140,8 +190,8 @@ pub struct Delete {
     pub key: String,
     pub line: u32,
     pub col: u32,
-    pub leading_comments: Vec<String>,
-    pub trailing_comment: Option<String>,
+    pub leading_comments: Vec<Comment>,
+    pub trailing_comment: Option<Comment>,
 }
 
 /// A field, block, block array, or deletion operation.
@@ -237,9 +287,9 @@ pub struct Document {
     /// emission then omits the import statements.
     pub imports_resolved: bool,
     /// Comments before the first declaration.
-    pub leading_comments: Vec<String>,
+    pub leading_comments: Vec<Comment>,
     /// Comments after the last node.
-    pub trailing_comments: Vec<String>,
+    pub trailing_comments: Vec<Comment>,
 }
 
 impl Document {

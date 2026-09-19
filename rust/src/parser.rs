@@ -9,7 +9,8 @@ use crate::error::{Diagnostic, ErrorCode, ParseError, Position};
 use crate::lexer::{is_identifier, Lexer, Tag, Token};
 use crate::merge::merge_nodes;
 use crate::model::{
-    Array, Block, BlockArray, Delete, Document, Field, Node, ObjectBody, Value, ValueType,
+    Array, Block, BlockArray, Comment, CommentOrigin, Delete, Document, Field, Node, ObjectBody,
+    Value, ValueType,
 };
 
 /// Bounds how deeply blocks, block arrays, and arrays may nest.
@@ -32,7 +33,10 @@ struct Parser<'src> {
     peeked: Option<Token>,
     path: String,
     depth: usize,
-    comment_buf: Vec<String>,
+    comment_buf: Vec<Comment>,
+    /// Source-order sequence for comment provenance; two comments from one
+    /// parse never share one, while a re-parse of the same cached file does.
+    next_comment: u64,
 }
 
 /// Parse SKG source bytes into a composed overlay [`Document`].
@@ -67,6 +71,7 @@ pub(crate) fn parse_bytes(src: &[u8], path: impl Into<String>) -> Result<Documen
         path,
         depth: 0,
         comment_buf: Vec::new(),
+        next_comment: 0,
     };
     parser.parse_file()
 }
@@ -100,7 +105,8 @@ impl<'src> Parser<'src> {
         if self.peeked.is_none() {
             let mut token = self.next_token()?;
             while token.tag == Tag::Comment {
-                self.comment_buf.push(token.text);
+                let comment = self.record_comment(token.text);
+                self.comment_buf.push(comment);
                 token = self.next_token()?;
             }
             self.peeked = Some(token);
@@ -116,19 +122,19 @@ impl<'src> Parser<'src> {
     }
 
     /// Return buffered comments as leading trivia and clear the buffer.
-    fn drain_comments(&mut self) -> Vec<String> {
+    fn drain_comments(&mut self) -> Vec<Comment> {
         std::mem::take(&mut self.comment_buf)
     }
 
     /// Move buffered comments onto `out` and clear the buffer.
-    fn drain_comments_into(&mut self, out: &mut Vec<String>) {
+    fn drain_comments_into(&mut self, out: &mut Vec<Comment>) {
         out.append(&mut self.comment_buf);
     }
 
     /// Capture a same-line trailing comment after a field or delete node, if
     /// the next raw token is one. A comment on a later line stays buffered as
     /// leading trivia for whatever follows.
-    fn try_trailing_comment(&mut self, line: u32) -> Result<Option<String>, ParseError> {
+    fn try_trailing_comment(&mut self, line: u32) -> Result<Option<Comment>, ParseError> {
         if self.peeked.is_some() {
             // A token is already buffered; comments before it are already in
             // comment_buf, so no same-line comment can follow the value.
@@ -136,14 +142,28 @@ impl<'src> Parser<'src> {
         }
         let token = self.next_token()?;
         if token.tag == Tag::Comment && token.line == line {
-            return Ok(Some(token.text));
+            return Ok(Some(self.record_comment(token.text)));
         }
         if token.tag == Tag::Comment {
-            self.comment_buf.push(token.text);
+            let comment = self.record_comment(token.text);
+            self.comment_buf.push(comment);
         } else {
             self.peeked = Some(token);
         }
         Ok(None)
+    }
+
+    /// Give a comment token its provenance: this file, in source order.
+    fn record_comment(&mut self, text: String) -> Comment {
+        let origin = CommentOrigin {
+            path: self.path.clone(),
+            sequence: self.next_comment,
+        };
+        self.next_comment += 1;
+        Comment {
+            text,
+            origin: Some(origin),
+        }
     }
 
     fn expect(&mut self, tag: Tag) -> Result<Token, ParseError> {
@@ -186,7 +206,7 @@ impl<'src> Parser<'src> {
         let mut import_paths: Vec<String> = Vec::new();
         let mut import_positions: Vec<Position> = Vec::new();
         let mut children: Vec<Node> = Vec::new();
-        let mut file_leading: Vec<String> = Vec::new();
+        let mut file_leading: Vec<Comment> = Vec::new();
         let mut captured_file_leading = false;
 
         loop {
@@ -491,7 +511,7 @@ impl<'src> Parser<'src> {
         }))
     }
 
-    fn parse_operation(&mut self, leading: Vec<String>) -> Result<Node, ParseError> {
+    fn parse_operation(&mut self, leading: Vec<Comment>) -> Result<Node, ParseError> {
         self.consume()?; // @
         let operation = self.expect(Tag::Ident)?;
         let operation_position = Position::new(operation.line, operation.col);

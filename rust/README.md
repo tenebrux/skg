@@ -97,6 +97,13 @@ resolution finalizes once at the end (deletes removed, flags cleared,
 `imports_resolved` set) and emitting that document writes standalone final
 data without import statements.
 
+Comments attach to nodes as [`Comment`] trivia - text plus per-comment
+provenance. Merge deduplication compares provenance, not text, so a file
+seen through both arms of a diamond contributes each of its comments once
+while equal-text comments written in different places all survive.
+Comments you build programmatically carry no provenance and are never
+deduplicated.
+
 ## Import resolution and custom loaders
 
 The byte APIs (`parse`, `from_str`, `format`) never touch the filesystem.

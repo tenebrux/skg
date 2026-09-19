@@ -112,7 +112,8 @@ pub use error::{
 };
 pub use merge::{materialize_nodes, merge_overlay};
 pub use model::{
-    Array, Block, BlockArray, Delete, Document, Field, Node, ObjectBody, Value, ValueType,
+    Array, Block, BlockArray, Comment, CommentOrigin, Delete, Document, Field, Node, ObjectBody,
+    Value, ValueType,
 };
 pub use parser::{is_absolute_import_path, LANGUAGE_VERSION, MAX_FILE_SIZE, MAX_NESTING_DEPTH};
 pub use resolve::{

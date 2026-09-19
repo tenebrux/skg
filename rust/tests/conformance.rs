@@ -597,7 +597,7 @@ fn compare_optional_string(label: &str, expected: Option<&str>, actual: Option<&
     );
 }
 
-fn compare_comments(label: &str, expected: Option<&Json>, actual: &[String]) {
+fn compare_comments(label: &str, expected: Option<&Json>, actual: &[skg::Comment]) {
     let Some(expected) = expected else { return };
     let wanted: Vec<&str> = expected
         .as_array()
@@ -605,14 +605,15 @@ fn compare_comments(label: &str, expected: Option<&Json>, actual: &[String]) {
         .iter()
         .map(|c| c.as_str().expect("comments are strings"))
         .collect();
-    let got: Vec<&str> = actual.iter().map(String::as_str).collect();
+    let got: Vec<&str> = actual.iter().map(|c| c.text.as_str()).collect();
     assert_eq!(wanted, got, "{label}: comment mismatch");
 }
 
-fn compare_trailing_comment(label: &str, expected: Option<&Json>, actual: Option<&str>) {
+fn compare_trailing_comment(label: &str, expected: Option<&Json>, actual: Option<&skg::Comment>) {
     let Some(expected) = expected else { return };
     let wanted = expected.as_str();
-    assert_eq!(wanted, actual, "{label}: trailing comment mismatch");
+    let got = actual.map(|c| c.text.as_str());
+    assert_eq!(wanted, got, "{label}: trailing comment mismatch");
 }
 
 fn compare_children(label: &str, expected: &[Json], actual: &[Node]) {
@@ -648,7 +649,7 @@ fn compare_children(label: &str, expected: &[Json], actual: &[Node]) {
                 compare_trailing_comment(
                     &prefix,
                     object.get("trailing_comment"),
-                    delete.trailing_comment.as_deref(),
+                    delete.trailing_comment.as_ref(),
                 );
             }
             "field" => {
@@ -671,7 +672,7 @@ fn compare_children(label: &str, expected: &[Json], actual: &[Node]) {
                 compare_trailing_comment(
                     &prefix,
                     object.get("trailing_comment"),
-                    field.trailing_comment.as_deref(),
+                    field.trailing_comment.as_ref(),
                 );
             }
             "block" => {

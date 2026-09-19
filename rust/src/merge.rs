@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 
-use crate::model::{Array, Block, Node, ObjectBody, Value};
+use crate::model::{Array, Block, Comment, Node, ObjectBody, Value};
 
 /// Compose `overlay` onto an empty base. Repeated keys merge under the shared
 /// rules; the result retains deletion and replacement markers.
@@ -69,8 +69,6 @@ pub(crate) fn merge_nodes_budget(
         match (overlay_node, base_node) {
             // Only a block onto a non-replacing block merges recursively.
             (Node::Block(overlay_block), Node::Block(base_block)) if !overlay_block.replace => {
-                let base_id = block_identity(&base_block);
-                let overlay_id = block_identity(&overlay_block);
                 let children =
                     merge_nodes_budget(base_block.children, overlay_block.children, remaining)?;
                 result[position] = Node::Block(Block {
@@ -81,14 +79,10 @@ pub(crate) fn merge_nodes_budget(
                     line: base_block.line,
                     col: base_block.col,
                     leading_comments: concat_comments(
-                        &base_id,
-                        &overlay_id,
                         &base_block.leading_comments,
                         &overlay_block.leading_comments,
                     ),
                     trailing_comments: concat_comments(
-                        &base_id,
-                        &overlay_id,
                         &base_block.trailing_comments,
                         &overlay_block.trailing_comments,
                     ),
@@ -114,46 +108,32 @@ pub(crate) fn merge_nodes_budget(
     Ok(result)
 }
 
-/// Where a merged block was written: its source file and position. A
-/// merged comment's provenance is this identity plus its index in the
-/// node's list, because comment trivia itself carries no position.
-type BlockIdentity = (String, u32, u32);
-
-fn block_identity(block: &Block) -> BlockIdentity {
-    (block.path.clone(), block.line, block.col)
-}
-
 /// Preserve each source comment exactly once when cached imports meet again.
 ///
-/// Provenance is per comment: a comment is identified by its source node
-/// plus its index in that node's list, not by its text. Lists only ever grow
-/// by appending, so when both sides come from the same source node - the
-/// same file written at the same position, seen twice through a diamond -
-/// the overlay's first `a.len()` comments are the base's own and only the
-/// remainder can be new. Comments from different source nodes always
-/// concatenate: two `# same` comments over two separate block definitions,
-/// or two `# same` lines over one block, are distinct source comments and
-/// the `comments` capability promises each of them survives.
-fn concat_comments(
-    base_id: &BlockIdentity,
-    overlay_id: &BlockIdentity,
-    a: &[String],
-    b: &[String],
-) -> Vec<String> {
-    if b.is_empty() {
-        return a.to_vec();
+/// Deduplication compares per-comment provenance, never text: a comment is
+/// the same comment when it carries the same origin (file plus source-order
+/// sequence), so a shared file seen through both arms of a diamond
+/// contributes each of its comments once, while two `# same` comments
+/// written in two places - or twice in a row over one block - all survive.
+/// Comments without provenance, which is what programmatic construction
+/// produces, are always kept.
+fn concat_comments(base: &[Comment], overlay: &[Comment]) -> Vec<Comment> {
+    if overlay.is_empty() {
+        return base.to_vec();
     }
-    if a.is_empty() {
-        return b.to_vec();
+    if base.is_empty() {
+        return overlay.to_vec();
     }
-    let mut out = Vec::with_capacity(a.len() + b.len());
-    out.extend_from_slice(a);
-    if base_id == overlay_id {
-        // Index-provenance pairing: b[0..a.len()] are the same source
-        // comments the base already holds.
-        out.extend_from_slice(&b[a.len().min(b.len())..]);
-    } else {
-        out.extend_from_slice(b);
+    let mut out = Vec::with_capacity(base.len() + overlay.len());
+    out.extend(base.iter().cloned());
+    for comment in overlay {
+        let known = comment
+            .origin
+            .as_ref()
+            .is_some_and(|origin| base.iter().any(|kept| kept.origin.as_ref() == Some(origin)));
+        if !known {
+            out.push(comment.clone());
+        }
     }
     out
 }

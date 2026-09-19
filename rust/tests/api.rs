@@ -778,3 +778,52 @@ fn repeated_identical_comments_survive_a_diamond() {
         "both source comments must survive the diamond: {text}"
     );
 }
+
+#[test]
+fn branch_comments_survive_when_branches_inherit_one_block() {
+    // The reviewer's repro: both branches inherit the shared block and
+    // append a different comment of their own. Every one of the three
+    // source comments must reach the resolved output.
+    let dir = scratch("diamond-branch-comments");
+    write(
+        &dir,
+        "shared.skg",
+        "other: true\n# shared\nsvc { port: 80 }\n",
+    );
+    write(
+        &dir,
+        "left.skg",
+        "import \"shared.skg\"\n# left\nsvc { port: 8080 }\n",
+    );
+    write(
+        &dir,
+        "right.skg",
+        "import \"shared.skg\"\n# right\nsvc { mode: \"safe\" }\n",
+    );
+    write(
+        &dir,
+        "top.skg",
+        "import \"left.skg\"\nimport \"right.skg\"\nmain: 1\n",
+    );
+    let document = resolve_with(
+        dir.join("top.skg"),
+        &FsLoader,
+        &ResolveOptions::rooted(&dir),
+    )
+    .expect("diamond resolves");
+    let text = emit(&document);
+    for expected in ["# shared", "# left", "# right"] {
+        assert!(
+            text.contains(expected),
+            "{expected} must survive the merge:\n{text}"
+        );
+    }
+    // Each appears exactly once.
+    for expected in ["# shared", "# left", "# right"] {
+        assert_eq!(
+            text.matches(expected).count(),
+            1,
+            "{expected} must not repeat:\n{text}"
+        );
+    }
+}
