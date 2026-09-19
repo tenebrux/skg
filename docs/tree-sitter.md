@@ -42,7 +42,7 @@ Requires Node.js and the tree-sitter CLI.
 ```sh
 cd tools/tree-sitter-skg
 npm install
-npx tree-sitter generate        # regenerates src/parser.c
+npx tree-sitter generate --abi 14 # regenerates src/parser.c compatibly
 npx tree-sitter test            # runs grammar tests (if corpus present)
 npx tree-sitter parse file.skg  # prints the parse tree for a file
 ```
@@ -125,6 +125,6 @@ pick up colors without extra configuration.
 ## Development
 
 When the language spec changes, update `grammar.js`, run
-`npx tree-sitter generate`, and verify `tree-sitter parse` output on
+`npx tree-sitter generate --abi 14`, and verify `tree-sitter parse` output on
 the shared fixtures in [testdata/valid/](../testdata/valid/). The
 grammar must accept every file there.

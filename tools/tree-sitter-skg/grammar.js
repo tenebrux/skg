@@ -1,6 +1,6 @@
 /// Tree-sitter grammar for the SKG (Static Key Group) config format.
 ///
-/// Build:      npm install && npx tree-sitter generate
+/// Build:      npm install && npx tree-sitter generate --abi 14
 /// Test:       npx tree-sitter test
 /// Install:    npx tree-sitter build --wasm   (for web/Zed)
 ///             npx tree-sitter build           (native, for Neovim/Helix)
