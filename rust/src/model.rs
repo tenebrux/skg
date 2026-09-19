@@ -37,16 +37,24 @@ impl ValueType {
     }
 }
 
-/// Where a comment was written. Comments are numbered in source order as a
-/// file is parsed, so two comments never share an origin, while one file
-/// seen twice through an import graph shares origins. Merge deduplication
-/// compares origins; equal comment text alone never means "the same
-/// comment".
+/// Where a comment was written.
+///
+/// An origin has three parts: the labeled path of the file, a digest of that
+/// file's exact source bytes, and the comment's sequence number within the
+/// parse. Two comments from one parse never share an origin; one file seen
+/// twice through an import graph does, because the resolver caches the one
+/// parse; and two independent parses share an origin only when both the
+/// labeled path and the source bytes are identical, in which case the
+/// comments are indistinguishable. Merge deduplication compares origins;
+/// equal comment text alone never means "the same comment".
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct CommentOrigin {
-    /// Source provenance of the file the comment was written in.
+    /// The labeled path of the file the comment was written in.
     pub path: String,
-    /// The comment's sequence number within that file's parse.
+    /// Digest of the file's exact source bytes, distinguishing parses that
+    /// share a labeled path (two independent `parse` calls, for instance).
+    pub source: u64,
+    /// The comment's sequence number within that parse.
     pub sequence: u64,
 }
 

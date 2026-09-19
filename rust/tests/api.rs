@@ -827,3 +827,27 @@ fn branch_comments_survive_when_branches_inherit_one_block() {
         );
     }
 }
+
+#[test]
+fn comments_from_independent_parses_do_not_collide() {
+    // Two independent `parse` calls share the default `<string>` path label;
+    // their comments must still be distinct, or the overlay's first comment
+    // would be dropped as a duplicate of the base's.
+    let base = parse("other: true\n# from base\nsvc { port: 80 }\n").expect("base parses");
+    let overlay =
+        parse("other: true\n# from overlay\nsvc { mode: \"safe\" }\n").expect("overlay parses");
+
+    let merged = skg::merge_overlay(base.children, overlay.children);
+    let text = emit(&skg::Document {
+        children: merged,
+        ..skg::Document::default()
+    });
+
+    assert!(text.contains("# from base"), "{text}");
+    assert!(
+        text.contains("# from overlay"),
+        "independent parses must not collide: {text}"
+    );
+    assert_eq!(text.matches("# from base").count(), 1, "{text}");
+    assert_eq!(text.matches("# from overlay").count(), 1, "{text}");
+}

@@ -32,6 +32,10 @@ struct Parser<'src> {
     lex: Lexer<'src>,
     peeked: Option<Token>,
     path: String,
+    /// Digest of the source bytes, part of comment provenance: it keeps
+    /// independently parsed overlays from colliding with each other when
+    /// they share a labeled path.
+    source_id: u64,
     depth: usize,
     comment_buf: Vec<Comment>,
     /// Source-order sequence for comment provenance; two comments from one
@@ -69,6 +73,7 @@ pub(crate) fn parse_bytes(src: &[u8], path: impl Into<String>) -> Result<Documen
         lex: Lexer::new(src),
         peeked: None,
         path,
+        source_id: source_digest(src),
         depth: 0,
         comment_buf: Vec::new(),
         next_comment: 0,
@@ -154,9 +159,12 @@ impl<'src> Parser<'src> {
     }
 
     /// Give a comment token its provenance: this file, in source order.
+    /// Give a comment token its provenance: this file, its source digest,
+    /// and the comment's position in source order.
     fn record_comment(&mut self, text: String) -> Comment {
         let origin = CommentOrigin {
             path: self.path.clone(),
+            source: self.source_id,
             sequence: self.next_comment,
         };
         self.next_comment += 1;
@@ -831,6 +839,19 @@ pub(crate) fn unescape_string(raw: &str) -> Result<String, &'static str> {
         }
     }
     Ok(out)
+}
+
+/// A stable digest of the source bytes (FNV-1a 64), part of comment
+/// provenance. Deterministic across runs so cached parses and their clones
+/// share origins, and differing across different sources so independently
+/// parsed overlays never collide.
+fn source_digest(src: &[u8]) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in src {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
 }
 
 /// The position of the first byte that cannot participate in a well-formed
