@@ -65,6 +65,14 @@ if [[ -n "$unformatted" ]]; then
   printf 'Go files need formatting:\n%s\n' "$unformatted" >&2
   exit 1
 fi
+(
+  cd rust
+  cargo fmt --check
+)
+if [[ -n $(cd testdata/consumers/rust && cargo fmt --check 2>&1) ]]; then
+  printf 'Rust consumer files need formatting\n' >&2
+  exit 1
+fi
 
 echo "[v1] Zig debug and release-safe suites"
 zig build test
@@ -83,6 +91,14 @@ echo "[v1] Go vet, race suite, and examples"
   go build -o "$artifacts/go-example" .
 )
 
+echo "[v1] Rust clippy and full suites"
+(
+  cd rust
+  cargo clippy --all-targets -- -D warnings
+  cargo test -- --nocapture
+  cargo test --release
+)
+
 echo "[v1] standalone native consumer projects"
 (
   cd testdata/consumers/go
@@ -93,6 +109,11 @@ echo "[v1] standalone native consumer projects"
   cd testdata/consumers/zig
   zig build test
   zig build test -Doptimize=ReleaseSafe
+)
+(
+  cd testdata/consumers/rust
+  cargo clippy --all-targets -- -D warnings
+  cargo test
 )
 
 echo "[v1] cross-implementation generated corpus"

@@ -15,10 +15,12 @@ For the lifetime of package major version 1:
   corpus. The documented comment-placement limits remain part of that contract.
 - Existing parser and native-decoder error codes retain their meaning. Human
   messages may improve and filesystem paths may reflect the host.
-- Exported Go and Zig V1 declarations, signatures, enum tags, and public struct
-  fields remain source compatible. Existing Go structs do not gain fields;
-  additive options use a new type or API. Zig structs may gain only defaulted
-  fields whose omission preserves existing source and behavior.
+- Exported Go, Zig and Rust V1 declarations, signatures, enum tags, and public
+  struct fields remain source compatible. Existing Go structs do not gain
+  fields; additive options use a new type or API. Zig structs may gain only
+  defaulted fields whose omission preserves existing source and behavior. Rust
+  public items remain compatible; additive options extend existing option
+  structs with defaulted fields only when that preserves source and behavior.
 - Default syntax, import-depth, file, aggregate-resolution, merge-work, and
   native-recursion limits will not be lowered.
 - Native mappings, null/default rules, strict numeric conversion, transactional
@@ -27,8 +29,8 @@ For the lifetime of package major version 1:
 - Parsing source bytes remains filesystem-free. File APIs continue to resolve
   relative imports and apply overlays before native decoding.
 
-The compatibility gate compiles standalone downstream-style projects for both
-public packages and runs their application-level workflows. It also verifies
+The compatibility gate compiles standalone downstream-style projects for each
+public package and runs their application-level workflows. It also verifies
 hashes for every V1.0 normative fixture. The 1.0 syntax, value model, error
 registry, and canonical representation remain frozen throughout package 1.x. A
 later `skg_version` feature is allowed in V1 only when it can be represented
@@ -63,6 +65,7 @@ an established native mapping or default/null rule.
 | --- | --- | --- |
 | Zig package and CLI | Zig **0.15.2** exactly | Debug and ReleaseSafe tests on Linux; ReleaseSafe runtime suites on macOS and Windows; Linux musl x86-64/ARM64, macOS x86-64/ARM64, Windows x86-64 cross-builds |
 | Go package | Go **1.26 or newer** | Race tests on Linux 1.26.8; runtime suites on macOS and Windows; compile checks for Linux x86-64/ARM64/386, macOS x86-64/ARM64, Windows x86-64/ARM64, FreeBSD x86-64; CI also tests Go 1.27 |
+| Rust package | Stable Rust **1.70 or newer** (`rust-version` in `rust/Cargo.toml`) | Debug and release suites on Linux 1.98 including the shared corpora; runtime suites on macOS and Windows; CI also compiles and tests on exactly MSRV 1.70 |
 | Editor and contract tools | Node.js **24 LTS** | tree-sitter corpus, TextMate corpus/probes, VSIX packaging, contract locks |
 
 Zig is pre-1.0 and regularly changes source APIs, so V1 supports the exact

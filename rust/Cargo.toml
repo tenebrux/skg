@@ -1,0 +1,21 @@
+[package]
+name = "skg"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+description = "Native SKG (Static Key Group) V1 parser, resolver, canonical formatter and Serde typed loader"
+license = "MIT"
+repository = "https://github.com/tenebrux/skg"
+keywords = ["config", "parser", "serde", "skg"]
+categories = ["config", "parser-implementations"]
+
+[dependencies]
+serde = "1.0.215"
+
+[dev-dependencies]
+serde = { version = "1.0.215", features = ["derive"] }
+serde_json = { version = "1.0.140", features = ["unbounded_depth", "float_roundtrip"] }
+
+[lib]
+name = "skg"
+path = "src/lib.rs"

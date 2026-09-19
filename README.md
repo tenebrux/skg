@@ -1,7 +1,7 @@
 # SKG
 
 **Static Key Group** - a small, strict, human-readable configuration
-language with native parsers in Zig and Go.
+language with native parsers in Zig, Go and Rust.
 
 ```skg
 skg_version: "1.0"
@@ -45,9 +45,9 @@ cache_ttl: null    # override an inherited value with explicit null
 - **Typed scalars, nullable, hierarchical.** `int`, `float`, `bool`,
   `string`, `null`, arrays, blocks, block arrays. Triple-quoted
   multiline strings. Imports with last-wins merge.
-- **Two first-party parsers, one frozen contract.** Versioned shared fixtures
-  in [testdata/](testdata/) bind Zig and Go to the same syntax, resolution,
-  native decoding, diagnostics, and canonical output.
+- **Three first-party parsers, one frozen contract.** Versioned shared
+  fixtures in [testdata/](testdata/) bind Zig, Go and Rust to the same
+  syntax, resolution, native decoding, diagnostics, and canonical output.
 
 Created for [dusk](https://github.com/tenebrux/dusk) but standalone -
 nothing in the parser depends on dusk.
@@ -77,6 +77,36 @@ permissive behavior. See [native types](docs/native-types.md) for mappings,
 custom hooks and encoding details.
 
 Full walk-through: **[examples/go/](examples/go/)**.
+
+### Rust
+
+```rust
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct Config {
+    name: String,
+    port: u16,
+    debug: bool,
+    tags: Vec<String>,
+    database: Database,
+}
+
+#[derive(Deserialize)]
+struct Database {
+    host: String,
+    port: u16,
+    ssl: bool,
+}
+
+let cfg: Config = skg::from_str(&std::fs::read_to_string("config.skg")?)?;
+```
+
+Serde derives are the schema: `Option<T>` accepts explicit null,
+`#[serde(default)]` covers absent keys, and unknown keys are ignored. Import
+resolution, canonical formatting and decode diagnostics with JSON-Pointer
+paths and source provenance are in the box. See
+[rust/README.md](rust/README.md) for the mapping rules and loader boundary.
 
 ### Zig
 
@@ -136,6 +166,14 @@ go build ./...
 go test ./...
 ```
 
+### Rust (1.70+, stable)
+
+```sh
+cd rust
+cargo test          # shared corpora + Rust-specific suites
+cargo clippy --all-targets -- -D warnings
+```
+
 ## Documentation
 
 - **[docs/spec.md](docs/spec.md)** - full language specification
@@ -157,6 +195,7 @@ go test ./...
 skg/
   zig/        # Zig implementation (lexer, parser, ast, merge, emit)
   go/         # Go implementation (+ unmarshal, marshal)
+  rust/       # Rust implementation (Serde decode/encode, canonical emit)
   testdata/   # Shared conformance fixtures + standalone consumers
   examples/   # Working Go and Zig examples + real-world .skg files
   tools/      # tree-sitter grammar + VS Code extension
@@ -164,8 +203,8 @@ skg/
 ```
 
 Each language directory is a self-contained implementation with its own build
-tooling. Both are validated against the same `testdata/` fixtures on every test
-run. Independent Go and Zig projects under
+tooling. All are validated against the same `testdata/` fixtures on every
+test run. Independent Go, Zig and Rust projects under
 [`testdata/consumers/`](testdata/consumers/) also compile and exercise the
 public packages exactly as application code does.
 

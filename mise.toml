@@ -4,6 +4,7 @@ experimental = true
 [tools]
 zig = "0.15.2"
 go = "1.26.8"
+rust = "1.98.1"
 node = "24.21.0"
 pkl = "0.32.1"
 hk = "1.58.1"
@@ -31,15 +32,16 @@ postinstall = """
 
 [tasks.test]
 run = "zig build test && cd go && go test -race -v ./..."
-depends = ["test:consumers"]
-description = "Run all parser tests (Zig + Go)"
+depends = ["test:rust", "test:consumers"]
+description = "Run all parser tests (Zig + Go + Rust)"
 
 [tasks."test:consumers"]
 run = """
 cd testdata/consumers/go && go vet ./... && go test -race ./...
 cd ../zig && zig build test && zig build test -Doptimize=ReleaseSafe
+cd ../rust && cargo clippy --all-targets -- -D warnings && cargo test
 """
-description = "Run standalone Go and Zig application-boundary tests"
+description = "Run standalone Go, Zig and Rust application-boundary tests"
 
 [tasks."test:zig"]
 run = "zig build test"
@@ -52,6 +54,18 @@ description = "Run Zig parser tests"
 [tasks."test:go"]
 run = "cd go && go test -race -v ./..."
 description = "Run Go parser tests"
+
+# The Rust conformance, native, resolution and differential suites all run
+# under `cargo test`; release mode re-runs them with optimizations on.
+[tasks."test:rust"]
+run = """
+cd rust
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test -- --nocapture
+cargo test --release
+"""
+description = "Format, lint and test the Rust parser"
 
 [tasks."v1:differential"]
 run = "zig build && cd go && go run ../tools/differential.go"
@@ -79,8 +93,9 @@ description = "Tokenize every valid fixture and V1 syntax probe with the VS Code
 run = """
 zig fmt --check zig/
 cd go && go vet ./...
+cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings
 """
-description = "Check Zig formatting and vet the Go parser"
+description = "Check Zig formatting and vet the Go and Rust parsers"
 
 [tasks.fmt]
 run = "zig fmt zig/"
@@ -125,10 +140,11 @@ depends = ["plugins:tree-sitter:build", "plugins:vscode:package"]
 description = "Build all editor plugins (tree-sitter native + vscode vsix)"
 
 [tasks.build]
-description = "Build both parser implementations (Zig + Go)"
+description = "Build all parser implementations (Zig + Go + Rust)"
 run = """
 zig build
 cd go && go build ./...
+cd rust && cargo build --all-targets
 """
 
 [tasks.format]
@@ -143,10 +159,11 @@ cd go && go get -u ./... && go mod tidy
 """
 
 [tasks.install]
-description = "Not applicable — skg is a parser library; consume from build.zig.zon or go.mod"
+description = "Not applicable — skg is a parser library; consume from build.zig.zon, go.mod or crates"
 run = """
 echo "skg: 'install' is not applicable — this is a parser library set."
-echo "Depend on the Zig parser via build.zig.zon, or the Go parser via go.mod."
+echo "Depend on the Zig parser via build.zig.zon, the Go parser via go.mod,"
+echo "or the Rust package from your Cargo.toml."
 """
 
 [tasks.start]
