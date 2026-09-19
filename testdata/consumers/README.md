@@ -1,8 +1,8 @@
 # Standalone consumer smoke tests
 
 These projects verify SKG from outside its implementation packages, through the
-same public APIs and package wiring used by applications. They deliberately have
-their own Go module and Zig package manifests.
+same public APIs and package wiring used by applications. They deliberately
+have their own Go module, Zig package manifest and Cargo manifest.
 
 Each maintained language package must have a consumer project here before it can
 claim V1 core support. A consumer must cover:

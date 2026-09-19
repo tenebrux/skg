@@ -10,9 +10,9 @@ reading `go/` or `zig/`.
 
 - Language grammar and semantics: [`spec.md`](spec.md).
 - Shared fixtures: [`../testdata/`](../testdata/).
-- Reference implementations: `go/` (Go), `zig/` (Zig).
+- Reference implementations: `go/` (Go), `zig/` (Zig), `rust/` (Rust).
 - Native type conversion: [`native-conformance.md`](native-conformance.md),
-  with a separate shared corpus that both typed loaders run without skips.
+  with a separate shared corpus that every typed loader runs without skips.
 - File-resolution policies and budgets:
   [`../testdata/resolution/cases.json`](../testdata/resolution/cases.json), run
   by every conforming package without skips.

@@ -57,6 +57,9 @@ git worktree remove --force "$edge_worktree"
 edge_worktree=
 
 echo "[v1] source formatting"
+# mise's rust plugin installs the minimal rustup profile, so the gate makes
+# sure the rustfmt and clippy components exist before using them.
+rustup component add rustfmt clippy
 zig fmt --check build.zig zig/
 mapfile -t go_files < <(find go -type f -name '*.go' -print | sort)
 go_files+=(tools/differential.go)
@@ -65,6 +68,14 @@ if [[ -n "$unformatted" ]]; then
   printf 'Go files need formatting:\n%s\n' "$unformatted" >&2
   exit 1
 fi
+(
+  cd rust
+  cargo fmt --check
+)
+(
+  cd testdata/consumers/rust
+  cargo fmt --check
+)
 
 echo "[v1] Zig debug and release-safe suites"
 zig build test
@@ -83,6 +94,14 @@ echo "[v1] Go vet, race suite, and examples"
   go build -o "$artifacts/go-example" .
 )
 
+echo "[v1] Rust clippy and full suites"
+(
+  cd rust
+  cargo clippy --all-targets -- -D warnings
+  cargo test -- --nocapture
+  cargo test --release
+)
+
 echo "[v1] standalone native consumer projects"
 (
   cd testdata/consumers/go
@@ -93,6 +112,11 @@ echo "[v1] standalone native consumer projects"
   cd testdata/consumers/zig
   zig build test
   zig build test -Doptimize=ReleaseSafe
+)
+(
+  cd testdata/consumers/rust
+  cargo clippy --all-targets -- -D warnings
+  cargo test
 )
 
 echo "[v1] cross-implementation generated corpus"

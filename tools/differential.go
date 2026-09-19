@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -28,9 +29,15 @@ func (r *random) next() uint64 {
 func main() {
 	zig := flag.String("zig", "../zig-out/bin/skg", "path to the Zig skg executable")
 	count := flag.Int("count", 1000, "number of deterministic sources")
+	dump := flag.String("dump", "", "write the generated sources and Go canonical output as JSON to this path, then exit (no Zig run)")
 	flag.Parse()
 	if *count <= 0 {
 		fatalf("count must be positive")
+	}
+
+	if *dump != "" {
+		dumpCorpus(*dump, *count)
+		return
 	}
 
 	dir, err := os.MkdirTemp("", "skg-differential-")
@@ -76,6 +83,39 @@ func main() {
 		}
 	}
 	fmt.Printf("differential V1: Go and Zig agree on %d generated sources (seed 0x534b475631)\n", *count)
+}
+
+// dumpCorpus writes the deterministic sources and their Go canonical bytes so
+// another implementation can check itself against the same corpus without
+// invoking Go. The Rust conformance suite commits this dump and regenerates
+// the sources in Rust, so transcription drift in either direction fails loudly.
+func dumpCorpus(path string, count int) {
+	type dumpCase struct {
+		Source    string `json:"source"`
+		Canonical string `json:"canonical"`
+	}
+	dump := struct {
+		Seed  uint64     `json:"seed"`
+		Count int        `json:"count"`
+		Cases []dumpCase `json:"cases"`
+	}{Seed: 0x534b475631, Count: count, Cases: make([]dumpCase, 0, count)}
+	rng := random(dump.Seed)
+	for i := range count {
+		source := generate(i, &rng)
+		parsed, err := skg.ParseSource(source, fmt.Sprintf("generated-%04d.skg", i))
+		if err != nil {
+			fatalf("generator produced invalid case %d:\n%s\n%v", i, source, err)
+		}
+		dump.Cases = append(dump.Cases, dumpCase{Source: string(source), Canonical: string(skg.Emit(parsed))})
+	}
+	data, err := json.MarshalIndent(dump, "", "  ")
+	if err != nil {
+		fatalf("encode dump: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		fatalf("write dump: %v", err)
+	}
+	fmt.Printf("differential V1: dumped %d cases to %s\n", count, path)
 }
 
 func generate(index int, rng *random) []byte {
