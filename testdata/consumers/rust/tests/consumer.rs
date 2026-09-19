@@ -148,7 +148,7 @@ fn public_consumer_workflow() {
     let _ = std::fs::remove_dir_all(&dir);
     let main = write_tree(&dir);
     let resolved =
-        resolve_with(&main, &FsLoader, &ResolveOptions::rooted(&dir)).expect("file resolution");
+        resolve_with(main, &FsLoader, &ResolveOptions::rooted(&dir)).expect("file resolution");
     assert!(resolved.imports_resolved);
 
     // A resolved graph emits parseable canonical data with no operations.
