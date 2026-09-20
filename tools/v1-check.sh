@@ -73,6 +73,10 @@ fi
   cargo fmt --check
 )
 (
+  cd examples/rust
+  cargo fmt --check
+)
+(
   cd testdata/consumers/rust
   cargo fmt --check
 )
@@ -94,12 +98,17 @@ echo "[v1] Go vet, race suite, and examples"
   go build -o "$artifacts/go-example" .
 )
 
-echo "[v1] Rust clippy and full suites"
+echo "[v1] Rust clippy, full suites, and example"
 (
   cd rust
   cargo clippy --all-targets -- -D warnings
   cargo test -- --nocapture
   cargo test --release
+)
+(
+  cd examples/rust
+  cargo clippy --locked --all-targets -- -D warnings
+  cargo build --locked
 )
 
 echo "[v1] standalone native consumer projects"

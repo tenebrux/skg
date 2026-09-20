@@ -38,13 +38,16 @@ Pick your language and read the README in that directory:
 - **[../examples/go/README.md](../examples/go/README.md)** - Go
   integration via `skg:"name"` struct tags, `DecodeFile`, and
   `Marshal` for round-trip.
+- **[../examples/rust/README.md](../examples/rust/README.md)** - Rust
+  integration via Serde structs, rooted resolution, and canonical typed
+  encoding.
 - **[../examples/zig/README.md](../examples/zig/README.md)** - Zig
   integration via native typed loading, struct defaults, and optional field
   mapping.
 
-Both examples read from [../examples/app.skg](../examples/app.skg) and
+All three examples read from [../examples/app.skg](../examples/app.skg) and
 populate the same logical struct. Run them side by side to see the
-same config in two languages.
+same config in each language.
 
 ## Example configs
 

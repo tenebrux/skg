@@ -71,8 +71,8 @@ an established native mapping or default/null rule.
 Zig is pre-1.0 and regularly changes source APIs, so V1 supports the exact
 compiler named above. Updating that compiler in a 1.x package release is
 allowed only when existing SKG source, package APIs, and contract behavior stay
-compatible. Go and Zig packages have no runtime dependency on Node or on each
-other.
+compatible. Go, Rust, and Zig packages have no runtime dependency on Node or
+on each other.
 
 ## Deliberate boundaries
 

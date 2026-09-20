@@ -35,6 +35,11 @@ The package ships as a single crate (`rust/` in this repository):
 The only dependency is `serde`. Tests use `serde_json` as a dev-dependency;
 applications never need it.
 
+For a complete runnable application, see
+[the Rust example](../examples/rust/), which resolves the shared application
+config, decodes it into Serde structs, and encodes the native value back to
+canonical SKG.
+
 ## Typed usage
 
 Your struct is the schema - there is no SKG schema language.

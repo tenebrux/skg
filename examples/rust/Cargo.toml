@@ -1,0 +1,10 @@
+[package]
+name = "skg-rust-example"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.71"
+publish = false
+
+[dependencies]
+serde = { version = "1.0.215", features = ["derive"] }
+skg = { path = "../../rust" }

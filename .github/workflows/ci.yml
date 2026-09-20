@@ -76,6 +76,7 @@ jobs:
         with:
           workspaces: |
             rust
+            examples/rust
             testdata/consumers/rust
           key: ${{ matrix.toolchain }}
       # Lints run on stable only: clippy and rustfmt rules drift between
@@ -95,6 +96,9 @@ jobs:
         run: |
           cargo clippy --all-targets -- -D warnings
           cargo test
+      - name: Rust runnable example
+        working-directory: examples/rust
+        run: cargo run --locked
 
   runtime-platforms:
     name: Runtime (${{ matrix.os }})
@@ -133,3 +137,6 @@ jobs:
       - name: Rust consumer project
         working-directory: testdata/consumers/rust
         run: cargo test
+      - name: Rust runnable example
+        working-directory: examples/rust
+        run: cargo run --locked

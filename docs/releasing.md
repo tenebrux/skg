@@ -27,16 +27,16 @@ Before any V1 stable or release-candidate tag:
    stamp both editor `package.json` and `package-lock.json` files. Run
    `node tools/check-release.mjs --tag vX.Y.Z` before pushing.
 5. Prefer at least one RC before `v1.0.0`. Install its CLI and VSIX artifacts,
-   and consume its Go and Zig packages from a small external project.
+   and consume its Go, Rust, and Zig packages from small external projects.
 
 The gate verifies the immutable V1 corpus, both public API surfaces, Debug and
 ReleaseSafe suites, Go race/vet, generated Go/Zig differential cases, standalone
-Go and Zig consumer projects, examples, both editor grammars, VSIX packaging,
-all shipped Zig targets, and the Go portability compile matrix. The consumer
-projects have their own module/package manifests and exercise public APIs from
-application code. Pull-request CI also runs the Go and Zig suites on macOS and
-Windows so their resolver and formatter behavior is exercised on the host
-operating system.
+Go, Rust, and Zig consumer projects and examples, both editor grammars, VSIX
+packaging, all shipped Zig targets, and the Go portability compile matrix. The
+consumer projects have their own module/package manifests and exercise public
+APIs from application code. Pull-request CI also runs the Go, Rust, and Zig
+suites on macOS and Windows so their resolver and formatter behavior is
+exercised on the host operating system.
 
 ## Path 1: the Cut Release workflow (recommended)
 
