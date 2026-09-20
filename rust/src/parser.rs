@@ -10,7 +10,7 @@ use crate::lexer::{is_identifier, Lexer, Tag, Token};
 use crate::merge::merge_nodes;
 use crate::model::{
     Array, Block, BlockArray, Comment, CommentOrigin, Delete, Document, Field, Node, ObjectBody,
-    Value, ValueType,
+    SourceIdentity, Value, ValueType,
 };
 
 /// Bounds how deeply blocks, block arrays, and arrays may nest.
@@ -32,10 +32,10 @@ struct Parser<'src> {
     lex: Lexer<'src>,
     peeked: Option<Token>,
     path: String,
-    /// Digest of the source bytes, part of comment provenance: it keeps
-    /// independently parsed overlays from colliding with each other when
-    /// they share a labeled path.
-    source_id: u64,
+    /// The validated source, for comment provenance. Identity is built on
+    /// the first comment so comment-free documents retain nothing.
+    source: &'src str,
+    source_identity: Option<SourceIdentity>,
     depth: usize,
     comment_buf: Vec<Comment>,
     /// Source-order sequence for comment provenance; two comments from one
@@ -69,11 +69,28 @@ pub(crate) fn parse_bytes(src: &[u8], path: impl Into<String>) -> Result<Documen
             ),
         });
     }
+    // Validation above guarantees valid UTF-8; the string view feeds comment
+    // provenance and is retained only when a comment is actually seen.
+    let source = match std::str::from_utf8(src) {
+        Ok(source) => source,
+        Err(_) => {
+            return Err(ParseError {
+                diagnostic: Diagnostic::new(
+                    ErrorCode::InvalidUtf8,
+                    path,
+                    1,
+                    1,
+                    "source is not valid UTF-8",
+                ),
+            });
+        }
+    };
     let mut parser = Parser {
         lex: Lexer::new(src),
         peeked: None,
         path,
-        source_id: source_digest(src),
+        source,
+        source_identity: None,
         depth: 0,
         comment_buf: Vec::new(),
         next_comment: 0,
@@ -158,13 +175,15 @@ impl<'src> Parser<'src> {
         Ok(None)
     }
 
-    /// Give a comment token its provenance: this file, in source order.
-    /// Give a comment token its provenance: this file, its source digest,
-    /// and the comment's position in source order.
+    /// Give a comment token its provenance: the exact source it was parsed
+    /// from, and its position in source order.
     fn record_comment(&mut self, text: String) -> Comment {
+        if self.source_identity.is_none() {
+            let identity = SourceIdentity::new(self.path.clone(), self.source);
+            self.source_identity = Some(identity);
+        }
         let origin = CommentOrigin {
-            path: self.path.clone(),
-            source: self.source_id,
+            source: self.source_identity.clone().expect("identity built above"),
             sequence: self.next_comment,
         };
         self.next_comment += 1;
@@ -839,19 +858,6 @@ pub(crate) fn unescape_string(raw: &str) -> Result<String, &'static str> {
         }
     }
     Ok(out)
-}
-
-/// A stable digest of the source bytes (FNV-1a 64), part of comment
-/// provenance. Deterministic across runs so cached parses and their clones
-/// share origins, and differing across different sources so independently
-/// parsed overlays never collide.
-fn source_digest(src: &[u8]) -> u64 {
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in src {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    hash
 }
 
 /// The position of the first byte that cannot participate in a well-formed

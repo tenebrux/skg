@@ -37,23 +37,82 @@ impl ValueType {
     }
 }
 
+/// The exact source a comment was parsed from: the labeled path plus the
+/// file's bytes.
+///
+/// Equality is by content, and it is exact: two identities are equal only
+/// when both the labeled path and the source bytes are identical, so
+/// comparing origins never mistakes one comment for another. Identities
+/// clone cheaply (the bytes are shared) and comparisons cost as much as the
+/// shorter path or source needs.
+#[derive(Clone)]
+pub struct SourceIdentity {
+    path: String,
+    bytes: std::sync::Arc<str>,
+}
+
+impl SourceIdentity {
+    /// Identity for the given labeled path and source bytes.
+    #[must_use]
+    pub fn new(path: impl Into<String>, source: impl Into<std::sync::Arc<str>>) -> Self {
+        SourceIdentity {
+            path: path.into(),
+            bytes: source.into(),
+        }
+    }
+
+    /// The labeled path.
+    #[must_use]
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+
+    /// The exact source bytes, as validated UTF-8.
+    #[must_use]
+    pub fn source(&self) -> &str {
+        &self.bytes
+    }
+}
+
+impl PartialEq for SourceIdentity {
+    fn eq(&self, other: &Self) -> bool {
+        self.path == other.path && self.bytes == other.bytes
+    }
+}
+
+impl Eq for SourceIdentity {}
+
+impl std::hash::Hash for SourceIdentity {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.path.hash(state);
+        self.bytes.hash(state);
+    }
+}
+
+impl std::fmt::Debug for SourceIdentity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // The bytes are the file's whole text; summarize instead of dumping.
+        f.debug_struct("SourceIdentity")
+            .field("path", &self.path)
+            .field("source_bytes", &self.bytes.len())
+            .finish()
+    }
+}
+
 /// Where a comment was written.
 ///
-/// An origin has three parts: the labeled path of the file, a digest of that
-/// file's exact source bytes, and the comment's sequence number within the
-/// parse. Two comments from one parse never share an origin; one file seen
-/// twice through an import graph does, because the resolver caches the one
-/// parse; and two independent parses share an origin only when both the
-/// labeled path and the source bytes are identical, in which case the
-/// comments are indistinguishable. Merge deduplication compares origins;
-/// equal comment text alone never means "the same comment".
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// An origin names the source (labeled path plus exact bytes) and the
+/// comment's sequence number within that parse. Two comments from one parse
+/// never share an origin; one file seen twice through an import graph does,
+/// because the resolver caches the one parse; and two independent parses
+/// share an origin only when both the labeled path and the source bytes are
+/// identical, in which case the comments are indistinguishable. Merge
+/// deduplication compares origins; equal comment text alone never means
+/// "the same comment".
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CommentOrigin {
-    /// The labeled path of the file the comment was written in.
-    pub path: String,
-    /// Digest of the file's exact source bytes, distinguishing parses that
-    /// share a labeled path (two independent `parse` calls, for instance).
-    pub source: u64,
+    /// The exact source the comment was parsed from.
+    pub source: SourceIdentity,
     /// The comment's sequence number within that parse.
     pub sequence: u64,
 }

@@ -851,3 +851,30 @@ fn comments_from_independent_parses_do_not_collide() {
     assert_eq!(text.matches("# from base").count(), 1, "{text}");
     assert_eq!(text.matches("# from overlay").count(), 1, "{text}");
 }
+
+#[test]
+fn comment_origins_compare_source_bytes_exactly() {
+    // Identical bytes under the same path label are indistinguishable
+    // sources: origins are equal, so merging deduplicates them.
+    let first = parse("other: true\n# twice\nsvc { port: 80 }\n").expect("first parses");
+    let second = parse("other: true\n# twice\nsvc { port: 80 }\n").expect("second parses");
+    let merged = skg::merge_overlay(first.children, second.children);
+    let text = emit(&skg::Document {
+        children: merged,
+        ..skg::Document::default()
+    });
+    assert_eq!(
+        text.matches("# twice").count(),
+        1,
+        "indistinguishable sources deduplicate: {text}"
+    );
+
+    // The identity type itself compares path and bytes by content.
+    let a = skg::SourceIdentity::new("a.skg", "x: 1");
+    let b = skg::SourceIdentity::new("a.skg", "x: 1");
+    let c = skg::SourceIdentity::new("a.skg", "x: 2");
+    let d = skg::SourceIdentity::new("b.skg", "x: 1");
+    assert_eq!(a, b);
+    assert_ne!(a, c, "different bytes are different sources");
+    assert_ne!(a, d, "different path labels are different sources");
+}
