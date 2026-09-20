@@ -7,4 +7,5 @@ node_modules/
 /.local/
 /dist/
 /rust/target/
+/examples/rust/target/
 /testdata/consumers/rust/target/

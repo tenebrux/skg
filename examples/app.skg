@@ -1,13 +1,13 @@
 # app.skg - example application config
 #
 # SKG is typed, hierarchical, and comment-friendly.
-# Your Go/Zig structs ARE the schema - if the struct has the field,
+# Your Go/Rust/Zig structs ARE the schema - if the struct has the field,
 # it gets populated. Extra fields in the config are silently ignored.
 # Missing fields follow the native binding's default/optional rules.
 skg_version: "1.0"
 schema_version: "0.1.0"
 
-# Top-level fields map to struct fields via tags
+# Top-level fields map to native struct fields.
 name: "my-service"
 port: 8080
 debug: false
@@ -36,7 +36,7 @@ logging {
 # Null sets an explicit null value; @delete removes a key.
 cache_ttl: null
 
-# Blocks with dynamic keys map to map[string]T in Go.
+# Blocks with dynamic keys map to each language's native string-keyed map.
 # Block names become map keys, children become the value.
 packages {
   base: ["coreutils", "systemd", "networkmanager"]
@@ -44,7 +44,7 @@ packages {
   dev: ["git", "gcc", "make"]
 }
 
-# map[string]interface{} - the "extra bag" pattern for arbitrary key-value pairs
+# The "extra bag" pattern groups application-specific values in a block.
 extra {
   retries: 3
   region: "us-west-2"

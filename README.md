@@ -108,6 +108,8 @@ resolution, canonical formatting and decode diagnostics with JSON-Pointer
 paths and source provenance are in the box. See
 [rust/README.md](rust/README.md) for the mapping rules and loader boundary.
 
+Full walk-through: **[examples/rust/](examples/rust/)**.
+
 ### Zig
 
 ```zig
@@ -197,7 +199,7 @@ skg/
   go/         # Go implementation (+ unmarshal, marshal)
   rust/       # Rust implementation (Serde decode/encode, canonical emit)
   testdata/   # Shared conformance fixtures + standalone consumers
-  examples/   # Working Go and Zig examples + real-world .skg files
+  examples/   # Working Go, Rust and Zig examples + real-world .skg files
   tools/      # tree-sitter grammar + VS Code extension
   docs/       # Language spec and editor integration guides
 ```

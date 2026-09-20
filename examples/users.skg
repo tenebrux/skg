@@ -1,7 +1,8 @@
 # users.skg - block array of structured entries
 #
 # Use a block array when you need an ordered list of records with the
-# same shape. Native typed loading maps it to `[]User` in Go and Zig.
+# same shape. Native typed loading maps it to a list of `User` values in Go,
+# Rust, and Zig.
 #
 # Entries use `{ ... }` braces. Commas between object entries are accepted but
 # optional; the canonical formatter emits one consistent form.
