@@ -122,6 +122,7 @@ From the repository root:
 ```sh
 (cd go && go test -v -run '^TestNativeConformance$' .)
 zig test zig/native_test.zig
+(cd rust && cargo test --test native_conformance)
 ```
 
 The ordinary `go test ./...` within `go/` and `zig build test` at the root also
@@ -130,4 +131,6 @@ Host-specific tests additionally check ownership, allocation failures where
 recoverable, caller defaults, callback errors, import locations and recursion
 limits. A new package must bind the native profiles and run the same corpus,
 then test its own ownership and failure behavior. It must not translate the
-fixture's JSON expectations into runtime schema code for users.
+fixture's JSON expectations into runtime schema code for users. The Rust
+runner binds each profile to a Serde-derived type and compares re-encoded
+values structurally against the fixture expectations.

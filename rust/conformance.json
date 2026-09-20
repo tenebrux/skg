@@ -1,0 +1,16 @@
+{
+  "contract_version": 1,
+  "language_version": "1.0",
+  "implementation": "rust",
+  "capabilities": {
+    "parse": true,
+    "emit": true,
+    "imports": true,
+    "native": true,
+    "comments": true
+  },
+  "notes": {
+    "imports": "rust/src/resolve.rs resolves imports relative to the importing file's canonical directory, merges them in declaration order, and detects cycles by canonical path.",
+    "comments": "rust/src/lexer.rs emits comment tokens and rust/src/parser.rs attaches them to nodes as leading/trailing trivia; rust/src/emit.rs reproduces them."
+  }
+}

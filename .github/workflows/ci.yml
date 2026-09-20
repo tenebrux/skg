@@ -54,6 +54,48 @@ jobs:
         working-directory: testdata/consumers/go
         run: go test ./...
 
+  # rust/Cargo.toml names 1.71 as the MSRV. The release gate runs the pinned
+  # toolchain; this adjunct compiles and tests the crate on exactly that MSRV,
+  # plus a current-stable full-suite run.
+  rust:
+    name: Rust (${{ matrix.toolchain }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [msrv, stable]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: ${{ matrix.toolchain == 'msrv' && '1.71.0' || 'stable' }}
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.8.3
+        with:
+          workspaces: |
+            rust
+            testdata/consumers/rust
+          key: ${{ matrix.toolchain }}
+      # Lints run on stable only: clippy and rustfmt rules drift between
+      # toolchain versions, so gating the MSRV leg on them would pin the
+      # repo to whatever the oldest supported compiler happens to print.
+      - name: Format and lint
+        if: matrix.toolchain == 'stable'
+        working-directory: rust
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+      - name: Rust suites (debug + release, includes shared corpora)
+        working-directory: rust
+        run: cargo test --all-targets && cargo test --release
+      - name: Rust consumer project
+        working-directory: testdata/consumers/rust
+        run: |
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+
   runtime-platforms:
     name: Runtime (${{ matrix.os }})
     strategy:
@@ -79,9 +121,15 @@ jobs:
       - name: Go runtime suite
         working-directory: go
         run: go test ./...
+      - name: Rust runtime suite
+        working-directory: rust
+        run: cargo test --release
       - name: Zig consumer project
         working-directory: testdata/consumers/zig
         run: zig build test -Doptimize=ReleaseSafe
       - name: Go consumer project
         working-directory: testdata/consumers/go
         run: go test ./...
+      - name: Rust consumer project
+        working-directory: testdata/consumers/rust
+        run: cargo test

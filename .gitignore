@@ -6,3 +6,5 @@ node_modules/
 .claude/
 /.local/
 /dist/
+/rust/target/
+/testdata/consumers/rust/target/
