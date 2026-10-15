@@ -196,6 +196,26 @@ impl serde::de::Error for Error {
         Error::new(ErrorKind::Custom, message.to_string())
     }
 
+    // serde's defaults route these through `custom`, which would classify a
+    // hand-written Visitor rejecting the wrong SKG value kind (or a wrong
+    // fixed length) as custom_error. Go and Zig report both as type_mismatch.
+    fn invalid_type(
+        unexpected: serde::de::Unexpected<'_>,
+        expected: &dyn serde::de::Expected,
+    ) -> Self {
+        Error::new(
+            ErrorKind::TypeMismatch,
+            format!("invalid type: {unexpected}, expected {expected}"),
+        )
+    }
+
+    fn invalid_length(len: usize, expected: &dyn serde::de::Expected) -> Self {
+        Error::new(
+            ErrorKind::TypeMismatch,
+            format!("invalid length {len}, expected {expected}"),
+        )
+    }
+
     fn missing_field(field: &'static str) -> Self {
         Error::new(
             ErrorKind::MissingField(field.to_string()),

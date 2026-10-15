@@ -878,3 +878,71 @@ fn comment_origins_compare_source_bytes_exactly() {
     assert_ne!(a, c, "different bytes are different sources");
     assert_ne!(a, d, "different path labels are different sources");
 }
+
+// ─── Cross-implementation parity regressions ────────────────────────────────
+
+#[test]
+fn comments_may_sit_between_any_two_tokens() {
+    // Go and Zig treat a comment as trivia wherever whitespace may appear,
+    // including after a field's `:`, between `@` and the operation name, and
+    // inside header directives. The canonical bytes below are Zig's.
+    for (source, canonical) in [
+        ("key: # note\n  1\nnext: 2\n", "key: 1\n# note\nnext: 2\n"),
+        ("gone: 1\n@ # c\ndelete gone\n", "@delete gone\n# c\n"),
+        (
+            "@ # c\nreplace svc { port: 1 }\n",
+            "@replace svc {\n  # c\n  port: 1\n}\n",
+        ),
+        (
+            "skg_version # a\n: # b\n\"1.0\"\nk: 1\n",
+            "skg_version: \"1.0\"\n\n# a\n# b\nk: 1\n",
+        ),
+        ("list: # c\n[1, 2]\n", "list: [1, 2\n  # c\n]\n"),
+    ] {
+        let document = parse(source).unwrap_or_else(|e| panic!("{source:?}: {e}"));
+        let text = emit(&document);
+        assert_eq!(text, canonical, "{source:?}");
+        assert_eq!(emit(&parse(&text).expect("canonical parses")), text);
+    }
+}
+
+#[test]
+fn visitor_type_and_length_errors_are_type_mismatch() {
+    // A hand-written Visitor reports a wrong value kind through serde's
+    // `invalid_type`; Go and Zig classify the same input as type_mismatch.
+    struct Flag;
+    impl<'de> Deserialize<'de> for Flag {
+        fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            struct Visitor;
+            impl<'de> serde::de::Visitor<'de> for Visitor {
+                type Value = Flag;
+                fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    f.write_str("a string")
+                }
+                fn visit_str<E: serde::de::Error>(self, _: &str) -> Result<Flag, E> {
+                    Ok(Flag)
+                }
+            }
+            deserializer.deserialize_any(Visitor)
+        }
+    }
+    #[derive(Deserialize)]
+    struct Target {
+        #[allow(dead_code)]
+        value: Flag,
+    }
+    let error = from_str::<Target>("value: 0.5")
+        .err()
+        .expect("float rejected");
+    assert_eq!(error.code, NativeCode::TypeMismatch);
+    assert_eq!(error.field_path, "/value");
+
+    #[derive(Debug, Deserialize)]
+    struct Pair {
+        #[allow(dead_code)]
+        value: (u8, u8),
+    }
+    let error = from_str::<Pair>("value: [1]").expect_err("short tuple rejected");
+    assert_eq!(error.code, NativeCode::TypeMismatch);
+    assert_eq!(error.field_path, "/value");
+}
