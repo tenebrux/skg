@@ -600,7 +600,7 @@ fn crlf_comments_normalize_on_emit() {
 // ─── Review round 2 regressions ─────────────────────────────────────────────
 
 #[test]
-fn unit_enum_variants_reject_nonempty_bodies() {
+fn unit_enum_variants_use_string_tags() {
     #[derive(Debug, Deserialize, PartialEq)]
     enum Mode {
         Local,
@@ -614,13 +614,13 @@ fn unit_enum_variants_reject_nonempty_bodies() {
     // The string tag form.
     let decoded: Target = from_str("mode: \"Local\"").expect("string tag decodes");
     assert_eq!(decoded.mode, Mode::Local);
-    // An empty block body is a valid spelling of a unit variant.
-    let decoded: Target = from_str("mode { Local {} }").expect("empty body decodes");
-    assert_eq!(decoded.mode, Mode::Local);
-    // A nonempty body is a configuration mistake, not a payload to discard.
-    let error = from_str::<Target>("mode { Local { typo: true } }").expect_err("payload rejected");
-    assert_eq!(error.code, NativeCode::TypeMismatch);
-    assert_eq!(error.field_path, "/mode/Local");
+    // Serde's convention: the block form is for variants carrying data, so
+    // any block body - empty or not - is a type mismatch for a unit variant.
+    for source in ["mode { Local {} }", "mode { Local { typo: true } }"] {
+        let error = from_str::<Target>(source).expect_err(source);
+        assert_eq!(error.code, NativeCode::TypeMismatch, "{source}");
+        assert_eq!(error.field_path, "/mode", "{source}");
+    }
 }
 
 #[test]
@@ -726,25 +726,23 @@ fn unit_enum_variants_reject_scalar_and_null_payloads() {
     #[derive(Debug, Deserialize)]
     struct Target {
         #[serde(rename = "mode")]
+        #[allow(dead_code)]
         mode: Mode,
     }
 
-    // Scalars, arrays and null payloads are configuration mistakes, not
-    // payloads a unit variant can silently swallow.
+    // A unit variant is its string tag; any block form, with or without a
+    // payload, is a type mismatch at the enum field.
     for source in [
         "mode { Local: 42 }",
         "mode { Local: null }",
         "mode { Local: [1] }",
         "mode { Local: \"text\" }",
+        "mode { Local {} }",
     ] {
         let error = from_str::<Target>(source).expect_err(source);
         assert_eq!(error.code, NativeCode::TypeMismatch, "{source}");
-        assert_eq!(error.field_path, "/mode/Local", "{source}");
+        assert_eq!(error.field_path, "/mode", "{source}");
     }
-
-    // The empty-body spelling still decodes.
-    let decoded: Target = from_str("mode { Local {} }").expect("empty body decodes");
-    assert_eq!(decoded.mode, Mode::Local);
 }
 
 #[test]
