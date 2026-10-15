@@ -228,9 +228,18 @@ const Resolver = struct {
         };
         defer f.close();
         const source_size_limit = parser.max_file_size;
-        const src = f.readToEndAlloc(self.allocator, source_size_limit) catch {
-            self.fail(origin, canonical, .FILE_TOO_LARGE, "file too large (max 10MB)");
-            return error.FileTooLarge;
+        const src = f.readToEndAlloc(self.allocator, source_size_limit) catch |err| switch (err) {
+            error.FileTooBig => {
+                self.fail(origin, canonical, .FILE_TOO_LARGE, "file too large (max 10MB)");
+                return error.FileTooLarge;
+            },
+            error.OutOfMemory => return error.OutOfMemory,
+            // A directory opens but cannot be read; Go and Rust report any
+            // unreadable target, directories included, as IMPORT_NOT_FOUND.
+            else => {
+                self.fail(origin, canonical, .IMPORT_NOT_FOUND, "cannot read file");
+                return error.FileNotFound;
+            },
         };
         if (src.len > self.options.max_bytes -| self.total_bytes) {
             self.fail(origin, canonical, .RESOLUTION_BYTE_LIMIT, "resolution byte limit exceeded");

@@ -122,7 +122,11 @@ pub const Lexer = struct {
                     self.pos += 1;
                     self.col += 1;
                 }
-                return Token{ .tag = .comment, .text = self.src[start..self.pos], .line = tok_line, .col = tok_col };
+                // CRLF input: the carriage return belongs to the line ending,
+                // not the comment, so canonical emission stays LF-normalized.
+                var end = self.pos;
+                if (end > start and self.src[end - 1] == '\r') end -= 1;
+                return Token{ .tag = .comment, .text = self.src[start..end], .line = tok_line, .col = tok_col };
             },
             '"' => return self.lexString(tok_line, tok_col),
             '-' => return self.lexNegativeNumber(tok_line, tok_col),

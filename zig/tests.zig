@@ -74,6 +74,22 @@ test "lexer: emits comments" {
     try testing.expectEqualStrings("key", t.text);
 }
 
+test "lexer: CRLF comment text excludes the carriage return" {
+    var lex = Lexer.init("# comment\r\nkey: 1");
+    const c = try lex.next();
+    try testing.expectEqual(Tag.comment, c.tag);
+    try testing.expectEqualStrings("# comment", c.text);
+}
+
+test "emit: CRLF comments normalize to LF" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const file = try parser.parseSource(a, "# lead\r\nname: \"x\" # trailing\r\n# last\r\n", "test.skg", null);
+    const out = try emit_mod.emitFile(a, file);
+    try testing.expectEqualStrings("# lead\nname: \"x\" # trailing\n# last\n", out);
+}
+
 test "lexer: array tokens" {
     var lex = Lexer.init("[1, 2, 3]");
     try testing.expectEqual(Tag.lbracket, (try lex.next()).tag);
@@ -765,4 +781,21 @@ test "overlay materialization preserves source instructions and clears nested ma
     try testing.expectEqualStrings(before, try emit_mod.emitFile(a, ops));
     try testing.expect(composed[0].block.replace);
     try testing.expectEqual(@as(usize, 2), composed[0].block.children.len);
+}
+
+// A directory opens but cannot be read. It is not "too large": Go and Rust
+// report every unreadable import target as IMPORT_NOT_FOUND.
+test "imports: a directory import is IMPORT_NOT_FOUND" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.makeDir("dir.skg");
+    try tmp.dir.writeFile(.{ .sub_path = "main.skg", .data = "import \"dir.skg\"\n" });
+    const entry = try tmp.dir.realpathAlloc(testing.allocator, "main.skg");
+    defer testing.allocator.free(entry);
+    var result = root.parse(testing.allocator, entry);
+    defer result.deinit();
+    try testing.expect(result.file == null);
+    try testing.expectEqual(ast.ErrorCode.IMPORT_NOT_FOUND, result.diagnostic.?.code);
+    try testing.expectEqual(@as(u32, 1), result.diagnostic.?.line);
+    try testing.expectEqual(@as(u32, 8), result.diagnostic.?.col);
 }
