@@ -70,8 +70,11 @@ func (l *lexer) skipWhitespaceAndComments() {
 	for l.pos < len(l.src) {
 		c := l.src[l.pos]
 		if c == '#' {
+			// advance, not pos++: the column must track the comment so a
+			// diagnostic at EOF after an unterminated final comment line
+			// points past it, as in the Zig and Rust lexers.
 			for l.pos < len(l.src) && l.src[l.pos] != '\n' {
-				l.pos++
+				l.advance()
 			}
 		} else if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
 			l.advance()
