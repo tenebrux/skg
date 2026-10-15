@@ -78,7 +78,9 @@ string values remain part of those values.
 
 ## Comments
 
-Comments begin with `#` and run to the end of the line. A formatter with the
+Comments begin with `#` and run to the end of the line, excluding the carriage
+return of a CRLF line ending. A comment may appear anywhere whitespace may,
+including between a key's `:` and its value. A formatter with the
 `comments` capability preserves every comment's text through parse-emit
 round-trips. Canonical placement follows the AST attachment rules and can move
 comments from header or array-value positions; see the
@@ -167,7 +169,10 @@ import [
 Import paths are relative to the canonical file containing the import statement
 - not to the entry file, and not to the process working directory. Canonical
 identity follows symlinks, so imports in a symlinked file resolve beside its
-referent. Reaching the same canonical file through multiple aliases is one file
+referent. Within an import path, `..` is resolved by the file system after the
+components before it: `sub/../a.skg`, where `sub` is a symlink to another
+directory, names the `a.skg` beside that directory, not the one beside the
+importing file. Reaching the same canonical file through multiple aliases is one file
 for parsing, caching and aggregate budgets. Hard-link aliases are distinct.
 
 **Absolute import paths are rejected** (`ABSOLUTE_IMPORT_PATH`). A path is

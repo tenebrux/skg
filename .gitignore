@@ -9,3 +9,4 @@ node_modules/
 /rust/target/
 /examples/rust/target/
 /testdata/consumers/rust/target/
+/tools/parity/rust/target/

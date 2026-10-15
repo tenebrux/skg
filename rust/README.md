@@ -161,8 +161,8 @@ the entry file itself has no import position to report.
 | object | struct, `HashMap`/`BTreeMap` with string keys |
 | array | `Vec<T>`, slices, fixed-size arrays (exact length), nested freely |
 | any value | `skg::Value`, the dynamic model |
-| unit enum variant | string tag: `mode: "local"` |
-| newtype / struct enum variant | single-entry block: `Choice { name: "a" }` |
+| unit enum variant | string tag only: `mode: "local"` |
+| newtype / struct enum variant | single-entry block: `Choice { name: "a" }` (Serde's externally tagged form) |
 | tuple enum variants | not representable; rejected on encode |
 
 Supported Serde attributes: `rename`, `rename_all`, `default`,
@@ -250,6 +250,10 @@ language-neutral corpora directly from `testdata/`:
   implementations (`tests/fixtures/differential.json`, produced by
   `tools/differential.go -dump`), checked byte for byte.
 
+The release gate also builds `tools/parity/rust` and requires its parse,
+resolution and native results to match Go and Zig on a generated corpus; see
+[`tools/parity/README.md`](../tools/parity/README.md).
+
 `node tools/check-contract.mjs` keeps the frozen fixture set immutable; the
 Rust package never modifies shared fixtures to fit.
 
@@ -263,7 +267,8 @@ byte API and directory fixtures through a file API; run
 `testdata/native/cases.json` against typed profiles with no skips; run
 `testdata/resolution/cases.json` against the option-bearing file API; and
 differential-check against the Go canonicalizer via
-`tools/differential.go -dump`. Declare capabilities in a
+`tools/differential.go -dump`, then join cross-implementation parity
+([`tools/parity/README.md`](../tools/parity/README.md)). Declare capabilities in a
 `conformance.json` beside the implementation; skipping an optional
 capability must be loud, never silent.
 

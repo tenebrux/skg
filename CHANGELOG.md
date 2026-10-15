@@ -34,3 +34,16 @@ This project follows semantic versioning for packages and explicit
   by the V1 Zig compiler.
 - Removed the committed editor `node_modules` tree and its host-specific binary;
   locked clean installs now reproduce all editor build dependencies.
+- Added `mise run v1:parity` to the release gate: it builds every implementation
+  registered under `tools/parity/`, fails while any `conformance.json` is
+  unregistered, and requires identical parse, resolution and native results
+  across Go, Zig and Rust on a generated corpus.
+- Aligned the implementations where parity found them apart: Rust accepts a
+  comment between any two tokens; Zig drops the CRLF carriage return from
+  comment text and reports a directory import as `IMPORT_NOT_FOUND`; Go
+  resolves `..` after a symlinked directory through the file system and points
+  an end-of-input diagnostic past a final comment; Rust reports serde
+  `invalid_type`/`invalid_length` as `type_mismatch`.
+- Rust decodes a unit enum variant only from its string tag, following Serde's
+  externally tagged convention; `mode { Local {} }` is now `type_mismatch`.
+- Pinned Go 1.26.9 for GO-2026-6604 in rooted file opens.

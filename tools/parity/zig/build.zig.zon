@@ -1,0 +1,13 @@
+.{
+    .name = .skg_parity,
+    .version = "0.0.0",
+    .fingerprint = 0x64bbc786f1024aa0,
+    .dependencies = .{
+        .skg = .{ .path = "../../.." },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "main.zig",
+    },
+}
