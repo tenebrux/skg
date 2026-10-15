@@ -90,6 +90,19 @@ test "emit: CRLF comments normalize to LF" {
     try testing.expectEqualStrings("# lead\nname: \"x\" # trailing\n# last\n", out);
 }
 
+// A carriage return ending the input is a line ending too. Keeping it as
+// comment text would emit "# x\r\n", which the next parse reads as CRLF, so
+// formatting would not reach a fixed point. Rust's lexer agrees.
+test "emit: a final carriage return is not comment text" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const once = try emit_mod.emitFile(a, try parser.parseSource(a, "k: 1 # x\r", "test.skg", null));
+    try testing.expectEqualStrings("k: 1 # x\n", once);
+    const twice = try emit_mod.emitFile(a, try parser.parseSource(a, once, "test.skg", null));
+    try testing.expectEqualStrings(once, twice);
+}
+
 test "lexer: array tokens" {
     var lex = Lexer.init("[1, 2, 3]");
     try testing.expectEqual(Tag.lbracket, (try lex.next()).tag);
