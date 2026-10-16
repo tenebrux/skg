@@ -60,8 +60,8 @@ echo "[v1] source formatting"
 # mise's rust plugin installs the minimal rustup profile, so the gate makes
 # sure the rustfmt and clippy components exist before using them.
 rustup component add rustfmt clippy
-zig fmt --check build.zig zig/
-mapfile -t go_files < <(find go -type f -name '*.go' -print | sort)
+zig fmt --check build.zig zig/ tools/parity/zig/
+mapfile -t go_files < <(find go tools/parity -type f -name '*.go' -print | sort)
 go_files+=(tools/differential.go)
 unformatted=$(gofmt -l "${go_files[@]}")
 if [[ -n "$unformatted" ]]; then
@@ -78,6 +78,10 @@ fi
 )
 (
   cd testdata/consumers/rust
+  cargo fmt --check
+)
+(
+  cd tools/parity/rust
   cargo fmt --check
 )
 
@@ -133,6 +137,19 @@ zig build
 (
   cd go
   go run ../tools/differential.go
+)
+
+echo "[v1] cross-implementation parity"
+# Builds every implementation registered in tools/parity/implementations.json
+# and fails if any */conformance.json is missing from that registry.
+(
+  cd tools/parity
+  go vet ./...
+  go run .
+)
+(
+  cd tools/parity/rust
+  cargo clippy --locked --all-targets -- -D warnings
 )
 
 echo "[v1] formatter and examples"

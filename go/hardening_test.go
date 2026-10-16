@@ -259,3 +259,25 @@ func TestRecursivePointerTypesReturnErrors(t *testing.T) {
 		t.Fatal("accepted recursive element type")
 	}
 }
+
+// A diagnostic at end of input after a final comment line with no newline
+// points past the comment, as the Zig and Rust lexers report it.
+func TestEOFDiagnosticAfterTrailingComment(t *testing.T) {
+	for _, tc := range []struct {
+		src       string
+		code      ErrorCode
+		line, col int
+	}{
+		{"a {\n  # end", CodeUnterminatedBlock, 2, 8},
+		{"k: # end", CodeExpectedValue, 1, 9},
+	} {
+		_, err := Parse([]byte(tc.src))
+		var pe *ParseError
+		if !errors.As(err, &pe) {
+			t.Fatalf("%q: expected ParseError, got %v", tc.src, err)
+		}
+		if pe.Diag.Code != tc.code || pe.Diag.Line != tc.line || pe.Diag.Col != tc.col {
+			t.Errorf("%q: got %s %d:%d, want %s %d:%d", tc.src, pe.Diag.Code, pe.Diag.Line, pe.Diag.Col, tc.code, tc.line, tc.col)
+		}
+	}
+}

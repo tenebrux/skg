@@ -136,11 +136,12 @@ impl<'src> Parser<'src> {
         Ok(self.peeked.as_ref().expect("peeked is none"))
     }
 
+    /// Take the next non-comment token. Like `peek`, comments before it are
+    /// buffered as trivia: a comment may sit between any two tokens, including
+    /// after a field's `:` or between `@` and its operation name.
     fn consume(&mut self) -> Result<Token, ParseError> {
-        match self.peeked.take() {
-            Some(token) => Ok(token),
-            None => self.next_token(),
-        }
+        self.peek()?;
+        Ok(self.peeked.take().expect("peek buffered a token"))
     }
 
     /// Return buffered comments as leading trivia and clear the buffer.

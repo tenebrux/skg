@@ -584,6 +584,15 @@ func TestByteEntryPointsDoNotResolveImports(t *testing.T) {
 }
 
 func TestResolveImportPath(t *testing.T) {
+	// resolveImportPath leaves the joined path uncleaned so canonicalPath can
+	// resolve ".." through symlinks (TestImportDotDotFollowsSymlinkedDirectory).
+	// Without symlinks, each spelling still names the file beside the importer.
+	dir := writeFiles(t, map[string]string{
+		"theme.skg":         "",
+		"cfg/main.skg":      "",
+		"cfg/theme.skg":     "",
+		"cfg/sub/theme.skg": "",
+	})
 	cases := []struct {
 		importing string
 		imported  string
@@ -596,8 +605,16 @@ func TestResolveImportPath(t *testing.T) {
 		{filepath.Join("cfg", "main.skg"), "sub/theme.skg", filepath.Join("cfg", "sub", "theme.skg")},
 	}
 	for _, tc := range cases {
-		if got := resolveImportPath(tc.importing, tc.imported); got != tc.want {
-			t.Errorf("resolveImportPath(%q, %q) = %q, want %q", tc.importing, tc.imported, got, tc.want)
+		got, err := canonicalPath(resolveImportPath(filepath.Join(dir, tc.importing), tc.imported))
+		if err != nil {
+			t.Fatalf("resolveImportPath(%q, %q): %v", tc.importing, tc.imported, err)
+		}
+		want, err := canonicalPath(filepath.Join(dir, tc.want))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Errorf("resolveImportPath(%q, %q) resolves to %q, want %q", tc.importing, tc.imported, got, want)
 		}
 	}
 	// Absolute paths never reach resolveImportPath - the parser rejects them
@@ -741,5 +758,36 @@ func TestRootedReadCannotFollowOutsideSymlink(t *testing.T) {
 	r := importResolver{root: root, rootFS: rootFS}
 	if _, err := r.readCapped(link); err == nil {
 		t.Fatal("rooted descriptor traversal followed a symlink outside the root")
+	}
+}
+
+// ".." after a symlinked directory is resolved through the file system, as
+// Zig, Rust and the OS resolve it, not lexically: "sub/../a.skg" names the
+// a.skg beside sub's target, not the one beside the importer.
+func TestImportDotDotFollowsSymlinkedDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("creating symlinks normally requires an elevated token on Windows")
+	}
+	dir := writeFiles(t, map[string]string{
+		"cfg/main.skg": "import \"sub/../a.skg\"\n",
+		"cfg/a.skg":    "where: \"lexical\"\n",
+		"a.skg":        "where: \"physical\"\n",
+		"outdir/x.skg": "unused: true\n",
+	})
+	if err := os.Symlink("../outdir", filepath.Join(dir, "cfg", "sub")); err != nil {
+		t.Fatal(err)
+	}
+	file, err := ParseFile(filepath.Join(dir, "cfg", "main.skg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := fieldValue(t, file, "where"); v.Str != "physical" {
+		t.Fatalf("where = %q, want the file-system target", v.Str)
+	}
+	// The same physical target is outside a cfg root.
+	_, err = ParseFileWithOptions(filepath.Join(dir, "cfg", "main.skg"), ResolveOptions{Root: filepath.Join(dir, "cfg")})
+	var pe *ParseError
+	if !errors.As(err, &pe) || pe.Diag.Code != CodePathOutsideRoot {
+		t.Fatalf("expected PATH_OUTSIDE_ROOT, got %v", err)
 	}
 }

@@ -30,7 +30,8 @@ Before any V1 stable or release-candidate tag:
    and consume its Go, Rust, and Zig packages from small external projects.
 
 The gate verifies the immutable V1 corpus, both public API surfaces, Debug and
-ReleaseSafe suites, Go race/vet, generated Go/Zig differential cases, standalone
+ReleaseSafe suites, Go race/vet, generated Go/Zig differential cases, Go/Zig/Rust parity over generated
+parse, resolution and native corpora, standalone
 Go, Rust, and Zig consumer projects and examples, both editor grammars, VSIX
 packaging, all shipped Zig targets, and the Go portability compile matrix. The
 consumer projects have their own module/package manifests and exercise public

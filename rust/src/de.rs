@@ -196,6 +196,26 @@ impl serde::de::Error for Error {
         Error::new(ErrorKind::Custom, message.to_string())
     }
 
+    // serde's defaults route these through `custom`, which would classify a
+    // hand-written Visitor rejecting the wrong SKG value kind (or a wrong
+    // fixed length) as custom_error. Go and Zig report both as type_mismatch.
+    fn invalid_type(
+        unexpected: serde::de::Unexpected<'_>,
+        expected: &dyn serde::de::Expected,
+    ) -> Self {
+        Error::new(
+            ErrorKind::TypeMismatch,
+            format!("invalid type: {unexpected}, expected {expected}"),
+        )
+    }
+
+    fn invalid_length(len: usize, expected: &dyn serde::de::Expected) -> Self {
+        Error::new(
+            ErrorKind::TypeMismatch,
+            format!("invalid length {len}, expected {expected}"),
+        )
+    }
+
     fn missing_field(field: &'static str) -> Self {
         Error::new(
             ErrorKind::MissingField(field.to_string()),
@@ -1034,24 +1054,21 @@ impl<'de> VariantAccess<'de> for ObjectEnumAccess<'de> {
     type Error = Error;
 
     fn unit_variant(self) -> Result<(), Error> {
-        // `Tag { }` decodes a unit variant. Any other payload - a scalar, an
-        // array, null, or a nonempty body - is a configuration mistake the
-        // caller should hear about, not data to discard silently.
-        let has_payload = match self.inner {
-            Val::Object(children) => children
-                .iter()
-                .any(|node| !matches!(node, Node::Delete(_) | Node::None)),
-            _ => true,
-        };
-        if has_payload {
-            let path = render_path(&self.segments) + "/" + &escape_key(&self.tag);
-            return Err(Error::new(
-                ErrorKind::TypeMismatch,
-                format!("unit enum variant `{}` must have an empty body", self.tag),
-            )
-            .at(path, self.context.source.clone()));
-        }
-        Ok(())
+        // Serde's externally tagged convention: a unit variant is its string
+        // tag (`mode: "Local"`), which is also what the encoder writes. The
+        // single-entry block form is reserved for variants that carry data,
+        // so `mode { Local {} }` is a type mismatch, as in Go and Zig.
+        // The fault is the enum value's form, so it is reported at the enum
+        // field itself, where Go and Zig report it.
+        let path = render_path(&self.segments);
+        Err(Error::new(
+            ErrorKind::TypeMismatch,
+            format!(
+                "unit enum variant `{}` is written as a string tag, not a block",
+                self.tag
+            ),
+        )
+        .at(path, self.context.source.clone()))
     }
 
     fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value, Error>

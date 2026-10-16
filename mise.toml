@@ -3,7 +3,7 @@ experimental = true
 
 [tools]
 zig = "0.15.2"
-go = "1.26.8"
+go = "1.26.9"
 rust = "1.98.1"
 node = "24.21.0"
 pkl = "0.32.1"
@@ -69,6 +69,10 @@ cargo test -- --nocapture
 cargo test --release
 """
 description = "Format, lint and test the Rust parser"
+
+[tasks."v1:parity"]
+run = "cd tools/parity && go run ."
+description = "Build every registered implementation and require identical parse, resolve and native results"
 
 [tasks."v1:differential"]
 run = "zig build && cd go && go run ../tools/differential.go"

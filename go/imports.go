@@ -333,8 +333,14 @@ func (r *importResolver) chainStringWith(target string) string {
 // ABSOLUTE_IMPORT_PATH before resolution begins (go/parser.go
 // isAbsoluteImportPath), so the two implementations no longer have to reconcile
 // two different wrong answers for "/etc/theme.skg".
+//
+// This is deliberately not filepath.Join, which cleans the result lexically:
+// "sub/../a.skg" would become "a.skg" even when sub is a symlink to another
+// directory. canonicalPath's EvalSymlinks expands each component before
+// applying "..", so leaving the path uncleaned gives the file-system answer
+// that Zig, Rust and the OS itself use.
 func resolveImportPath(importingFile, importPath string) string {
-	return filepath.Join(filepath.Dir(importingFile), importPath)
+	return filepath.Dir(importingFile) + string(filepath.Separator) + filepath.FromSlash(importPath)
 }
 
 // canonicalPath returns the real absolute path used for cache identity, cycle

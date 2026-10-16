@@ -1,0 +1,25 @@
+{
+  "implementations": [
+    {
+      "name": "go",
+      "manifest": "go/conformance.json",
+      "dir": "tools/parity",
+      "build": ["go", "build", "-o", "{work}/go/skg-parity", "./go"],
+      "binary": "{work}/go/skg-parity"
+    },
+    {
+      "name": "zig",
+      "manifest": "zig/conformance.json",
+      "dir": "tools/parity/zig",
+      "build": ["zig", "build", "-Doptimize=ReleaseSafe", "--prefix", "{work}/zig", "--cache-dir", "{work}/zig-cache"],
+      "binary": "{work}/zig/bin/skg-parity"
+    },
+    {
+      "name": "rust",
+      "manifest": "rust/conformance.json",
+      "dir": "tools/parity/rust",
+      "build": ["cargo", "build", "--release", "--locked", "--target-dir", "{work}/rust"],
+      "binary": "{work}/rust/release/skg-parity"
+    }
+  ]
+}

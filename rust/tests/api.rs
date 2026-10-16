@@ -600,7 +600,7 @@ fn crlf_comments_normalize_on_emit() {
 // ─── Review round 2 regressions ─────────────────────────────────────────────
 
 #[test]
-fn unit_enum_variants_reject_nonempty_bodies() {
+fn unit_enum_variants_use_string_tags() {
     #[derive(Debug, Deserialize, PartialEq)]
     enum Mode {
         Local,
@@ -614,13 +614,13 @@ fn unit_enum_variants_reject_nonempty_bodies() {
     // The string tag form.
     let decoded: Target = from_str("mode: \"Local\"").expect("string tag decodes");
     assert_eq!(decoded.mode, Mode::Local);
-    // An empty block body is a valid spelling of a unit variant.
-    let decoded: Target = from_str("mode { Local {} }").expect("empty body decodes");
-    assert_eq!(decoded.mode, Mode::Local);
-    // A nonempty body is a configuration mistake, not a payload to discard.
-    let error = from_str::<Target>("mode { Local { typo: true } }").expect_err("payload rejected");
-    assert_eq!(error.code, NativeCode::TypeMismatch);
-    assert_eq!(error.field_path, "/mode/Local");
+    // Serde's convention: the block form is for variants carrying data, so
+    // any block body - empty or not - is a type mismatch for a unit variant.
+    for source in ["mode { Local {} }", "mode { Local { typo: true } }"] {
+        let error = from_str::<Target>(source).expect_err(source);
+        assert_eq!(error.code, NativeCode::TypeMismatch, "{source}");
+        assert_eq!(error.field_path, "/mode", "{source}");
+    }
 }
 
 #[test]
@@ -726,25 +726,23 @@ fn unit_enum_variants_reject_scalar_and_null_payloads() {
     #[derive(Debug, Deserialize)]
     struct Target {
         #[serde(rename = "mode")]
+        #[allow(dead_code)]
         mode: Mode,
     }
 
-    // Scalars, arrays and null payloads are configuration mistakes, not
-    // payloads a unit variant can silently swallow.
+    // A unit variant is its string tag; any block form, with or without a
+    // payload, is a type mismatch at the enum field.
     for source in [
         "mode { Local: 42 }",
         "mode { Local: null }",
         "mode { Local: [1] }",
         "mode { Local: \"text\" }",
+        "mode { Local {} }",
     ] {
         let error = from_str::<Target>(source).expect_err(source);
         assert_eq!(error.code, NativeCode::TypeMismatch, "{source}");
-        assert_eq!(error.field_path, "/mode/Local", "{source}");
+        assert_eq!(error.field_path, "/mode", "{source}");
     }
-
-    // The empty-body spelling still decodes.
-    let decoded: Target = from_str("mode { Local {} }").expect("empty body decodes");
-    assert_eq!(decoded.mode, Mode::Local);
 }
 
 #[test]
@@ -877,4 +875,72 @@ fn comment_origins_compare_source_bytes_exactly() {
     assert_eq!(a, b);
     assert_ne!(a, c, "different bytes are different sources");
     assert_ne!(a, d, "different path labels are different sources");
+}
+
+// ─── Cross-implementation parity regressions ────────────────────────────────
+
+#[test]
+fn comments_may_sit_between_any_two_tokens() {
+    // Go and Zig treat a comment as trivia wherever whitespace may appear,
+    // including after a field's `:`, between `@` and the operation name, and
+    // inside header directives. The canonical bytes below are Zig's.
+    for (source, canonical) in [
+        ("key: # note\n  1\nnext: 2\n", "key: 1\n# note\nnext: 2\n"),
+        ("gone: 1\n@ # c\ndelete gone\n", "@delete gone\n# c\n"),
+        (
+            "@ # c\nreplace svc { port: 1 }\n",
+            "@replace svc {\n  # c\n  port: 1\n}\n",
+        ),
+        (
+            "skg_version # a\n: # b\n\"1.0\"\nk: 1\n",
+            "skg_version: \"1.0\"\n\n# a\n# b\nk: 1\n",
+        ),
+        ("list: # c\n[1, 2]\n", "list: [1, 2\n  # c\n]\n"),
+    ] {
+        let document = parse(source).unwrap_or_else(|e| panic!("{source:?}: {e}"));
+        let text = emit(&document);
+        assert_eq!(text, canonical, "{source:?}");
+        assert_eq!(emit(&parse(&text).expect("canonical parses")), text);
+    }
+}
+
+#[test]
+fn visitor_type_and_length_errors_are_type_mismatch() {
+    // A hand-written Visitor reports a wrong value kind through serde's
+    // `invalid_type`; Go and Zig classify the same input as type_mismatch.
+    struct Flag;
+    impl<'de> Deserialize<'de> for Flag {
+        fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            struct Visitor;
+            impl<'de> serde::de::Visitor<'de> for Visitor {
+                type Value = Flag;
+                fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    f.write_str("a string")
+                }
+                fn visit_str<E: serde::de::Error>(self, _: &str) -> Result<Flag, E> {
+                    Ok(Flag)
+                }
+            }
+            deserializer.deserialize_any(Visitor)
+        }
+    }
+    #[derive(Deserialize)]
+    struct Target {
+        #[allow(dead_code)]
+        value: Flag,
+    }
+    let error = from_str::<Target>("value: 0.5")
+        .err()
+        .expect("float rejected");
+    assert_eq!(error.code, NativeCode::TypeMismatch);
+    assert_eq!(error.field_path, "/value");
+
+    #[derive(Debug, Deserialize)]
+    struct Pair {
+        #[allow(dead_code)]
+        value: (u8, u8),
+    }
+    let error = from_str::<Pair>("value: [1]").expect_err("short tuple rejected");
+    assert_eq!(error.code, NativeCode::TypeMismatch);
+    assert_eq!(error.field_path, "/value");
 }

@@ -377,7 +377,14 @@ gate visibly.
 
 The shared corpus is supplemented by deterministic generated coverage. Run
 `mise run v1:differential` to require Go and Zig to canonicalize 1,000 sources
-from the same fixed seed byte-for-byte. The scheduled Go fuzz workflow searches
+from the same fixed seed byte-for-byte. Run `mise run v1:parity` to build every
+implementation registered in
+[`../tools/parity/implementations.json`](../tools/parity/implementations.json)
+and require identical results across all of them for a generated corpus of
+mutated, comment-interleaved and CRLF sources, import graphs under tightened
+budgets, symlink containment layouts and single-fault native inputs; see
+[`../tools/parity/README.md`](../tools/parity/README.md). Both run in the
+release gate. The scheduled Go fuzz workflow searches
 parser round trips, overlay associativity/materialization, and constrained
 resource resolution independently.
 
@@ -588,7 +595,10 @@ Resolution, merging and cycle detection are file-API behaviour.
    Canonical identity is the host filesystem's real absolute path (Go's
    `filepath.EvalSymlinks` plus `Abs`, Zig's `realpath`). Resolve imports from
    the canonical containing directory too: cache identity and relative-import
-   meaning must not disagree for aliases. A path that cannot be canonicalized
+   meaning must not disagree for aliases. Join the import path onto that
+   directory without lexical cleaning: `sub/../a.skg`, where `sub` is a
+   symlink, names the `a.skg` beside `sub`'s target, as the operating system
+   resolves it, not the one beside the importer. A path that cannot be canonicalized
    is `IMPORT_NOT_FOUND`; an operating-system symlink loop therefore fails
    there rather than as an SKG content cycle. Hard-link aliases remain distinct.
 8. **Memoise files you have finished resolving**, keyed by canonical path. The
@@ -727,6 +737,10 @@ Work through this in order. Each step is checkable against the suite.
 - [ ] **Standalone consumer project** with its own dependency manifest that
       exercises the public package boundary and the capabilities described
       above; wire it into `mise run v1:check`.
+- [ ] **Parity harness** under `tools/parity/` speaking the protocol in
+      [`../tools/parity/README.md`](../tools/parity/README.md), registered in
+      `tools/parity/implementations.json`. `mise run v1:parity` builds it and
+      fails while any `conformance.json` is unregistered.
 
 ### Required V1 core
 
@@ -746,6 +760,10 @@ Work through this in order. Each step is checkable against the suite.
 
 ### Traps worth knowing before you start
 
+- A comment may sit between any two tokens: after a field's `:`, between `@`
+  and `delete`, inside a header directive. A parser that consumes the next raw
+  token instead of the next non-comment token rejects valid files. The carriage
+  return of a CRLF line ending is not part of the comment's text.
 - The 10 MiB cap belongs to the parser. Enforcing it only in your file reader
   leaves the byte API unguarded.
 - Column numbers are byte offsets. Counting code points instead will pass every
