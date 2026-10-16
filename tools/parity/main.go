@@ -220,6 +220,12 @@ func run(work string, impl implementation, mode string, cases []caseSpec) map[st
 	}
 	data, err := os.ReadFile(output)
 	check(err)
+	expected := make(map[string]bool, len(cases))
+	for _, c := range cases {
+		expected[c.ID] = true
+	}
+	// Exactly one result per expected ID: a count check alone would let every
+	// harness drop the same case behind an unknown ID and skip comparing it.
 	results := map[string]result{}
 	for _, line := range bytes.Split(bytes.TrimSpace(data), []byte("\n")) {
 		var r result
@@ -228,10 +234,18 @@ func run(work string, impl implementation, mode string, cases []caseSpec) map[st
 		}
 		var id string
 		check(json.Unmarshal(r["id"], &id))
+		if !expected[id] {
+			fail("%s harness answered unknown %s case %q", impl.Name, mode, id)
+		}
+		if _, seen := results[id]; seen {
+			fail("%s harness answered %s case %s twice", impl.Name, mode, id)
+		}
 		results[id] = r
 	}
-	if len(results) != len(cases) {
-		fail("%s harness answered %d of %d %s cases", impl.Name, len(results), len(cases), mode)
+	for _, c := range cases {
+		if _, ok := results[c.ID]; !ok {
+			fail("%s harness gave no result for %s case %s", impl.Name, mode, c.ID)
+		}
 	}
 	return results
 }
